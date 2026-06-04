@@ -1,0 +1,19 @@
+{
+  "name": "nkeeper",
+  "version": "1.0.0",
+  "description": "nkeeper remote management tool",
+  "main": "login.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DHemken97/NKeeper.git"
+  },
+  "author": "dhemken97",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/DHemken97/NKeeper/issues"
+  },
+  "homepage": "https://github.com/DHemken97/NKeeper#readme"
+}
