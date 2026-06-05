@@ -4,7 +4,10 @@
   "description": "nkeeper remote management tool",
   "main": "login.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "vite:dev": "vite",
+    "electron:dev": "cross-env NODE_ENV=development electron .",
+    "start": "concurrently \"npm run vite:dev\" \"wait-on http://localhost:5173 && npm run electron:dev\"",
+    "build": "vite build"
   },
   "repository": {
     "type": "git",
@@ -15,5 +18,17 @@
   "bugs": {
     "url": "https://github.com/DHemken97/NKeeper/issues"
   },
-  "homepage": "https://github.com/DHemken97/NKeeper#readme"
+  "homepage": "https://github.com/DHemken97/NKeeper#readme",
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.2",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^42.3.3",
+    "vite": "^8.0.16",
+    "wait-on": "^9.0.10"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  }
 }
