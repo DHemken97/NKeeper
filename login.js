@@ -6,9 +6,9 @@ app.disableHardwareAcceleration();
 
 function createLoginWindow() {
   const win = new BrowserWindow({
-    width: 400,
-    height: 550,
-    resizable: false,
+    width: 1200,
+    height: 800,
+    resizable: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true
@@ -35,4 +35,4 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
-});console.log('Hello from Electron 👋')
+});
