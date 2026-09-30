@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/NKeeper.Core/NKeeper.Core.csproj" />
+    <Project Path="src/NKeeper.Infrastructure/NKeeper.Infrastructure.csproj" />
+    <Project Path="src/NKeeper.Server/NKeeper.Server.csproj" />
+    <Project Path="src/nkeeper.client/nkeeper.client.esproj">
+      <Build />
+      <Deploy />
+    </Project>
+  </Folder>
+  <Folder Name="/src/Modules/">
+    <Project Path="src/Modules/NKeeper.Modules.Inventory/NKeeper.Modules.Inventory.csproj" />
+  </Folder>
+</Solution>
