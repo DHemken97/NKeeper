@@ -1,8 +1,9 @@
 <Solution>
   <Folder Name="/src/">
+    <!-- Listed first so Visual Studio defaults to it as the startup project; it launches Vite via SpaProxy. -->
+    <Project Path="src/NKeeper.Server/NKeeper.Server.csproj" />
     <Project Path="src/NKeeper.Core/NKeeper.Core.csproj" />
     <Project Path="src/NKeeper.Infrastructure/NKeeper.Infrastructure.csproj" />
-    <Project Path="src/NKeeper.Server/NKeeper.Server.csproj" />
     <Project Path="src/nkeeper.client/nkeeper.client.esproj">
       <Build />
       <Deploy />
