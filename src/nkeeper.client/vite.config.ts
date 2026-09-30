@@ -1,18 +1,20 @@
 import { fileURLToPath, URL } from 'node:url';
+import fs from 'node:fs';
+import path from 'node:path';
+import child_process from 'node:child_process';
+import { env } from 'node:process';
 
 import { defineConfig } from 'vite';
-import plugin from '@vitejs/plugin-react';
-import fs from 'fs';
-import path from 'path';
-import child_process from 'child_process';
-import { env } from 'process';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
+// Reuse the ASP.NET Core dev certificate so the Vite dev server runs on HTTPS.
 const baseFolder =
     env.APPDATA !== undefined && env.APPDATA !== ''
         ? `${env.APPDATA}/ASP.NET/https`
         : `${env.HOME}/.aspnet/https`;
 
-const certificateName = "nkeeper.client";
+const certificateName = 'nkeeper.client';
 const certFilePath = path.join(baseFolder, `${certificateName}.pem`);
 const keyFilePath = path.join(baseFolder, `${certificateName}.key`);
 
@@ -29,8 +31,8 @@ if (!fs.existsSync(certFilePath) || !fs.existsSync(keyFilePath)) {
         '--format',
         'Pem',
         '--no-password',
-    ], { stdio: 'inherit', }).status) {
-        throw new Error("Could not create certificate.");
+    ], { stdio: 'inherit' }).status) {
+        throw new Error('Could not create certificate.');
     }
 }
 
@@ -39,23 +41,25 @@ const target = env.ASPNETCORE_HTTPS_PORT ? `https://localhost:${env.ASPNETCORE_H
 
 // https://vitejs.dev/config/
 export default defineConfig({
-    plugins: [plugin()],
+    plugins: [react(), tailwindcss()],
     resolve: {
         alias: {
-            '@': fileURLToPath(new URL('./src', import.meta.url))
-        }
+            '@': fileURLToPath(new URL('./src', import.meta.url)),
+        },
     },
     server: {
         proxy: {
-            '^/weatherforecast': {
+            // All backend traffic, including SignalR hubs at /api/{module}/hubs/*.
+            '^/api': {
                 target,
-                secure: false
-            }
+                secure: false,
+                ws: true,
+            },
         },
         port: parseInt(env.DEV_SERVER_PORT || '54742'),
         https: {
             key: fs.readFileSync(keyFilePath),
             cert: fs.readFileSync(certFilePath),
-        }
-    }
-})
+        },
+    },
+});
