@@ -1,0 +1,16 @@
+[
+  {
+    "Name": "Server + Client",
+    "Projects": [
+      {
+        "Path": "src\\NKeeper.Server\\NKeeper.Server.csproj",
+        "Action": "Start",
+        "DebugTarget": "https"
+      },
+      {
+        "Path": "src\\nkeeper.client\\nkeeper.client.esproj",
+        "Action": "Start"
+      }
+    ]
+  }
+]
