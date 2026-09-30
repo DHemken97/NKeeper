@@ -361,3 +361,9 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# NKeeper: local databases and Data Protection keys
+*.db
+*.db-shm
+*.db-wal
+DataProtection-Keys/
+

@@ -1,9 +1,10 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <SpaRoot>..\nkeeper.client</SpaRoot>
     <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
     <SpaProxyServerUrl>https://localhost:54742</SpaProxyServerUrl>
+    <UserSecretsId>64bd297c-3027-4246-82ff-2b934c6e702b</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
