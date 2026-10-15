@@ -1,0 +1,21 @@
+import { createContext, useContext } from 'react'
+import type { AuthStatus, LoginCredentials, User } from './types'
+
+export interface AuthContextValue {
+  status: AuthStatus
+  user: User | null
+  login: (credentials: LoginCredentials) => Promise<void>
+  logout: () => Promise<void>
+  /** Re-checks the session, e.g. after the server was unreachable. */
+  refresh: () => Promise<void>
+}
+
+export const AuthContext = createContext<AuthContextValue | null>(null)
+
+export function useAuth(): AuthContextValue {
+  const context = useContext(AuthContext)
+  if (!context) {
+    throw new Error('useAuth must be used inside <AuthProvider>.')
+  }
+  return context
+}
