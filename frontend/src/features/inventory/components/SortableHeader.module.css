@@ -1,0 +1,32 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 calc(var(--space-2) * -1);
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.active {
+  color: var(--color-text);
+}
+
+.icon path {
+  fill: var(--color-border-strong);
+}
+
+.icon path.on {
+  fill: var(--color-accent-text);
+}

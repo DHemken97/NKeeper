@@ -15,6 +15,36 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+.nav {
+  display: flex;
+  flex: 1;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.navLink {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-weight: 550;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.navLink:hover {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.navLinkActive,
+.navLinkActive:hover {
+  background: var(--color-info-bg);
+  color: var(--color-accent-text);
+}
+
 .account {
   display: flex;
   align-items: center;
@@ -37,9 +67,20 @@
 .content {
   flex: 1;
   width: 100%;
-  max-width: 72rem;
+  max-width: 80rem;
   margin: 0 auto;
   padding: var(--space-8) var(--space-6);
+}
+
+@media (max-width: 720px) {
+  .header {
+    flex-wrap: wrap;
+  }
+
+  .nav {
+    order: 3;
+    flex-basis: 100%;
+  }
 }
 
 @media (max-width: 480px) {

@@ -1,8 +1,15 @@
+import { Link } from 'react-router'
 import { PRODUCT_NAME } from '../../../app/config'
 import { useAuth } from '../../auth/context'
 import styles from './DashboardPage.module.css'
 
-/** Placeholder landing page. Connection management will replace the empty state. */
+const SECTIONS = [
+  { to: '/hosts', title: 'Hosts', text: 'Servers and devices with their addresses, services and credentials.' },
+  { to: '/credentials', title: 'Credentials', text: 'Shared accounts, passwords and SSH keys, encrypted at rest.' },
+  { to: '/groups', title: 'Groups & tags', text: 'Organize hosts by site, customer or environment.' },
+]
+
+/** Landing page after sign-in: entry points into the inventory. */
 export function DashboardPage() {
   const { user } = useAuth()
 
@@ -16,14 +23,18 @@ export function DashboardPage() {
         </p>
       </div>
 
-      <section className={styles.empty} aria-labelledby="coming-soon-title">
-        <h2 id="coming-soon-title" className={styles.emptyTitle}>
-          Connection management is on the way
-        </h2>
-        <p className={styles.emptyText}>
-          Shared workspaces, connection folders, and RDP, SSH and VNC sessions will appear here in a future release.
-        </p>
-      </section>
+      <nav className={styles.cards} aria-label="Inventory">
+        {SECTIONS.map((section) => (
+          <Link key={section.to} to={section.to} className={styles.card}>
+            <span className={styles.cardTitle}>{section.title}</span>
+            <span className={styles.cardText}>{section.text}</span>
+          </Link>
+        ))}
+      </nav>
+
+      <p className={styles.note}>
+        Connecting to hosts over RDP, SSH, VNC and more is coming in a future release. For now, build your inventory.
+      </p>
     </div>
   )
 }

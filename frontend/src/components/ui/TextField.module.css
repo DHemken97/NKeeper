@@ -44,6 +44,27 @@
   border-color: var(--color-danger-border);
 }
 
+.select {
+  padding-right: 2.25rem;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%239aa8c1' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-3) center;
+  cursor: pointer;
+}
+
+.textarea {
+  min-height: 5rem;
+  padding: var(--space-2) var(--space-3);
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.hint {
+  font-size: 0.8125rem;
+  color: var(--color-text-subtle);
+}
+
 .withTrailing {
   padding-right: 3.25rem;
 }

@@ -3,7 +3,8 @@ import { Spinner } from './Spinner'
 import styles from './Button.module.css'
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary'
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost'
+  size?: 'md' | 'sm'
   fullWidth?: boolean
   /** Shows a spinner, disables the button and marks it busy. */
   loading?: boolean
@@ -11,6 +12,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 export function Button({
   variant = 'primary',
+  size = 'md',
   fullWidth = false,
   loading = false,
   disabled,
@@ -19,7 +21,7 @@ export function Button({
   type = 'button',
   ...rest
 }: ButtonProps) {
-  const classes = [styles.button, styles[variant], fullWidth ? styles.fullWidth : '', className ?? '']
+  const classes = [styles.button, styles[variant], size === 'sm' ? styles.small : '', fullWidth ? styles.fullWidth : '', className ?? '']
     .filter(Boolean)
     .join(' ')
 

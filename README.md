@@ -11,6 +11,7 @@ NKeeper is a free, open-source, web-based remote connection manager — a browse
 - [Quick start with Docker Compose](#quick-start-with-docker-compose)
 - [Local development](#local-development)
 - [Creating the first administrator](#creating-the-first-administrator)
+- [Host inventory](#host-inventory)
 - [Database migrations](#database-migrations)
 - [Configuration reference](#configuration-reference)
 - [Testing](#testing)
@@ -40,13 +41,15 @@ backend/
   dotnet-tools.json              pins dotnet-ef for migrations
   src/
     NKeeper.Api/                 HTTP layer
-      Controllers/               AuthController (/api/auth/*)
+      Controllers/               Auth, Hosts, Credentials, Groups/Tags controllers
+      Inventory/                 host/credential/group managers, address validation, error mapping
       Contracts/                 request/response DTOs (never EF entities)
       Configuration/             options classes, service registration, health check
       Security/                  antiforgery validation filter
       Program.cs
     NKeeper.Infrastructure/      persistence and identity
       Identity/                  ApplicationUser, credential validation, DB ticket store, bootstrap options
+      Inventory/                 Host, HostService, Credential, HostGroup, Tag entities; secret protector
       Persistence/               NKeeperDbContext, entity configuration, startup initializer
       Migrations/                EF Core migrations (committed)
   tests/
@@ -55,9 +58,10 @@ frontend/
   src/
     app/                         App, routes, product name config
     components/layout/           AuthLayout, AppLayout, FullPageStatus
-    components/ui/               Button, TextField, PasswordField, Checkbox, Alert, Spinner, Logo
+    components/ui/               Button, TextField, PasswordField, Select, TextArea, Checkbox, Dialog, Badge, Alert, Spinner, Logo
     features/auth/               api/, components/, pages/, types/, context
-    features/dashboard/          placeholder dashboard
+    features/dashboard/          overview page
+    features/inventory/          hosts, credentials, groups & tags pages and forms
     lib/api.ts                   the single HTTP client
     styles/global.css            design tokens
   nginx/                         nginx config used by the Docker image
@@ -172,6 +176,16 @@ NKEEPER_BOOTSTRAP_ADMIN_PASSWORD=<strong password>
 
 run `docker compose up -d`, sign in, then set `NKEEPER_BOOTSTRAP_ADMIN_ENABLED=false`, delete the password line and run `docker compose up -d` again.
 
+## Host inventory
+
+Signed-in users manage a shared inventory (there is no per-user or per-workspace scoping yet):
+
+- **Hosts** (`/hosts`, API `/api/hosts`): a name, a hostname and/or IP address, optional MAC address and description, one optional group, tags, an ordered list of **services** (SSH, RDP, VNC, SSMS, Telnet, SFTP, FTP, HTTP(S), WinRM, PowerShell, Other, each with an optional port and label; the first is the default) and any number of attached **credentials**. The list is searchable (every space-separated term must match the name, address, MAC, description, group or a tag), filterable by group, tag and service, sortable by name, address, group or last update, and paged. Filters, sort and page live in the URL, so views can be bookmarked.
+- **Credentials** (`/credentials`, API `/api/credentials`): a reusable library of username/domain plus an optional password and SSH private key. Secrets are write-only: they are encrypted with ASP.NET Core Data Protection before storage and never returned by the API (responses only say `hasPassword` / `hasPrivateKey`). Deleting a credential detaches it from its hosts.
+- **Groups & tags** (`/groups`, API `/api/groups`, `/api/tags`): deleting a group leaves its hosts ungrouped. Tags are case-insensitive, created on first use and removed when no host uses them.
+
+Updates use optimistic concurrency: `PUT` requests send back the `version` they read, and a stale version returns `409` with `"code": "concurrency_conflict"`. Connecting to a host (connect → service → credential) is not implemented yet.
+
 ## Database migrations
 
 Migrations live in `backend/src/NKeeper.Infrastructure/Migrations` and are committed. The schema is never created with `EnsureCreated()`. Run these from `backend/` after `dotnet tool restore`:
@@ -250,7 +264,8 @@ Coverage: valid login (username and email), invalid login with identical generic
 - **Authorization by default:** a fallback policy requires an authenticated user on every endpoint; public endpoints opt out explicitly.
 - **CORS** is off unless origins are listed explicitly; credentials are only allowed for those exact origins.
 - **Errors** are RFC 7807 problem details with a `traceId`; stack traces are never returned outside Development.
-- **Data Protection keys** (which encrypt cookies and tokens) are stored in PostgreSQL so sessions survive container restarts.
+- **Data Protection keys** (which encrypt cookies, tokens and stored credential secrets) are stored in PostgreSQL so sessions survive container restarts.
+- **Credential secrets** are encrypted before they reach the database and are never sent back to clients.
 - **Containers** run as non-root; PostgreSQL and the API publish no host ports; credentials are passed at runtime, never baked into images.
 - **Stable identifiers:** users are keyed by GUID. Future workspace permissions should reference `AspNetUsers.Id` and stay separate from authentication.
 
@@ -283,8 +298,8 @@ NKeeper must be served over HTTPS in production. The frontend container speaks p
 
 ## Known limitations
 
-- Remote connections, workspaces, permissions, credential vault, audit events, SignalR collaboration and mRemoteNG import are not implemented yet.
+- Remote connections, workspaces, permissions, audit events, SignalR collaboration and mRemoteNG import are not implemented yet. The host inventory is shared by all signed-in users.
 - No self-service password reset or user administration UI; the "Forgot password?" link shows a placeholder.
-- Data Protection keys are stored unencrypted in PostgreSQL (ASP.NET Core logs a warning about this). Protect them with a certificate or key vault (`ProtectKeysWith…`) before production use.
+- Data Protection keys are stored unencrypted in PostgreSQL (ASP.NET Core logs a warning about this), next to the credential secrets they encrypt. Protect them with a certificate or key vault (`ProtectKeysWith…`) before production use, and back them up: losing the keys makes stored passwords and SSH keys unrecoverable.
 - Expired sessions are purged opportunistically when new sessions are created; there is no background cleanup job yet.
 - Rate limiting is in-memory and per API instance.

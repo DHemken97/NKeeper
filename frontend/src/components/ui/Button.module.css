@@ -39,6 +39,32 @@
   background: var(--color-surface-raised);
 }
 
+.danger {
+  background: transparent;
+  color: var(--color-danger);
+  border-color: var(--color-danger-border);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--color-danger-bg);
+}
+
+.ghost {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.small {
+  min-height: 2.25rem;
+  padding: 0 var(--space-3);
+  font-size: 0.875rem;
+}
+
 .fullWidth {
   width: 100%;
 }
