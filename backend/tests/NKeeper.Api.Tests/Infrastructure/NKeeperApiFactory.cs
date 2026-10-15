@@ -8,7 +8,11 @@ using NKeeper.Infrastructure.Identity;
 namespace NKeeper.Api.Tests.Infrastructure;
 
 /// <summary>Hosts the real API in-memory against a dedicated PostgreSQL database.</summary>
-public sealed class NKeeperApiFactory(string connectionString, int loginPermitLimit = 100, string? adminPassword = null)
+public sealed class NKeeperApiFactory(
+    string connectionString,
+    int loginPermitLimit = 100,
+    string? adminPassword = null,
+    bool requireSecureCookies = false)
     : WebApplicationFactory<Program>
 {
     public const string AdminUserName = "admin";
@@ -22,7 +26,7 @@ public sealed class NKeeperApiFactory(string connectionString, int loginPermitLi
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:NKeeper", connectionString);
         builder.UseSetting("Database:MigrateOnStartup", "true");
-        builder.UseSetting("Authentication:RequireSecureCookies", "false");
+        builder.UseSetting("Authentication:RequireSecureCookies", requireSecureCookies ? "true" : "false");
         builder.UseSetting("RateLimiting:Login:PermitLimit", loginPermitLimit.ToString(System.Globalization.CultureInfo.InvariantCulture));
         builder.UseSetting("BootstrapAdmin:Enabled", "true");
         builder.UseSetting("BootstrapAdmin:AllowOutsideDevelopment", "true");

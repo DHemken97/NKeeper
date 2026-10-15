@@ -46,5 +46,12 @@ public sealed class ForwardedHeadersSettings
     /// <summary>CIDR ranges of trusted proxies. Empty means any proxy is trusted (see <see cref="Enabled"/>).</summary>
     public string[] KnownNetworks { get; set; } = [];
 
+    /// <summary>
+    /// Number of proxy hops to unwind. 1 for the bundled nginx; 2 when another TLS-terminating
+    /// proxy sits in front of it, so rate limiting sees the real client address.
+    /// </summary>
+    [Range(1, 5)]
+    public int ForwardLimit { get; set; } = 1;
+
     internal bool IsValid() => KnownNetworks.All(n => System.Net.IPNetwork.TryParse(n, out _));
 }

@@ -32,6 +32,7 @@ internal static class ApiServiceCollectionExtensions
             .ValidateOnStart();
         services.AddOptions<ForwardedHeadersSettings>()
             .Bind(configuration.GetSection(ForwardedHeadersSettings.SectionName))
+            .ValidateDataAnnotations()
             .Validate(o => o.IsValid(), "ForwardedHeaders:KnownNetworks entries must be valid CIDR ranges.")
             .ValidateOnStart();
 
@@ -47,10 +48,10 @@ internal static class ApiServiceCollectionExtensions
             options.Cookie.Name = "NKeeper.Antiforgery";
             options.Cookie.HttpOnly = true;
             options.Cookie.SameSite = SameSiteMode.Strict;
+            // Not a credential, so SameAsRequest (Secure whenever served over HTTPS). With "Always",
+            // antiforgery throws on plain-HTTP requests such as http://localhost behind nginx.
+            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         });
-        services.AddOptions<AntiforgeryOptions>()
-            .Configure<IOptions<AuthenticationSettings>>((options, auth) =>
-                options.Cookie.SecurePolicy = SecurePolicy(auth.Value));
 
         // Identity registers the cookie scheme; shape it for a JSON API (no redirects) and server-side sessions.
         services.AddOptions<CookieAuthenticationOptions>(IdentityConstants.ApplicationScheme)
@@ -132,7 +133,7 @@ internal static class ApiServiceCollectionExtensions
             .Configure<IOptions<ForwardedHeadersSettings>>((options, forwarded) =>
             {
                 options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-                options.ForwardLimit = 1;
+                options.ForwardLimit = forwarded.Value.ForwardLimit;
                 options.KnownIPNetworks.Clear();
                 options.KnownProxies.Clear();
                 foreach (var network in forwarded.Value.KnownNetworks)
