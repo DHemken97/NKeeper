@@ -1,23 +1,45 @@
+using Microsoft.Extensions.Options;
+using NKeeper.Api.Configuration;
+using NKeeper.Infrastructure;
+using NKeeper.Infrastructure.Persistence;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-
-builder.Services.AddControllers();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+builder.Services.AddNKeeperInfrastructure(builder.Configuration);
+builder.Services.AddNKeeperApi(builder.Configuration);
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+if (app.Services.GetRequiredService<IOptions<ForwardedHeadersSettings>>().Value.Enabled)
 {
-    app.MapOpenApi();
+    app.UseForwardedHeaders();
 }
 
-app.UseHttpsRedirection();
+// Unhandled exceptions and empty error responses become RFC 7807 problem details.
+// Stack traces are only shown by the developer exception page in Development.
+app.UseExceptionHandler();
+app.UseStatusCodePages();
 
+app.UseCors(CorsSettings.PolicyName);
+app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
-app.MapControllers();
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi().AllowAnonymous();
+}
 
-app.Run();
+app.MapControllers();
+app.MapHealthChecks("/health/live", new() { Predicate = _ => false }).AllowAnonymous();
+app.MapHealthChecks("/health/ready", new() { Predicate = check => check.Tags.Contains("ready") }).AllowAnonymous();
+
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    await scope.ServiceProvider.GetRequiredService<DatabaseInitializer>().InitializeAsync(app.Lifetime.ApplicationStopping);
+}
+
+await app.RunAsync();
+
+/// <summary>Entry point marker for WebApplicationFactory in integration tests.</summary>
+public partial class Program;
