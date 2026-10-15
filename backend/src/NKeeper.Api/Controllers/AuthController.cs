@@ -13,7 +13,6 @@ namespace NKeeper.Api.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-[Produces("application/json")]
 public sealed class AuthController(
     CredentialValidator credentialValidator,
     SignInManager<ApplicationUser> signInManager,
