@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using NKeeper.Infrastructure.Identity;
+using NKeeper.Infrastructure.Inventory;
 using NKeeper.Infrastructure.Persistence;
 
 namespace NKeeper.Infrastructure;
@@ -54,6 +55,7 @@ public static class DependencyInjection
         services.AddSingleton<IConfigureOptions<CookieAuthenticationOptions>, ConfigureSessionStore>();
         services.AddScoped<CredentialValidator>();
         services.AddScoped<DatabaseInitializer>();
+        services.AddSingleton<CredentialProtector>();
 
         return services;
     }

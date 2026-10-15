@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using NKeeper.Infrastructure.Identity;
+using NKeeper.Infrastructure.Inventory;
 
 namespace NKeeper.Infrastructure.Persistence;
 
@@ -11,6 +12,16 @@ public sealed class NKeeperDbContext(DbContextOptions<NKeeperDbContext> options)
     public DbSet<AuthSession> AuthSessions => Set<AuthSession>();
 
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
+
+    public DbSet<Host> Hosts => Set<Host>();
+
+    public DbSet<HostService> HostServices => Set<HostService>();
+
+    public DbSet<HostGroup> HostGroups => Set<HostGroup>();
+
+    public DbSet<Tag> Tags => Set<Tag>();
+
+    public DbSet<Credential> Credentials => Set<Credential>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
