@@ -384,7 +384,13 @@ export function WorkspacePage() {
           }
         >
           {sessions.map((session) => (
-            <SshTerminal key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+            <SshTerminal
+              key={session.id}
+              session={session}
+              active={activeTab === session.id}
+              onShowHost={(id) => showHost(id)}
+              onEnded={() => closeSession(session.id)}
+            />
           ))}
         </Suspense>
       </main>

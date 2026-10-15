@@ -14,6 +14,8 @@ interface SshTerminalProps {
   active: boolean
   /** Show the host's details (e.g. to forget a changed host key). */
   onShowHost: (hostId: string) => void
+  /** The remote shell ended normally (e.g. `exit`); the tab closes itself. Errors keep it open. */
+  onEnded: () => void
 }
 
 type HostKeyPrompt = Extract<ServerMessage, { type: 'hostKey' }>
@@ -22,7 +24,8 @@ type Phase =
   | { kind: 'connecting'; target?: string }
   | { kind: 'hostKey'; prompt: HostKeyPrompt; target?: string }
   | { kind: 'connected'; target: string }
-  | { kind: 'ended'; message: string; error: boolean; code?: string; target?: string }
+  /** Ended with an error; a normal end closes the tab instead. */
+  | { kind: 'ended'; message: string; code?: string; target?: string }
 
 const THEME = {
   background: '#0b1220',
@@ -44,7 +47,7 @@ function fitIfVisible(fit: FitAddon, element: HTMLElement | null) {
 }
 
 /** One interactive SSH session: an xterm.js terminal bridged to the server over a WebSocket. */
-export function SshTerminal({ session, active, onShowHost }: SshTerminalProps) {
+export function SshTerminal({ session, active, onShowHost, onEnded }: SshTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -54,6 +57,11 @@ export function SshTerminal({ session, active, onShowHost }: SshTerminalProps) {
   const requestRef = useRef(session.request)
   const [phase, setPhase] = useState<Phase>({ kind: 'connecting' })
   const [attempt, setAttempt] = useState(0)
+  // Read from socket handlers created per attempt, so always call the latest callback.
+  const onEndedRef = useRef(onEnded)
+  useEffect(() => {
+    onEndedRef.current = onEnded
+  })
 
   // The terminal lives as long as the tab, across reconnects.
   useEffect(() => {
@@ -145,11 +153,11 @@ export function SshTerminal({ session, active, onShowHost }: SshTerminalProps) {
           break
         case 'error':
           finished = true
-          setPhase((current) => ({ kind: 'ended', message: message.message, error: true, code: message.code, target: current.target }))
+          setPhase((current) => ({ kind: 'ended', message: message.message, code: message.code, target: current.target }))
           break
         case 'closed':
           finished = true
-          setPhase((current) => ({ kind: 'ended', message: message.message, error: false, target: current.target }))
+          onEndedRef.current()
           break
       }
     }
@@ -160,7 +168,6 @@ export function SshTerminal({ session, active, onShowHost }: SshTerminalProps) {
         setPhase((current) => ({
           kind: 'ended',
           message: current.kind === 'connected' ? 'The connection was lost.' : 'Couldn’t reach the NKeeper server.',
-          error: true,
           target: current.target,
         }))
       }
@@ -200,14 +207,12 @@ export function SshTerminal({ session, active, onShowHost }: SshTerminalProps) {
   return (
     <div className={styles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} terminal`}>
       <div className={styles.statusBar} role="status">
-        <span className={`${styles.dot} ${styles[phase.kind]} ${phase.kind === 'ended' && phase.error ? styles.failed : ''}`} />
+        <span className={`${styles.dot} ${styles[phase.kind]} ${phase.kind === 'ended' ? styles.failed : ''}`} />
         <span className={styles.statusText}>
           {phase.kind === 'connected'
             ? 'Connected'
             : phase.kind === 'ended'
-              ? phase.error
-                ? 'Not connected'
-                : 'Session ended'
+              ? 'Not connected'
               : phase.kind === 'hostKey'
                 ? 'Waiting for host key confirmation'
                 : 'Connecting…'}
@@ -233,7 +238,7 @@ export function SshTerminal({ session, active, onShowHost }: SshTerminalProps) {
 
         {phase.kind === 'hostKey' ? <HostKeyCard prompt={phase.prompt} target={target} onDecide={decideHostKey} /> : null}
 
-        {phase.kind === 'ended' && phase.error ? (
+        {phase.kind === 'ended' ? (
           <div className={styles.overlay}>
             <div className={`${styles.card} ${styles.errorCard}`} role="alert">
               <h3 className={styles.cardTitle}>{phase.code === 'host_key_changed' ? 'Host key changed' : 'Couldn’t connect'}</h3>

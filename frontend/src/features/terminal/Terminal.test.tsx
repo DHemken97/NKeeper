@@ -159,7 +159,7 @@ async function socketAt(index: number) {
 }
 
 async function hostRow() {
-  return screen.findByRole('button', { name: /linux01/ })
+  return within(await screen.findByRole('list', { name: 'Hosts' })).getByRole('button', { name: /linux01/ })
 }
 
 describe('host context menu', () => {
@@ -265,13 +265,35 @@ describe('host context menu', () => {
     expect(screen.getByRole('tab', { name: /Details/, selected: true })).toBeInTheDocument()
   })
 
-  it('reconnects saved-credential sessions, and closing a tab closes its socket', async () => {
+  it('closes the tab by itself when the remote shell exits, returning to the previous tab', async () => {
+    const { user } = renderWorkspace('/?host=h-linux01')
+    await user.dblClick(await hostRow())
+    await user.dblClick(await hostRow())
+    const first = await socketAt(0)
+    const second = await socketAt(1)
+    first.accept()
+    second.accept()
+    first.receive({ type: 'connected', target: 'root@linux01.example.com:22' })
+    expect(screen.getByRole('tab', { name: /linux01 \(2\)/, selected: true })).toBeInTheDocument()
+
+    // An exit in the background tab removes it and leaves the active one alone.
+    first.receive({ type: 'closed', message: 'The session ended.' })
+    expect(screen.getAllByRole('tab', { name: /SSH/ })).toHaveLength(1)
+    expect(screen.getByRole('tab', { name: /linux01 \(2\)/, selected: true })).toBeInTheDocument()
+
+    // Exiting the active tab falls back to the host details.
+    second.receive({ type: 'closed', message: 'The session ended.' })
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    expect(screen.getByRole('article', { name: 'linux01' })).toBeVisible()
+  })
+
+  it('keeps the tab open after a lost connection so it can reconnect, and closing a tab closes its socket', async () => {
     const { user } = renderWorkspace()
     await user.dblClick(await hostRow())
     const first = await socketAt(0)
     first.accept()
     first.receive({ type: 'connected', target: 'root@linux01.example.com:22' })
-    first.receive({ type: 'closed', message: 'The session ended.' })
+    act(() => first.onclose?.())
 
     await user.click(screen.getByRole('button', { name: 'Reconnect' }))
     expect(first.closed).toBe(true)

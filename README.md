@@ -195,7 +195,7 @@ After sign-in, NKeeper is a single-page workspace in the spirit of mRemoteNG: a 
 
 ## SSH sessions
 
-Right-click a host in the tree (or press the Menu key / Shift+F10 on it) and choose **Connect ▸ SSH service ▸ credential**. Each session opens as a tab next to the host details, like mRemoteNG, and keeps running while you switch tabs. You can also:
+Right-click a host in the tree (or press the Menu key / Shift+F10 on it) and choose **Connect ▸ SSH service ▸ credential**. Each session opens as a tab next to the host details, like mRemoteNG, and keeps running while you switch tabs. When the remote shell ends (e.g. `exit`), its tab closes by itself; a tab that ends with an error stays open to show why and offer Reconnect. You can also:
 
 - **Double-click** a host to connect with its first SSH service and first usable credential (or be asked for one).
 - Use the **Connect** button in the host details, the way to connect on touch screens.
