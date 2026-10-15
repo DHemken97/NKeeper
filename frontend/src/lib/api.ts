@@ -147,6 +147,13 @@ async function request<T>(method: HttpMethod, path: string, options: RequestOpti
   }
 }
 
+/** Absolute ws(s):// URL for an API path, on the same base as HTTP requests. */
+export function apiWebSocketUrl(path: string): string {
+  const url = new URL(`${API_BASE_URL}${path}`, window.location.origin)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
+}
+
 export const api = {
   get: <T>(path: string, options?: RequestOptions) => request<T>('GET', path, options),
   post: <T>(path: string, options?: RequestOptions) => request<T>('POST', path, options),

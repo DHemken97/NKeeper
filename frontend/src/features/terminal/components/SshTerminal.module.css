@@ -1,0 +1,146 @@
+.session {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: #0b1220;
+}
+
+.session[hidden] {
+  display: none;
+}
+
+.statusBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.25rem;
+  padding: var(--space-1) var(--space-4);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.8125rem;
+}
+
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--color-text-subtle);
+}
+
+.connecting,
+.hostKey {
+  background: #f5b84b;
+}
+
+.connected {
+  background: #4ade80;
+}
+
+.failed {
+  background: #f87171;
+}
+
+.statusText {
+  font-weight: 550;
+}
+
+.target {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statusAction {
+  margin-left: auto;
+}
+
+.terminalArea {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.terminal {
+  position: absolute;
+  inset: var(--space-2) 0 0 var(--space-3);
+}
+
+/* xterm.js sizes its viewport to the container; keep its scrollbar on our palette. */
+.terminal :global(.xterm-viewport) {
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgb(11 18 32 / 0.75);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 32rem;
+  padding: var(--space-5) var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  color: var(--color-text);
+  font-size: 0.9375rem;
+}
+
+.card:not(:has(h3)) {
+  flex-direction: row;
+  align-items: center;
+}
+
+.errorCard {
+  border-color: var(--color-danger-border);
+}
+
+.cardTitle {
+  font-size: 1.0625rem;
+  font-weight: 620;
+}
+
+.fingerprint {
+  margin: 0;
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.fingerprint dt {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+.fingerprint dd {
+  margin: var(--space-1) 0 0;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.hint {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}

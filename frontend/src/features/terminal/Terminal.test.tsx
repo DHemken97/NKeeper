@@ -1,0 +1,313 @@
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { createMemoryRouter, RouterProvider } from 'react-router'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { routes } from '../../app/router'
+import { jsonResponse, mockFetch } from '../../test/http'
+import { AuthProvider } from '../auth/components/AuthProvider'
+import { connectMenuEntries } from '../inventory/hostMenu'
+import type { Host } from '../inventory/types'
+
+// xterm.js needs a real browser; a fake records what the session writes and lets tests type.
+const fakes = vi.hoisted(() => {
+  class FakeTerminal {
+    static instances: FakeTerminal[] = []
+    cols = 80
+    rows = 24
+    written = ''
+    dataListener: ((data: string) => void) | null = null
+    constructor() {
+      FakeTerminal.instances.push(this)
+    }
+    loadAddon() {}
+    open() {}
+    focus() {}
+    dispose() {}
+    write(data: string | Uint8Array) {
+      this.written += typeof data === 'string' ? data : new TextDecoder().decode(data)
+    }
+    onData(listener: (data: string) => void) {
+      this.dataListener = listener
+      return { dispose() {} }
+    }
+    onBinary() {
+      return { dispose() {} }
+    }
+    onResize() {
+      return { dispose() {} }
+    }
+  }
+  class FakeFitAddon {
+    fit() {}
+  }
+  return { FakeTerminal, FakeFitAddon }
+})
+
+vi.mock('@xterm/xterm', () => ({ Terminal: fakes.FakeTerminal }))
+vi.mock('@xterm/addon-fit', () => ({ FitAddon: fakes.FakeFitAddon }))
+
+/** A WebSocket the test plays the server for. */
+class FakeWebSocket {
+  static readonly CONNECTING = 0
+  static readonly OPEN = 1
+  static readonly CLOSED = 3
+  static instances: FakeWebSocket[] = []
+
+  readyState = FakeWebSocket.CONNECTING
+  binaryType = 'blob'
+  sent: (string | Uint8Array)[] = []
+  onopen: (() => void) | null = null
+  onmessage: ((event: { data: string | ArrayBuffer }) => void) | null = null
+  onclose: (() => void) | null = null
+  closed = false
+
+  readonly url: string
+
+  constructor(url: string) {
+    this.url = url
+    FakeWebSocket.instances.push(this)
+  }
+
+  send(data: string | Uint8Array) {
+    this.sent.push(data)
+  }
+
+  close() {
+    this.closed = true
+    this.readyState = FakeWebSocket.CLOSED
+  }
+
+  /** Server side. */
+  accept() {
+    this.readyState = FakeWebSocket.OPEN
+    act(() => this.onopen?.())
+  }
+
+  receive(message: object) {
+    act(() => this.onmessage?.({ data: JSON.stringify(message) }))
+  }
+
+  receiveBytes(text: string) {
+    act(() => this.onmessage?.({ data: new TextEncoder().encode(text).buffer }))
+  }
+
+  jsonSent() {
+    return this.sent.filter((m): m is string => typeof m === 'string').map((m) => JSON.parse(m))
+  }
+}
+
+const adminUser = { id: '6f1c0d4e-0000-4000-8000-000000000001', userName: 'admin', email: 'admin@example.com', roles: ['Administrator'] }
+
+const linux01: Host = {
+  id: 'h-linux01',
+  name: 'linux01',
+  hostname: 'linux01.example.com',
+  ipAddress: null,
+  macAddress: null,
+  description: null,
+  tags: [],
+  services: [
+    { protocol: 'Ssh', port: null, label: null },
+    { protocol: 'Rdp', port: null, label: null },
+    { protocol: 'Ssh', port: 2222, label: 'Jump' },
+  ],
+  credentials: [
+    { id: 'c-root', label: 'Root', username: 'root', domain: null, notes: null, hasPassword: true, hasPrivateKey: false },
+    { id: 'c-empty', label: 'Placeholder', username: null, domain: null, notes: null, hasPassword: false, hasPrivateKey: false },
+  ],
+  sshHostKeys: [],
+  createdAtUtc: '2026-10-01T12:00:00Z',
+  updatedAtUtc: '2026-10-01T12:00:00Z',
+  version: 1,
+}
+
+beforeEach(() => {
+  FakeWebSocket.instances = []
+  fakes.FakeTerminal.instances = []
+  vi.stubGlobal('WebSocket', FakeWebSocket)
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+function renderWorkspace(path = '/') {
+  mockFetch({
+    'GET /api/auth/me': () => jsonResponse(200, adminUser),
+    'GET /api/hosts': () => jsonResponse(200, [linux01]),
+  })
+  const router = createMemoryRouter(routes, { initialEntries: [path] })
+  render(
+    <AuthProvider>
+      <RouterProvider router={router} />
+    </AuthProvider>,
+  )
+  return { router, user: userEvent.setup() }
+}
+
+/** The n-th socket opened; the terminal is lazy-loaded, so it may take a moment to appear. */
+async function socketAt(index: number) {
+  await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(index))
+  return FakeWebSocket.instances[index]
+}
+
+async function hostRow() {
+  return screen.findByRole('button', { name: /linux01/ })
+}
+
+describe('host context menu', () => {
+  it('connects through Connect ▸ SSH ▸ credential, confirming the host key', async () => {
+    const { user } = renderWorkspace()
+
+    fireEvent.contextMenu(await hostRow(), { clientX: 40, clientY: 80 })
+    const menu = screen.getByRole('menu', { name: 'Actions for linux01' })
+    await user.hover(within(menu).getByRole('menuitem', { name: 'Connect' }))
+    const services = screen.getByRole('menu', { name: 'Connect' })
+    expect(within(services).getByRole('menuitem', { name: /RDP.*Coming soon/ })).toHaveAttribute('aria-disabled', 'true')
+    await user.hover(within(services).getByRole('menuitem', { name: /^SSH:22/ }))
+    const credentials = screen.getByRole('menu', { name: 'SSH' })
+    expect(within(credentials).getByRole('menuitem', { name: /Placeholder.*No username/ })).toHaveAttribute('aria-disabled', 'true')
+    await user.click(within(credentials).getByRole('menuitem', { name: /Root/ }))
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /linux01.*SSH · root/, selected: true })).toBeInTheDocument()
+
+    const socket = await socketAt(0)
+    expect(socket.url).toBe('ws://localhost:3000/api/ssh/session')
+    socket.accept()
+    expect(socket.jsonSent()[0]).toEqual({ type: 'start', hostId: 'h-linux01', serviceIndex: 0, credentialId: 'c-root', cols: 80, rows: 24 })
+
+    socket.receive({ type: 'status', status: 'connecting', target: 'root@linux01.example.com:22' })
+    socket.receive({ type: 'hostKey', status: 'unknown', port: 22, algorithm: 'ssh-ed25519', fingerprint: 'abc123' })
+    const prompt = screen.getByRole('alertdialog', { name: 'Trust this host key?' })
+    expect(within(prompt).getByText('SHA256:abc123')).toBeInTheDocument()
+    await user.click(within(prompt).getByRole('button', { name: 'Trust and connect' }))
+    expect(socket.jsonSent().at(-1)).toEqual({ type: 'hostKeyDecision', trust: true })
+
+    socket.receive({ type: 'connected', target: 'root@linux01.example.com:22' })
+    expect(screen.getByText('Connected')).toBeInTheDocument()
+
+    socket.receiveBytes('Welcome to linux01\r\n$ ')
+    const terminal = fakes.FakeTerminal.instances[0]
+    expect(terminal.written).toContain('Welcome to linux01')
+
+    act(() => terminal.dataListener?.('ls\r'))
+    expect(new TextDecoder().decode(socket.sent.at(-1) as Uint8Array)).toBe('ls\r')
+  })
+
+  it('is fully keyboard operable', async () => {
+    const { user } = renderWorkspace()
+    const row = await hostRow()
+    row.focus()
+
+    await user.keyboard('{Shift>}{F10}{/Shift}')
+    expect(screen.getByRole('menuitem', { name: 'Connect' })).toHaveFocus()
+
+    await user.keyboard('{ArrowRight}')
+    expect(screen.getByRole('menuitem', { name: /^SSH:22/ })).toHaveFocus()
+    await user.keyboard('{ArrowDown}{ArrowDown}')
+    expect(screen.getByRole('menuitem', { name: /SSH · Jump:2222/ })).toHaveFocus()
+
+    await user.keyboard('{ArrowLeft}')
+    expect(screen.queryByRole('menu', { name: 'Connect' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Connect' })).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(row).toHaveFocus()
+  })
+
+  it('connects with one-off credentials that are never offered for reconnect', async () => {
+    const { user } = renderWorkspace()
+
+    fireEvent.contextMenu(await hostRow())
+    await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
+    await user.hover(screen.getByRole('menuitem', { name: /SSH · Jump/ }))
+    await user.click(screen.getByRole('menuitem', { name: 'Enter credentials…' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Enter credentials' })
+    await user.type(within(dialog).getByLabelText('Username'), 'admin')
+    await user.type(within(dialog).getByLabelText('Password'), 'hunter2')
+    await user.click(within(dialog).getByRole('button', { name: 'Connect' }))
+
+    const socket = await socketAt(0)
+    socket.accept()
+    expect(socket.jsonSent()[0]).toEqual({ type: 'start', hostId: 'h-linux01', serviceIndex: 2, username: 'admin', password: 'hunter2', cols: 80, rows: 24 })
+
+    socket.receive({ type: 'error', code: 'authentication_failed', message: 'Authentication failed for admin.' })
+    expect(screen.getByRole('alert')).toHaveTextContent('Authentication failed for admin.')
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).not.toBeInTheDocument()
+  })
+
+  it('explains a changed host key and links to the host', async () => {
+    const { user, router } = renderWorkspace()
+    await user.dblClick(await hostRow())
+
+    const socket = await socketAt(0)
+    socket.accept()
+    expect(socket.jsonSent()[0]).toMatchObject({ serviceIndex: 0, credentialId: 'c-root' })
+    socket.receive({ type: 'hostKey', status: 'changed', port: 22, algorithm: 'ssh-ed25519', fingerprint: 'new', trustedFingerprint: 'old' })
+    socket.receive({ type: 'error', code: 'host_key_changed', message: 'The ssh-ed25519 host key has changed. Someone may be intercepting the connection.' })
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Host key changed')
+    await user.click(screen.getByRole('button', { name: 'Show host details' }))
+
+    expect(router.state.location.search).toBe('?host=h-linux01')
+    expect(screen.getByRole('tab', { name: /Details/, selected: true })).toBeInTheDocument()
+  })
+
+  it('reconnects saved-credential sessions, and closing a tab closes its socket', async () => {
+    const { user } = renderWorkspace()
+    await user.dblClick(await hostRow())
+    const first = await socketAt(0)
+    first.accept()
+    first.receive({ type: 'connected', target: 'root@linux01.example.com:22' })
+    first.receive({ type: 'closed', message: 'The session ended.' })
+
+    await user.click(screen.getByRole('button', { name: 'Reconnect' }))
+    expect(first.closed).toBe(true)
+    const second = await socketAt(1)
+    second.accept()
+    expect(second.jsonSent()[0]).toMatchObject({ credentialId: 'c-root' })
+
+    await user.click(screen.getByRole('button', { name: 'Close linux01' }))
+    expect(second.closed).toBe(true)
+    expect(screen.queryByRole('tab', { name: /SSH/ })).not.toBeInTheDocument()
+  })
+
+  it('offers Connect from the host details too (no right-click on touch screens)', async () => {
+    const { user } = renderWorkspace('/?host=h-linux01')
+
+    await user.click(await screen.findByRole('button', { name: 'Connect' }))
+
+    expect(screen.getByRole('menuitem', { name: /^SSH:22/ })).toHaveFocus()
+  })
+
+  it('reports a lost connection', async () => {
+    renderWorkspace()
+    fireEvent.doubleClick(await hostRow())
+    const socket = await socketAt(0)
+    socket.accept()
+    socket.receive({ type: 'connected', target: 'root@linux01.example.com:22' })
+
+    act(() => socket.onclose?.())
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('The connection was lost.'))
+  })
+})
+
+describe('connectMenuEntries', () => {
+  it('explains when a host has no services', () => {
+    const entries = connectMenuEntries({ ...linux01, services: [] }, { connect: vi.fn(), connectWithPrompt: vi.fn() })
+    expect(entries).toEqual([{ kind: 'item', label: 'No services', detail: 'Edit the host to add one', disabled: true }])
+  })
+})

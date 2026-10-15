@@ -153,6 +153,117 @@
   display: none;
 }
 
+.view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.view[hidden] {
+  display: none;
+}
+
+/* Tabs: the host details, then one per terminal session (like mRemoteNG). */
+
+.tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  overflow-x: auto;
+  padding: var(--space-1) var(--space-2) 0;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  scrollbar-width: thin;
+}
+
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  max-width: 14rem;
+  padding: var(--space-1) var(--space-3);
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  font: inherit;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--color-text);
+}
+
+.tab[aria-selected='true'] {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
+  box-shadow: inset 0 2px 0 var(--color-accent);
+}
+
+.tabTitle,
+.tabDetail {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabTitle {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.tabDetail {
+  color: var(--color-text-subtle);
+  font-size: 0.6875rem;
+}
+
+.tabWrap {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.tabWrap .tab {
+  padding-right: var(--space-1);
+  border-right: 0;
+  border-top-right-radius: 0;
+}
+
+.tabClose {
+  align-self: stretch;
+  width: 1.75rem;
+  padding: 0;
+  background: transparent;
+  color: var(--color-text-subtle);
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0 var(--radius-sm) 0 0;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.tabClose:hover {
+  color: var(--color-text);
+}
+
+.tabWrapActive .tabClose {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  box-shadow: inset 0 2px 0 var(--color-accent);
+}
+
+.sessionsLink {
+  display: none;
+}
+
 .mainState {
   display: flex;
   flex: 1;
@@ -206,6 +317,20 @@
 
   .panelOpen .main {
     display: flex;
+  }
+
+  .sessionsLink {
+    display: block;
+    margin: 0 var(--space-4) var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-info-bg);
+    color: var(--color-accent-text);
+    border: 1px solid #2a4a8a;
+    border-radius: var(--radius-md);
+    font: inherit;
+    font-size: 0.875rem;
+    text-align: left;
+    cursor: pointer;
   }
 
   .back {

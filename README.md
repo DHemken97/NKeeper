@@ -12,6 +12,7 @@ NKeeper is a free, open-source, web-based remote connection manager — a browse
 - [Local development](#local-development)
 - [Creating the first administrator](#creating-the-first-administrator)
 - [Host inventory](#host-inventory)
+- [SSH sessions](#ssh-sessions)
 - [Database migrations](#database-migrations)
 - [Configuration reference](#configuration-reference)
 - [Testing](#testing)
@@ -41,15 +42,16 @@ backend/
   dotnet-tools.json              pins dotnet-ef for migrations
   src/
     NKeeper.Api/                 HTTP layer
-      Controllers/               AuthController (/api/auth/*), HostsController (/api/hosts)
+      Controllers/               AuthController (/api/auth/*), HostsController (/api/hosts), SshController (/api/ssh/session)
       Inventory/                 HostManager, address validation, error mapping
+      Ssh/                       terminal WebSocket protocol, SSH session bridge, origin check, session limit
       Contracts/                 request/response DTOs (never EF entities)
       Configuration/             options classes, service registration, health check
       Security/                  antiforgery validation filter
       Program.cs
     NKeeper.Infrastructure/      persistence and identity
       Identity/                  ApplicationUser, credential validation, DB ticket store, bootstrap options
-      Inventory/                 Host and its owned HostTag, HostService, HostCredential; secret protector
+      Inventory/                 Host and its owned HostTag, HostService, HostCredential, HostSshKey; secret protector
       Persistence/               NKeeperDbContext, entity configuration, startup initializer
       Migrations/                EF Core migrations (committed)
   tests/
@@ -58,9 +60,10 @@ frontend/
   src/
     app/                         App, routes, product name config
     components/layout/           AuthLayout, AppLayout, FullPageStatus
-    components/ui/               Button, TextField, PasswordField, TextArea, Checkbox, Badge, Alert, Spinner, Logo
+    components/ui/               Button, TextField, PasswordField, TextArea, Checkbox, Badge, Alert, Spinner, Logo, Dialog, ContextMenu
     features/auth/               api/, components/, pages/, types/, context
-    features/inventory/          workspace page, host tree, details and editor; search and grouping logic
+    features/inventory/          workspace page, host tree, context menu, details and editor; search and grouping logic
+    features/terminal/           xterm.js SSH terminal (lazy-loaded) and the one-off credentials prompt
     lib/api.ts                   the single HTTP client
     styles/global.css            design tokens
   nginx/                         nginx config used by the Docker image
@@ -188,7 +191,23 @@ After sign-in, NKeeper is a single-page workspace in the spirit of mRemoteNG: a 
 - **Sort** by name, address or last update (names sort case-insensitively and numerically, so `srv2` comes before `srv10`).
 - Selection, search, grouping and sort live in the URL (`/?group=site&group=role&q=env:prod&host=<id>`), so views can be bookmarked and shared.
 
-`GET /api/hosts` returns the whole inventory and the browser searches, groups and sorts it locally, which keeps the tree instant for inventories of hundreds to a few thousand hosts. Updates use optimistic concurrency: `PUT /api/hosts/{id}` sends back the `version` it read, and a stale version returns `409` with `"code": "concurrency_conflict"`. Connecting to a host (connect → service → credential) is not implemented yet.
+`GET /api/hosts` returns the whole inventory and the browser searches, groups and sorts it locally, which keeps the tree instant for inventories of hundreds to a few thousand hosts. Updates use optimistic concurrency: `PUT /api/hosts/{id}` sends back the `version` it read, and a stale version returns `409` with `"code": "concurrency_conflict"`. Connecting is described in [SSH sessions](#ssh-sessions).
+
+## SSH sessions
+
+Right-click a host in the tree (or press the Menu key / Shift+F10 on it) and choose **Connect ▸ SSH service ▸ credential**. Each session opens as a tab next to the host details, like mRemoteNG, and keeps running while you switch tabs. You can also:
+
+- **Double-click** a host to connect with its first SSH service and first usable credential (or be asked for one).
+- Use the **Connect** button in the host details, the way to connect on touch screens.
+- Choose **Enter credentials…** for a one-off login. It is used for that session only and never saved, so such sessions cannot be reconnected without typing it again.
+
+Services other than SSH are listed but marked "Coming soon". Credentials without a username, or without a password or key, are shown disabled.
+
+**How it works.** The browser opens a WebSocket to `GET /api/ssh/session` and sends the host, the service's index and a credential id; the API looks them up, decrypts the secret in memory and opens the SSH connection with [SSH.NET](https://github.com/sshnet/SSH.NET). Terminal bytes then flow both ways over the socket, and the browser renders them with [xterm.js](https://xtermjs.org/). Passwords and SSH keys never reach the browser. A credential's password doubles as the passphrase of its private key; password logins also answer keyboard-interactive prompts. A domain on a credential is sent as `DOMAIN\user` (as Windows OpenSSH expects). The message protocol is documented in `backend/src/NKeeper.Api/Ssh/SshProtocol.cs`.
+
+**Host keys (trust on first use).** The first connection to a host and port shows the server's key fingerprint (`SHA256:…`, as printed by `ssh-keygen -lf`) and asks you to trust it. Trusted keys are stored per host and listed in the host details. If a server later presents a different key, NKeeper **refuses to connect** and says so: a reinstalled server looks exactly like a man-in-the-middle. When the change is expected, use **Forget trusted keys…** in the host details and connect again. Changing a host's hostname or IP also forgets its keys.
+
+The API connects from wherever it runs: in Docker that is the backend container, so hosts must be reachable (and resolvable) from it. Idle sessions stay open: the API pings the browser every 30 seconds and nginx allows up to an hour of silence on `/api/ssh/`.
 
 ## Database migrations
 
@@ -256,7 +275,9 @@ npm run build       # type-check + production build
 2. Otherwise **Testcontainers** starts a disposable `postgres:17-alpine` container (requires a running Docker daemon).
 3. If neither is available, the database tests are reported as **Skipped** (with the reason) — not passed. Only the pure unit tests run.
 
-Coverage: valid login (username and email), invalid login with identical generic errors for wrong password and unknown user, validation errors, missing CSRF token, account lockout, rate limiting, `/api/auth/me` with and without a session (and that it exposes only safe fields), logout including replay of a captured cookie, idempotent logout, bootstrap-admin never resetting a password, production cookie settings over plain HTTP, readiness probe, and configuration validation. Frontend tests cover login form validation, accessibility attributes, loading state, error messages (401, 429, network), show/hide password, the API client's CSRF and error handling, and session-driven routing (signed out → login, signed in → dashboard, sign out, server unreachable → retry).
+SSH session tests start a real OpenSSH server (`lscr.io/linuxserver/openssh-server`) with Testcontainers and drive the WebSocket protocol end to end: password, private-key and one-off logins, host key trust, rejection and change detection, terminal resize, and refusal of other hosts' credentials, cross-site origins and anonymous clients. Without Docker they are skipped.
+
+Coverage: valid login (username and email), invalid login with identical generic errors for wrong password and unknown user, validation errors, missing CSRF token, account lockout, rate limiting, `/api/auth/me` with and without a session (and that it exposes only safe fields), logout including replay of a captured cookie, idempotent logout, bootstrap-admin never resetting a password, production cookie settings over plain HTTP, readiness probe, and configuration validation. Frontend tests cover login form validation, accessibility attributes, loading state, error messages (401, 429, network), show/hide password, the API client's CSRF and error handling, and session-driven routing (signed out → login, signed in → workspace, sign out, server unreachable → retry).
 
 ## Security model
 
@@ -269,7 +290,10 @@ Coverage: valid login (username and email), invalid login with identical generic
 - **CORS** is off unless origins are listed explicitly; credentials are only allowed for those exact origins.
 - **Errors** are RFC 7807 problem details with a `traceId`; stack traces are never returned outside Development.
 - **Data Protection keys** (which encrypt cookies, tokens and stored credential secrets) are stored in PostgreSQL so sessions survive container restarts.
-- **Credential secrets** are encrypted before they reach the database and are never sent back to clients.
+- **Credential secrets** are encrypted before they reach the database and are never sent back to clients. SSH sessions decrypt them on the server only.
+- **SSH sessions** can only target inventory hosts, their SSH services and their own credentials (or one-off credentials sent in the first WebSocket message, never in the URL). Unknown host keys must be confirmed by the user, and changed keys are refused. Every session is logged with user, host, credential id and duration (never secrets). Each user can hold at most 20 concurrent sessions.
+- **WebSocket hijacking:** browsers attach cookies to cross-site WebSocket handshakes and CORS does not apply to them, so the API only accepts terminal handshakes whose `Origin` is NKeeper itself (or a configured `Cors:AllowedOrigins` entry).
+- **Content Security Policy** (set by nginx) allows scripts only from NKeeper itself. Styles additionally allow inline `<style>`, because xterm.js injects its styles at runtime.
 - **Containers** run as non-root; PostgreSQL and the API publish no host ports; credentials are passed at runtime, never baked into images.
 - **Stable identifiers:** users are keyed by GUID. Future workspace permissions should reference `AspNetUsers.Id` and stay separate from authentication.
 
@@ -299,10 +323,15 @@ NKeeper must be served over HTTPS in production. The frontend container speaks p
 | Login page says it can't reach the server | API not running, or the Vite proxy target is wrong (`DEV_API_PROXY_TARGET`), or the backend container failed — check `docker compose logs backend`. |
 | Database tests show as Skipped | Neither Docker nor `NKEEPER_TEST_POSTGRES` is available; see [Testing](#testing). |
 | `dotnet ef` not found | Run `dotnet tool restore` in `backend/`. |
+| SSH: "Couldn't connect … the name could not be resolved" / "host is unreachable" | The API (the backend container in Docker) makes the connection. The host must be resolvable and reachable from there, not just from your PC. |
+| SSH: "Host key changed" | The server presented a different key than the one trusted. Verify with the server's administrator; if expected, use **Forget trusted keys…** in the host details. |
+| SSH: "Authentication failed" with the right password | The server may only accept keys, or the account may be locked. Try the same login with `ssh` from the backend's network. |
+| Terminal tab says "Couldn't reach the NKeeper server" | The WebSocket was blocked. Behind your own reverse proxy, forward `Upgrade`/`Connection` headers and the original `Host` for `/api/ssh/` (see `frontend/nginx/default.conf`). |
 
 ## Known limitations
 
-- Remote connections, workspaces, permissions, audit events, SignalR collaboration and mRemoteNG import are not implemented yet. The host inventory is shared by all signed-in users.
+- Only SSH sessions are implemented; RDP, VNC and the other services are listed as "Coming soon". Workspaces, permissions, an audit-event store, SignalR collaboration and mRemoteNG import are not implemented yet. The host inventory is shared by all signed-in users.
+- Terminal sessions live in the API process: restarting the backend ends them, and the per-user session limit is per instance. SSH agent forwarding, port forwarding, jump hosts and SFTP are not supported yet.
 - No self-service password reset or user administration UI; the "Forgot password?" link shows a placeholder.
 - Data Protection keys are stored unencrypted in PostgreSQL (ASP.NET Core logs a warning about this), next to the credential secrets they encrypt. Protect them with a certificate or key vault (`ProtectKeysWith…`) before production use, and back them up: losing the keys makes stored passwords and SSH keys unrecoverable.
 - Expired sessions are purged opportunistically when new sessions are created; there is no background cleanup job yet.

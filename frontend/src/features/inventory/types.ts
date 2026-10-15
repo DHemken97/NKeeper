@@ -54,6 +54,15 @@ export interface HostCredential {
   hasPrivateKey: boolean
 }
 
+/** An SSH host key the users trusted for one of the host's ports. */
+export interface SshHostKey {
+  port: number
+  algorithm: string
+  /** SHA-256 fingerprint, unpadded base64 as printed by OpenSSH (without "SHA256:"). */
+  fingerprint: string
+  trustedAtUtc: string
+}
+
 export interface Host {
   id: string
   name: string
@@ -64,6 +73,7 @@ export interface Host {
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredential[]
+  sshHostKeys: SshHostKey[]
   createdAtUtc: string
   updatedAtUtc: string
   version: number

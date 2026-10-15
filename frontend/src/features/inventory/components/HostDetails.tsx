@@ -15,14 +15,34 @@ interface HostDetailsProps {
   onDeleted: (id: string) => void
   /** Filter the tree to hosts carrying this tag. */
   onTagClick: (tag: HostTag) => void
+  /** Open the Connect menu below the given button. */
+  onConnectMenu: (anchor: DOMRect) => void
+  /** The host changed here (e.g. host keys forgotten). */
+  onChanged: (host: Host) => void
 }
 
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 /** Read-only overview of a host: addresses, tags, services and credentials (never secrets). */
-export function HostDetails({ host, onEdit, onDeleted, onTagClick }: HostDetailsProps) {
+export function HostDetails({ host, onEdit, onDeleted, onTagClick, onConnectMenu, onChanged }: HostDetailsProps) {
   const [deleting, setDeleting] = useState(false)
+  const [forgetting, setForgetting] = useState(false)
+  const [confirmForget, setConfirmForget] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  async function handleForgetKeys() {
+    setForgetting(true)
+    setError(null)
+    try {
+      await hostsApi.forgetSshHostKeys(host.id)
+      onChanged({ ...host, sshHostKeys: [] })
+    } catch (err) {
+      setError(toFormErrors(err).message)
+    } finally {
+      setForgetting(false)
+      setConfirmForget(false)
+    }
+  }
 
   async function handleDelete() {
     setDeleting(true)
@@ -54,8 +74,15 @@ export function HostDetails({ host, onEdit, onDeleted, onTagClick }: HostDetails
         </div>
         <div className={styles.actions}>
           <DeleteButton question="Delete this host?" onConfirm={handleDelete} loading={deleting} />
-          <Button onClick={onEdit} disabled={deleting}>
+          <Button variant="secondary" onClick={onEdit} disabled={deleting}>
             Edit
+          </Button>
+          <Button
+            onClick={(event) => onConnectMenu(event.currentTarget.getBoundingClientRect())}
+            disabled={deleting}
+            aria-haspopup="menu"
+          >
+            Connect
           </Button>
         </div>
       </header>
@@ -165,6 +192,43 @@ export function HostDetails({ host, onEdit, onDeleted, onTagClick }: HostDetails
             </ul>
           )}
         </section>
+
+        {host.sshHostKeys.length > 0 ? (
+          <section className={styles.section} aria-labelledby="host-keys-title">
+            <h2 id="host-keys-title" className={styles.sectionTitle}>
+              Trusted SSH host keys
+            </h2>
+            <ul className={styles.rows}>
+              {host.sshHostKeys.map((key) => (
+                <li key={`${key.port}-${key.algorithm}`} className={styles.row}>
+                  <div className={styles.rowMain}>
+                    <div className={styles.mono}>SHA256:{key.fingerprint}</div>
+                    <div className={styles.muted}>
+                      {key.algorithm} · port {key.port} · trusted {dateTimeFormat.format(new Date(key.trustedAtUtc))}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div className={styles.actions}>
+              {confirmForget ? (
+                <>
+                  <span className={styles.muted}>The next connection will ask you to verify the key again.</span>
+                  <Button variant="danger" size="sm" onClick={handleForgetKeys} loading={forgetting}>
+                    Forget keys
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmForget(false)} disabled={forgetting}>
+                    Keep
+                  </Button>
+                </>
+              ) : (
+                <Button variant="secondary" size="sm" onClick={() => setConfirmForget(true)}>
+                  Forget trusted keys…
+                </Button>
+              )}
+            </div>
+          </section>
+        ) : null}
       </div>
     </article>
   )
