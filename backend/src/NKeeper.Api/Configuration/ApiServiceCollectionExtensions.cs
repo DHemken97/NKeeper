@@ -49,8 +49,6 @@ internal static class ApiServiceCollectionExtensions
             .AddJsonOptions(options =>
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
         services.AddScoped<HostManager>();
-        services.AddScoped<CredentialManager>();
-        services.AddScoped<GroupManager>();
         services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier));
         services.AddOpenApi();

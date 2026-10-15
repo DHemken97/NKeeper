@@ -16,6 +16,67 @@ public sealed record HostServiceRequest
     public string? Label { get; init; }
 }
 
+/// <summary>A <c>name: value</c> tag. The value is optional.</summary>
+public sealed record HostTagRequest : IValidatableObject
+{
+    [Required(ErrorMessage = "Enter a tag name.")]
+    [StringLength(HostTag.NameMaxLength, ErrorMessage = "Tag names can be at most 64 characters.")]
+    public string Name { get; init; } = string.Empty;
+
+    [StringLength(HostTag.ValueMaxLength, ErrorMessage = "Tag values can be at most 255 characters.")]
+    public string? Value { get; init; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        // "name:value" is the search syntax, so a colon in a name would be ambiguous.
+        if (Name.Contains(':', StringComparison.Ordinal))
+        {
+            yield return new ValidationResult("Tag names cannot contain a colon.", ["name"]);
+        }
+    }
+}
+
+/// <summary>
+/// A credential belonging to the host. Send <see cref="Id"/> to update an existing credential,
+/// omit it to add a new one; credentials left out of the request are deleted.
+/// Secrets are write-only: omit <see cref="Password"/> or <see cref="PrivateKey"/> to keep the
+/// stored value, or set the matching Clear flag to remove it.
+/// </summary>
+public sealed record HostCredentialRequest : IValidatableObject
+{
+    public Guid? Id { get; init; }
+
+    [StringLength(100)]
+    public string? Label { get; init; }
+
+    [StringLength(256)]
+    public string? Username { get; init; }
+
+    [StringLength(256)]
+    public string? Domain { get; init; }
+
+    [StringLength(1024)]
+    public string? Password { get; init; }
+
+    public bool ClearPassword { get; init; }
+
+    [StringLength(16_384)]
+    public string? PrivateKey { get; init; }
+
+    public bool ClearPrivateKey { get; init; }
+
+    [StringLength(2000)]
+    public string? Notes { get; init; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (string.IsNullOrWhiteSpace(Username) && string.IsNullOrWhiteSpace(Label))
+        {
+            yield return new ValidationResult("Enter a username or a label.", ["username"]);
+        }
+    }
+}
+
 /// <summary>Create/replace a host. Collections replace the existing values entirely.</summary>
 public sealed record HostRequest : IValidatableObject
 {
@@ -35,16 +96,14 @@ public sealed record HostRequest : IValidatableObject
     [StringLength(4000)]
     public string? Description { get; init; }
 
-    public Guid? GroupId { get; init; }
-
-    [MaxLength(20, ErrorMessage = "A host can have at most 20 tags.")]
-    public string[] Tags { get; init; } = [];
+    [MaxLength(50, ErrorMessage = "A host can have at most 50 tags.")]
+    public HostTagRequest[] Tags { get; init; } = [];
 
     [MaxLength(20, ErrorMessage = "A host can have at most 20 services.")]
     public HostServiceRequest[] Services { get; init; } = [];
 
-    [MaxLength(50, ErrorMessage = "A host can have at most 50 credentials.")]
-    public Guid[] CredentialIds { get; init; } = [];
+    [MaxLength(20, ErrorMessage = "A host can have at most 20 credentials.")]
+    public HostCredentialRequest[] Credentials { get; init; } = [];
 
     /// <summary>The <c>version</c> from the last read. Required when updating.</summary>
     public uint? Version { get; init; }
@@ -75,71 +134,27 @@ public sealed record HostRequest : IValidatableObject
             yield return new ValidationResult("Enter a MAC address like AA:BB:CC:DD:EE:FF.", ["macAddress"]);
         }
 
-        if (Tags.Any(t => string.IsNullOrWhiteSpace(t) || t.Trim().Length > 50))
+        var duplicateIds = Credentials.Where(c => c.Id is not null).GroupBy(c => c.Id).Any(g => g.Count() > 1);
+        if (duplicateIds)
         {
-            yield return new ValidationResult("Tags must be 1 to 50 characters.", ["tags"]);
+            yield return new ValidationResult("Each credential can only appear once.", ["credentials"]);
         }
     }
 }
 
-public enum HostSortField
-{
-    Name,
-    Address,
-    Group,
-    Updated,
-}
-
-public enum SortDirection
-{
-    Asc,
-    Desc,
-}
-
-public sealed record HostListQuery
-{
-    /// <summary>Space-separated terms; every term must match name, address, MAC, description, group or a tag.</summary>
-    [StringLength(200)]
-    public string? Search { get; init; }
-
-    public Guid? GroupId { get; init; }
-
-    /// <summary>Only hosts without a group. Ignored when <see cref="GroupId"/> is set.</summary>
-    public bool Ungrouped { get; init; }
-
-    [StringLength(50)]
-    public string? Tag { get; init; }
-
-    public ServiceProtocol? Protocol { get; init; }
-
-    public HostSortField Sort { get; init; } = HostSortField.Name;
-
-    public SortDirection Direction { get; init; } = SortDirection.Asc;
-
-    [Range(1, 100_000)]
-    public int Page { get; init; } = 1;
-
-    [Range(1, 200)]
-    public int PageSize { get; init; } = 50;
-}
-
-public sealed record GroupReference(Guid Id, string Name);
-
-public sealed record CredentialReference(Guid Id, string Name, string? Username, string? Domain);
+public sealed record HostTagResponse(string Name, string? Value);
 
 public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label);
 
-public sealed record HostSummaryResponse(
+/// <summary>A credential as seen by clients. Secret values are never included.</summary>
+public sealed record HostCredentialResponse(
     Guid Id,
-    string Name,
-    string? Hostname,
-    string? IpAddress,
-    string? MacAddress,
-    GroupReference? Group,
-    IReadOnlyList<string> Tags,
-    IReadOnlyList<HostServiceResponse> Services,
-    int CredentialCount,
-    DateTimeOffset UpdatedAtUtc);
+    string? Label,
+    string? Username,
+    string? Domain,
+    string? Notes,
+    bool HasPassword,
+    bool HasPrivateKey);
 
 public sealed record HostResponse(
     Guid Id,
@@ -148,12 +163,9 @@ public sealed record HostResponse(
     string? IpAddress,
     string? MacAddress,
     string? Description,
-    GroupReference? Group,
-    IReadOnlyList<string> Tags,
+    IReadOnlyList<HostTagResponse> Tags,
     IReadOnlyList<HostServiceResponse> Services,
-    IReadOnlyList<CredentialReference> Credentials,
+    IReadOnlyList<HostCredentialResponse> Credentials,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     uint Version);
-
-public sealed record PagedResponse<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);

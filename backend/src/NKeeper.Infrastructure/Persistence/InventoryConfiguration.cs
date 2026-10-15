@@ -21,10 +21,9 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
         builder.HasIndex(h => h.Hostname);
         builder.HasIndex(h => h.IpAddress);
 
-        builder.HasOne(h => h.Group).WithMany(g => g.Hosts).HasForeignKey(h => h.GroupId).OnDelete(DeleteBehavior.SetNull);
         builder.HasMany(h => h.Services).WithOne().HasForeignKey(s => s.HostId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasMany(h => h.Tags).WithMany(t => t.Hosts).UsingEntity("HostTags");
-        builder.HasMany(h => h.Credentials).WithMany(c => c.Hosts).UsingEntity("HostCredentials");
+        builder.HasMany(h => h.Tags).WithOne().HasForeignKey(t => t.HostId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(h => h.Credentials).WithOne().HasForeignKey(c => c.HostId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(h => h.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(h => h.UpdatedByUserId).OnDelete(DeleteBehavior.SetNull);
@@ -43,40 +42,28 @@ internal sealed class HostServiceConfiguration : IEntityTypeConfiguration<HostSe
     }
 }
 
-internal sealed class HostGroupConfiguration : IEntityTypeConfiguration<HostGroup>
+internal sealed class HostTagConfiguration : IEntityTypeConfiguration<HostTag>
 {
-    public void Configure(EntityTypeBuilder<HostGroup> builder)
+    public void Configure(EntityTypeBuilder<HostTag> builder)
     {
-        builder.ToTable("HostGroups");
-        builder.Property(g => g.Name).HasMaxLength(100).IsRequired();
-        builder.Property(g => g.NormalizedName).HasMaxLength(100).IsRequired();
-        builder.Property(g => g.Description).HasMaxLength(1000);
-        builder.HasIndex(g => g.NormalizedName).IsUnique();
+        builder.ToTable("HostTags");
+        builder.Property(t => t.Name).HasMaxLength(HostTag.NameMaxLength).IsRequired();
+        builder.Property(t => t.Value).HasMaxLength(HostTag.ValueMaxLength).IsRequired();
+        builder.HasIndex(t => new { t.HostId, t.Name, t.Value }).IsUnique();
+        // Supports "every host with tag env" / "env: production" lookups across hosts.
+        builder.HasIndex(t => new { t.Name, t.Value });
     }
 }
 
-internal sealed class TagConfiguration : IEntityTypeConfiguration<Tag>
+internal sealed class HostCredentialConfiguration : IEntityTypeConfiguration<HostCredential>
 {
-    public void Configure(EntityTypeBuilder<Tag> builder)
+    public void Configure(EntityTypeBuilder<HostCredential> builder)
     {
-        builder.ToTable("Tags");
-        builder.Property(t => t.Name).HasMaxLength(50).IsRequired();
-        builder.Property(t => t.NormalizedName).HasMaxLength(50).IsRequired();
-        builder.HasIndex(t => t.NormalizedName).IsUnique();
-    }
-}
-
-internal sealed class CredentialConfiguration : IEntityTypeConfiguration<Credential>
-{
-    public void Configure(EntityTypeBuilder<Credential> builder)
-    {
-        builder.ToTable("Credentials");
-        builder.Property(c => c.Name).HasMaxLength(100).IsRequired();
+        builder.ToTable("HostCredentials");
+        builder.Property(c => c.Label).HasMaxLength(100);
         builder.Property(c => c.Username).HasMaxLength(256);
         builder.Property(c => c.Domain).HasMaxLength(256);
         builder.Property(c => c.Notes).HasMaxLength(2000);
-        builder.HasIndex(c => c.Name);
-        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(c => c.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
-        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(c => c.UpdatedByUserId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasIndex(c => new { c.HostId, c.Position });
     }
 }

@@ -22,36 +22,6 @@ namespace NKeeper.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("HostCredentials", b =>
-                {
-                    b.Property<Guid>("CredentialsId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("HostsId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("CredentialsId", "HostsId");
-
-                    b.HasIndex("HostsId");
-
-                    b.ToTable("HostCredentials");
-                });
-
-            modelBuilder.Entity("HostTags", b =>
-                {
-                    b.Property<Guid>("HostsId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TagsId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("HostsId", "TagsId");
-
-                    b.HasIndex("TagsId");
-
-                    b.ToTable("HostTags");
-                });
-
             modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>
                 {
                     b.Property<int>("Id")
@@ -299,64 +269,6 @@ namespace NKeeper.Infrastructure.Migrations
                     b.ToTable("AuthSessions", (string)null);
                 });
 
-            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Credential", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("CreatedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Domain")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<byte[]>("ProtectedPassword")
-                        .HasColumnType("bytea");
-
-                    b.Property<byte[]>("ProtectedPrivateKey")
-                        .HasColumnType("bytea");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("UpdatedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Username")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<uint>("Version")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("Name");
-
-                    b.HasIndex("UpdatedByUserId");
-
-                    b.ToTable("Credentials", (string)null);
-                });
-
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Host", b =>
                 {
                     b.Property<Guid>("Id")
@@ -372,9 +284,6 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<string>("Description")
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
-
-                    b.Property<Guid?>("GroupId")
-                        .HasColumnType("uuid");
 
                     b.Property<string>("Hostname")
                         .HasMaxLength(253)
@@ -409,8 +318,6 @@ namespace NKeeper.Infrastructure.Migrations
 
                     b.HasIndex("CreatedByUserId");
 
-                    b.HasIndex("GroupId");
-
                     b.HasIndex("Hostname");
 
                     b.HasIndex("IpAddress");
@@ -425,38 +332,45 @@ namespace NKeeper.Infrastructure.Migrations
                         });
                 });
 
-            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostGroup", b =>
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostCredential", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
+                    b.Property<string>("Domain")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
-                    b.Property<string>("Description")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
+                    b.Property<Guid>("HostId")
+                        .HasColumnType("uuid");
 
-                    b.Property<string>("Name")
-                        .IsRequired()
+                    b.Property<string>("Label")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<string>("NormalizedName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
 
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("ProtectedPassword")
+                        .HasColumnType("bytea");
+
+                    b.Property<byte[]>("ProtectedPrivateKey")
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("Username")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("NormalizedName")
-                        .IsUnique();
+                    b.HasIndex("HostId", "Position");
 
-                    b.ToTable("HostGroups", (string)null);
+                    b.ToTable("HostCredentials", (string)null);
                 });
 
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostService", b =>
@@ -495,58 +409,33 @@ namespace NKeeper.Infrastructure.Migrations
                         });
                 });
 
-            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Tag", b =>
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostTag", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("HostId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
-                    b.Property<string>("NormalizedName")
+                    b.Property<string>("Value")
                         .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("NormalizedName")
+                    b.HasIndex("Name", "Value");
+
+                    b.HasIndex("HostId", "Name", "Value")
                         .IsUnique();
 
-                    b.ToTable("Tags", (string)null);
-                });
-
-            modelBuilder.Entity("HostCredentials", b =>
-                {
-                    b.HasOne("NKeeper.Infrastructure.Inventory.Credential", null)
-                        .WithMany()
-                        .HasForeignKey("CredentialsId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
-                        .WithMany()
-                        .HasForeignKey("HostsId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("HostTags", b =>
-                {
-                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
-                        .WithMany()
-                        .HasForeignKey("HostsId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("NKeeper.Infrastructure.Inventory.Tag", null)
-                        .WithMany()
-                        .HasForeignKey("TagsId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                    b.ToTable("HostTags", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
@@ -609,7 +498,7 @@ namespace NKeeper.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Credential", b =>
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Host", b =>
                 {
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
@@ -622,24 +511,13 @@ namespace NKeeper.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
                 });
 
-            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Host", b =>
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostCredential", b =>
                 {
-                    b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("CreatedByUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("NKeeper.Infrastructure.Inventory.HostGroup", "Group")
-                        .WithMany("Hosts")
-                        .HasForeignKey("GroupId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("UpdatedByUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("Group");
+                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
+                        .WithMany("Credentials")
+                        .HasForeignKey("HostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostService", b =>
@@ -651,14 +529,22 @@ namespace NKeeper.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Host", b =>
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostTag", b =>
                 {
-                    b.Navigation("Services");
+                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
+                        .WithMany("Tags")
+                        .HasForeignKey("HostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
-            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostGroup", b =>
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Host", b =>
                 {
-                    b.Navigation("Hosts");
+                    b.Navigation("Credentials");
+
+                    b.Navigation("Services");
+
+                    b.Navigation("Tags");
                 });
 #pragma warning restore 612, 618
         }

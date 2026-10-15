@@ -17,11 +17,9 @@ public sealed class NKeeperDbContext(DbContextOptions<NKeeperDbContext> options)
 
     public DbSet<HostService> HostServices => Set<HostService>();
 
-    public DbSet<HostGroup> HostGroups => Set<HostGroup>();
+    public DbSet<HostTag> HostTags => Set<HostTag>();
 
-    public DbSet<Tag> Tags => Set<Tag>();
-
-    public DbSet<Credential> Credentials => Set<Credential>();
+    public DbSet<HostCredential> HostCredentials => Set<HostCredential>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

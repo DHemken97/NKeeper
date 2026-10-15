@@ -7,94 +7,52 @@ using Host = NKeeper.Infrastructure.Inventory.Host;
 
 namespace NKeeper.Api.Inventory;
 
-public sealed class HostManager(NKeeperDbContext db, TimeProvider timeProvider)
+/// <summary>
+/// Manages hosts together with the tags, services and credentials they own.
+/// Credential secrets go in encrypted and never come back out.
+/// </summary>
+public sealed class HostManager(NKeeperDbContext db, CredentialProtector protector, TimeProvider timeProvider)
 {
-    private const string LikeEscape = "\\";
-
-    private static readonly Expression<Func<Host, HostSummaryResponse>> SummaryProjection = h => new HostSummaryResponse(
-        h.Id,
-        h.Name,
-        h.Hostname,
-        h.IpAddress,
-        h.MacAddress,
-        h.Group == null ? null : new GroupReference(h.Group.Id, h.Group.Name),
-        h.Tags.OrderBy(t => t.NormalizedName).Select(t => t.Name).ToList(),
-        h.Services.OrderBy(s => s.Position).Select(s => new HostServiceResponse(s.Protocol, s.Port, s.Label)).ToList(),
-        h.Credentials.Count,
-        h.UpdatedAtUtc);
-
-    private static readonly Expression<Func<Host, HostResponse>> DetailProjection = h => new HostResponse(
+    private static readonly Expression<Func<Host, HostResponse>> Projection = h => new HostResponse(
         h.Id,
         h.Name,
         h.Hostname,
         h.IpAddress,
         h.MacAddress,
         h.Description,
-        h.Group == null ? null : new GroupReference(h.Group.Id, h.Group.Name),
-        h.Tags.OrderBy(t => t.NormalizedName).Select(t => t.Name).ToList(),
+        h.Tags
+            .OrderBy(t => t.Name.ToUpper()).ThenBy(t => t.Value.ToUpper())
+            .Select(t => new HostTagResponse(t.Name, t.Value == "" ? null : t.Value))
+            .ToList(),
         h.Services.OrderBy(s => s.Position).Select(s => new HostServiceResponse(s.Protocol, s.Port, s.Label)).ToList(),
-        h.Credentials.OrderBy(c => c.Name.ToUpper()).Select(c => new CredentialReference(c.Id, c.Name, c.Username, c.Domain)).ToList(),
+        h.Credentials
+            .OrderBy(c => c.Position)
+            .Select(c => new HostCredentialResponse(c.Id, c.Label, c.Username, c.Domain, c.Notes, c.ProtectedPassword != null, c.ProtectedPrivateKey != null))
+            .ToList(),
         h.CreatedAtUtc,
         h.UpdatedAtUtc,
         h.Version);
 
-    public async Task<PagedResponse<HostSummaryResponse>> ListAsync(HostListQuery query, CancellationToken cancellationToken)
-    {
-        var hosts = db.Hosts.AsNoTracking();
-
-        foreach (var term in (query.Search ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            var pattern = $"%{EscapeLike(term)}%";
-            hosts = hosts.Where(h =>
-                EF.Functions.ILike(h.Name, pattern, LikeEscape)
-                || (h.Hostname != null && EF.Functions.ILike(h.Hostname, pattern, LikeEscape))
-                || (h.IpAddress != null && EF.Functions.ILike(h.IpAddress, pattern, LikeEscape))
-                || (h.MacAddress != null && EF.Functions.ILike(h.MacAddress, pattern, LikeEscape))
-                || (h.Description != null && EF.Functions.ILike(h.Description, pattern, LikeEscape))
-                || (h.Group != null && EF.Functions.ILike(h.Group.Name, pattern, LikeEscape))
-                || h.Tags.Any(t => EF.Functions.ILike(t.Name, pattern, LikeEscape)));
-        }
-
-        if (query.GroupId is { } groupId)
-        {
-            hosts = hosts.Where(h => h.GroupId == groupId);
-        }
-        else if (query.Ungrouped)
-        {
-            hosts = hosts.Where(h => h.GroupId == null);
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Tag))
-        {
-            var normalizedTag = Tag.Normalize(query.Tag);
-            hosts = hosts.Where(h => h.Tags.Any(t => t.NormalizedName == normalizedTag));
-        }
-
-        if (query.Protocol is { } protocol)
-        {
-            hosts = hosts.Where(h => h.Services.Any(s => s.Protocol == protocol));
-        }
-
-        var totalCount = await hosts.CountAsync(cancellationToken);
-        var items = await Sort(hosts, query.Sort, query.Direction == SortDirection.Desc)
-            .Skip((query.Page - 1) * query.PageSize)
-            .Take(query.PageSize)
-            .Select(SummaryProjection)
+    /// <summary>
+    /// The whole inventory, ordered by name. The client searches, groups and sorts it locally,
+    /// which keeps the connection tree instant (inventories are hundreds to a few thousand hosts).
+    /// </summary>
+    public Task<List<HostResponse>> ListAsync(CancellationToken cancellationToken) =>
+        db.Hosts.AsNoTracking()
+            .OrderBy(h => h.Name.ToUpper()).ThenBy(h => h.Id)
+            .Select(Projection)
+            .AsSplitQuery()
             .ToListAsync(cancellationToken);
 
-        return new PagedResponse<HostSummaryResponse>(items, totalCount, query.Page, query.PageSize);
-    }
-
     public Task<HostResponse?> GetAsync(Guid id, CancellationToken cancellationToken) =>
-        db.Hosts.AsNoTracking().Where(h => h.Id == id).Select(DetailProjection).FirstOrDefaultAsync(cancellationToken);
+        db.Hosts.AsNoTracking().Where(h => h.Id == id).Select(Projection).AsSplitQuery().FirstOrDefaultAsync(cancellationToken);
 
     public async Task<HostResponse> CreateAsync(HostRequest request, Guid userId, CancellationToken cancellationToken)
     {
         var host = new Host { CreatedAtUtc = timeProvider.GetUtcNow(), CreatedByUserId = userId };
-        await ApplyAsync(host, request, userId, cancellationToken);
+        Apply(host, request, userId);
         db.Hosts.Add(host);
         await db.SaveChangesAsync(cancellationToken);
-        await RemoveUnusedTagsAsync(cancellationToken);
         return (await GetAsync(host.Id, cancellationToken))!;
     }
 
@@ -119,25 +77,16 @@ public sealed class HostManager(NKeeperDbContext db, TimeProvider timeProvider)
         }
 
         db.Entry(host).Property(h => h.Version).OriginalValue = version;
-        await ApplyAsync(host, request, userId, cancellationToken);
+        Apply(host, request, userId);
         await db.SaveChangesAsync(cancellationToken);
-        await RemoveUnusedTagsAsync(cancellationToken);
         return await GetAsync(id, cancellationToken);
     }
 
-    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
-    {
-        // Services and tag/credential links are removed by cascading foreign keys.
-        var deleted = await db.Hosts.Where(h => h.Id == id).ExecuteDeleteAsync(cancellationToken) > 0;
-        if (deleted)
-        {
-            await RemoveUnusedTagsAsync(cancellationToken);
-        }
+    /// <summary>Deletes the host; its tags, services and credentials go with it (cascade).</summary>
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken) =>
+        await db.Hosts.Where(h => h.Id == id).ExecuteDeleteAsync(cancellationToken) > 0;
 
-        return deleted;
-    }
-
-    private async Task ApplyAsync(Host host, HostRequest request, Guid userId, CancellationToken cancellationToken)
+    private void Apply(Host host, HostRequest request, Guid userId)
     {
         host.Name = request.Name.Trim();
         host.Hostname = InventoryText.TrimToNull(request.Hostname);
@@ -147,78 +96,90 @@ public sealed class HostManager(NKeeperDbContext db, TimeProvider timeProvider)
         host.UpdatedAtUtc = timeProvider.GetUtcNow();
         host.UpdatedByUserId = userId;
 
-        if (request.GroupId is { } groupId && !await db.HostGroups.AnyAsync(g => g.Id == groupId, cancellationToken))
-        {
-            throw new InventoryValidationException("groupId", "The selected group no longer exists.");
-        }
+        ApplyServices(host, request.Services);
+        ApplyTags(host, request.Tags);
+        ApplyCredentials(host, request.Credentials);
+    }
 
-        host.GroupId = request.GroupId;
-
+    private static void ApplyServices(Host host, IEnumerable<HostServiceRequest> services)
+    {
         host.Services.Clear();
-        host.Services.AddRange(request.Services.Select((s, index) => new HostService
+        host.Services.AddRange(services.Select((s, index) => new HostService
         {
             Protocol = s.Protocol!.Value,
             Port = s.Port,
             Label = InventoryText.TrimToNull(s.Label),
             Position = index,
         }));
+    }
 
-        var tags = await ResolveTagsAsync(request.Tags, cancellationToken);
-        host.Tags.Clear();
-        host.Tags.AddRange(tags);
+    /// <summary>Replaces the tags, dropping case-insensitive duplicates and keeping the first spelling.</summary>
+    private static void ApplyTags(Host host, IEnumerable<HostTagRequest> tags)
+    {
+        var requested = tags
+            .Select(t => (Name: t.Name.Trim(), Value: t.Value?.Trim() ?? string.Empty))
+            .Where(t => t.Name.Length > 0)
+            .DistinctBy(t => (t.Name.ToUpperInvariant(), t.Value.ToUpperInvariant()))
+            .ToList();
 
-        var credentialIds = request.CredentialIds.Distinct().ToList();
-        var credentials = await db.Credentials.Where(c => credentialIds.Contains(c.Id)).ToListAsync(cancellationToken);
-        if (credentials.Count != credentialIds.Count)
+        // Keep rows that are unchanged so their IDs stay stable; remove and add the rest.
+        host.Tags.RemoveAll(existing => !requested.Contains((existing.Name, existing.Value)));
+        foreach (var (name, value) in requested)
         {
-            throw new InventoryValidationException("credentialIds", "One or more selected credentials no longer exist.");
+            if (!host.Tags.Any(t => t.Name == name && t.Value == value))
+            {
+                host.Tags.Add(new HostTag { Name = name, Value = value });
+            }
+        }
+    }
+
+    private void ApplyCredentials(Host host, HostCredentialRequest[] credentials)
+    {
+        var kept = new List<HostCredential>(credentials.Length);
+        for (var index = 0; index < credentials.Length; index++)
+        {
+            var request = credentials[index];
+            HostCredential credential;
+            if (request.Id is { } id)
+            {
+                credential = host.Credentials.FirstOrDefault(c => c.Id == id)
+                    ?? throw new InventoryValidationException(
+                        $"credentials[{index}].id", "This credential no longer exists on the host. Reload and try again.");
+            }
+            else
+            {
+                credential = new HostCredential();
+            }
+
+            credential.Label = InventoryText.TrimToNull(request.Label);
+            credential.Username = InventoryText.TrimToNull(request.Username);
+            credential.Domain = InventoryText.TrimToNull(request.Domain);
+            credential.Notes = InventoryText.TrimToNull(request.Notes);
+            credential.Position = index;
+
+            // Secrets are stored exactly as entered (no trimming): whitespace can be significant.
+            if (!string.IsNullOrEmpty(request.Password))
+            {
+                credential.ProtectedPassword = protector.Protect(request.Password);
+            }
+            else if (request.ClearPassword)
+            {
+                credential.ProtectedPassword = null;
+            }
+
+            if (!string.IsNullOrEmpty(request.PrivateKey))
+            {
+                credential.ProtectedPrivateKey = protector.Protect(request.PrivateKey);
+            }
+            else if (request.ClearPrivateKey)
+            {
+                credential.ProtectedPrivateKey = null;
+            }
+
+            kept.Add(credential);
         }
 
-        host.Credentials.Clear();
-        host.Credentials.AddRange(credentials);
+        host.Credentials.RemoveAll(existing => !kept.Contains(existing));
+        host.Credentials.AddRange(kept.Where(c => !host.Credentials.Contains(c)));
     }
-
-    /// <summary>Finds existing tags case-insensitively and creates the missing ones.</summary>
-    private async Task<List<Tag>> ResolveTagsAsync(IEnumerable<string> names, CancellationToken cancellationToken)
-    {
-        var requested = names
-            .Select(n => n.Trim())
-            .Where(n => n.Length > 0)
-            .DistinctBy(Tag.Normalize)
-            .ToList();
-        var normalized = requested.Select(Tag.Normalize).ToList();
-
-        var existing = await db.Tags.Where(t => normalized.Contains(t.NormalizedName)).ToListAsync(cancellationToken);
-        var created = requested
-            .Where(name => existing.All(t => t.NormalizedName != Tag.Normalize(name)))
-            .Select(name => new Tag { Name = name, NormalizedName = Tag.Normalize(name) });
-
-        return [.. existing, .. created];
-    }
-
-    private Task<int> RemoveUnusedTagsAsync(CancellationToken cancellationToken) =>
-        db.Tags.Where(t => !t.Hosts.Any()).ExecuteDeleteAsync(cancellationToken);
-
-    private static IQueryable<Host> Sort(IQueryable<Host> hosts, HostSortField field, bool descending)
-    {
-        var ordered = field switch
-        {
-            HostSortField.Address => OrderBy(hosts, h => (h.Hostname ?? h.IpAddress)!.ToUpper(), descending),
-            HostSortField.Group => OrderBy(hosts, h => h.Group != null ? h.Group.NormalizedName : null, descending),
-            HostSortField.Updated => OrderBy(hosts, h => h.UpdatedAtUtc, descending),
-            _ => OrderBy(hosts, h => h.Name.ToUpper(), descending),
-        };
-
-        // Stable secondary ordering keeps paging deterministic.
-        return ordered.ThenBy(h => h.Name.ToUpper()).ThenBy(h => h.Id);
-    }
-
-    private static IOrderedQueryable<Host> OrderBy<TKey>(IQueryable<Host> hosts, Expression<Func<Host, TKey>> key, bool descending) =>
-        descending ? hosts.OrderByDescending(key) : hosts.OrderBy(key);
-
-    private static string EscapeLike(string term) =>
-        term.Replace("\\", "\\\\", StringComparison.Ordinal)
-            .Replace("%", "\\%", StringComparison.Ordinal)
-            .Replace("_", "\\_", StringComparison.Ordinal);
-
 }

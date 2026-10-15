@@ -11,11 +11,13 @@ namespace NKeeper.Api.Controllers;
 [Authorize]
 public sealed class HostsController(HostManager hosts) : ControllerBase
 {
-    /// <summary>Searches, filters, sorts and pages the host inventory.</summary>
+    /// <summary>
+    /// The whole inventory with tags, services and credentials (never secrets), ordered by name.
+    /// Clients search, group and sort it locally.
+    /// </summary>
     [HttpGet]
-    [ProducesResponseType<PagedResponse<HostSummaryResponse>>(StatusCodes.Status200OK)]
-    public Task<PagedResponse<HostSummaryResponse>> List([FromQuery] HostListQuery query, CancellationToken cancellationToken) =>
-        hosts.ListAsync(query, cancellationToken);
+    [ProducesResponseType<List<HostResponse>>(StatusCodes.Status200OK)]
+    public Task<List<HostResponse>> List(CancellationToken cancellationToken) => hosts.ListAsync(cancellationToken);
 
     [HttpGet("{id:guid}")]
     [ProducesResponseType<HostResponse>(StatusCodes.Status200OK)]

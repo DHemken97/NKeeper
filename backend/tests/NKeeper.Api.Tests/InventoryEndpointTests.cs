@@ -12,7 +12,7 @@ using NKeeper.Infrastructure.Persistence;
 
 namespace NKeeper.Api.Tests;
 
-/// <summary>Host inventory, credential library, groups and tags against real PostgreSQL.</summary>
+/// <summary>Hosts with their owned tags, services and credentials, against real PostgreSQL.</summary>
 public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAsyncLifetime
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
@@ -30,24 +30,17 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
 
     public async ValueTask DisposeAsync() => await _factory.DisposeAsync();
 
-    [Theory]
-    [InlineData("/api/hosts")]
-    [InlineData("/api/credentials")]
-    [InlineData("/api/groups")]
-    [InlineData("/api/tags")]
-    public async Task InventoryEndpoints_RequireAuthentication(string url)
+    [Fact]
+    public async Task HostEndpoints_RequireAuthentication()
     {
-        var response = await _factory.CreateClient().GetAsync(url, Ct);
+        var response = await _factory.CreateClient().GetAsync("/api/hosts", Ct);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public async Task CreateHost_StoresNormalizedFieldsAndRelations()
+    public async Task CreateHost_StoresNormalizedFieldsAndOwnedItems()
     {
-        var group = await CreateGroupAsync("Datacenter A");
-        var credential = await CreateCredentialAsync("Domain admin", password: "S3cret!");
-
         var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
         {
             name = "  sql01  ",
@@ -55,29 +48,37 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
             ipAddress = "10.0.0.15",
             macAddress = "aa-bb-cc-dd-ee-0f",
             description = "Primary SQL Server",
-            groupId = group.Id,
-            tags = new[] { "production", "SQL", "Production" },
+            tags = new object[]
+            {
+                new { name = "site", value = "Datacenter A" },
+                new { name = "env", value = " production " },
+                new { name = "ENV", value = "PRODUCTION" },
+                new { name = "backup" },
+            },
             services = new object[]
             {
                 new { protocol = "Rdp" },
                 new { protocol = "Ssms", port = 1433, label = "Default instance" },
             },
-            credentialIds = new[] { credential.Id },
+            credentials = new object[]
+            {
+                new { label = "Local admin", username = "administrator", password = "secret-1" },
+                new { username = "sa", domain = "CORP" },
+            },
         }, Ct);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var host = await ReadAsync<HostResponse>(response);
         Assert.Equal("sql01", host.Name);
         Assert.Equal("AA:BB:CC:DD:EE:0F", host.MacAddress);
-        Assert.Equal("Datacenter A", host.Group!.Name);
-        Assert.Equal(["production", "SQL"], host.Tags);
+        Assert.Equal(
+            [new HostTagResponse("backup", null), new HostTagResponse("env", "production"), new HostTagResponse("site", "Datacenter A")],
+            host.Tags);
         Assert.Equal([ServiceProtocol.Rdp, ServiceProtocol.Ssms], host.Services.Select(s => s.Protocol));
-        Assert.Equal(1433, host.Services[1].Port);
-        Assert.Equal(credential.Id, Assert.Single(host.Credentials).Id);
+        Assert.Equal(["Local admin", null], host.Credentials.Select(c => c.Label));
+        Assert.Equal([true, false], host.Credentials.Select(c => c.HasPassword));
+        Assert.Equal("CORP", host.Credentials[1].Domain);
         Assert.Equal(response.Headers.Location!.AbsolutePath, $"/api/hosts/{host.Id}");
-
-        var fetched = await ReadAsync<HostResponse>(await _client.GetAsync($"/api/hosts/{host.Id}", Ct));
-        Assert.Equal(host, fetched with { Tags = host.Tags, Services = host.Services, Credentials = host.Credentials });
     }
 
     [Theory]
@@ -88,8 +89,10 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
     [InlineData("""{"name":"x","hostname":"h","services":[{"protocol":"Ssh","port":70000}]}""", "services[0].port")]
     [InlineData("""{"name":"x","hostname":"h","services":[{}]}""", "services[0].protocol")]
     [InlineData("""{"name":"","hostname":"h"}""", "name")]
-    [InlineData("""{"name":"x","hostname":"h","groupId":"6f1c0d4e-0000-4000-8000-000000000001"}""", "groupId")]
-    [InlineData("""{"name":"x","hostname":"h","credentialIds":["6f1c0d4e-0000-4000-8000-000000000001"]}""", "credentialIds")]
+    [InlineData("""{"name":"x","hostname":"h","tags":[{"name":""}]}""", "tags[0].name")]
+    [InlineData("""{"name":"x","hostname":"h","tags":[{"name":"a:b"}]}""", "tags[0].name")]
+    [InlineData("""{"name":"x","hostname":"h","credentials":[{"password":"p"}]}""", "credentials[0].username")]
+    [InlineData("""{"name":"x","hostname":"h","credentials":[{"id":"6f1c0d4e-0000-4000-8000-000000000001","username":"u"}]}""", "credentials[0].id")]
     public async Task CreateHost_WithInvalidInput_ReturnsFieldError(string body, string field)
     {
         var token = await _client.GetAntiforgeryTokenAsync(Ct);
@@ -105,93 +108,43 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
     }
 
     [Fact]
-    public async Task ListHosts_SearchesAcrossFieldsWithEveryTermRequired()
+    public async Task ListHosts_ReturnsWholeInventorySortedCaseInsensitively()
     {
-        var group = await CreateGroupAsync("Branch Office");
-        await CreateHostAsync("web01", ip: "192.168.10.5", tags: ["nginx"]);
-        await CreateHostAsync("web02", hostname: "web02.example.com", tags: ["iis"], groupId: group.Id);
-        await CreateHostAsync("db01", hostname: "db01.example.com", description: "50% capacity");
+        await CreateHostAsync("charlie", ip: "10.0.0.3");
+        await CreateHostAsync("Bravo", hostname: "bravo", tags: [("env", "prod")]);
+        await CreateHostAsync("alpha", hostname: "alpha");
 
-        Assert.Equal(["web01", "web02"], await SearchNamesAsync("search=web"));
-        Assert.Equal(["web01"], await SearchNamesAsync("search=192.168.10"));
-        Assert.Equal(["web02"], await SearchNamesAsync("search=IIS"));
-        Assert.Equal(["web02"], await SearchNamesAsync("search=branch"));
-        Assert.Equal(["web02"], await SearchNamesAsync("search=web%20example.com"));
-        Assert.Equal(["db01"], await SearchNamesAsync("search=50%25")); // "%" is matched literally
-        Assert.Empty(await SearchNamesAsync("search=web%20db"));
+        var hosts = await ReadAsync<List<HostResponse>>(await _client.GetAsync("/api/hosts", Ct));
+
+        Assert.Equal(["alpha", "Bravo", "charlie"], hosts.Select(h => h.Name));
+        Assert.Equal([new HostTagResponse("env", "prod")], hosts[1].Tags);
     }
 
     [Fact]
-    public async Task ListHosts_FiltersByGroupTagAndService()
+    public async Task UpdateHost_ReplacesTagsAndServicesAndRejectsStaleVersions()
     {
-        var group = await CreateGroupAsync("Linux");
-        await CreateHostAsync("a", hostname: "a", groupId: group.Id, tags: ["prod"], services: [ServiceProtocol.Ssh]);
-        await CreateHostAsync("b", hostname: "b", tags: ["prod"], services: [ServiceProtocol.Rdp]);
-        await CreateHostAsync("c", hostname: "c", services: [ServiceProtocol.Ssh, ServiceProtocol.Vnc]);
-
-        Assert.Equal(["a"], await SearchNamesAsync($"groupId={group.Id}"));
-        Assert.Equal(["b", "c"], await SearchNamesAsync("ungrouped=true"));
-        Assert.Equal(["a", "b"], await SearchNamesAsync("tag=PROD"));
-        Assert.Equal(["a", "c"], await SearchNamesAsync("protocol=ssh"));
-        Assert.Equal(["a"], await SearchNamesAsync("protocol=Ssh&tag=prod"));
-    }
-
-    [Fact]
-    public async Task ListHosts_SortsAndPages()
-    {
-        // Mixed case: sorting must be case-insensitive ("Bravo" between "alpha" and "charlie").
-        await CreateHostAsync("Bravo", hostname: "z.example.com");
-        await CreateHostAsync("alpha", hostname: "m.example.com");
-        await CreateHostAsync("charlie", ip: "10.0.0.1");
-
-        Assert.Equal(["charlie", "Bravo", "alpha"], await SearchNamesAsync("sort=name&direction=desc"));
-        Assert.Equal(["charlie", "alpha", "Bravo"], await SearchNamesAsync("sort=address"));
-
-        var page = await ReadAsync<PagedResponse<HostSummaryResponse>>(await _client.GetAsync("/api/hosts?pageSize=2&page=2", Ct));
-        Assert.Equal(3, page.TotalCount);
-        Assert.Equal("charlie", Assert.Single(page.Items).Name);
-
-        var invalid = await _client.GetAsync("/api/hosts?sort=nonsense", Ct);
-        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
-    }
-
-    [Fact]
-    public async Task UpdateHost_ReplacesValuesAndRejectsStaleVersions()
-    {
-        var host = await CreateHostAsync("app01", hostname: "app01", tags: ["old-tag"], services: [ServiceProtocol.Ssh]);
-        var update = new { name = "app01", hostname = "app01", tags = new[] { "new-tag" }, services = new[] { new { protocol = "Http", port = 8080 } }, version = host.Version };
+        var host = await CreateHostAsync("app01", hostname: "app01", tags: [("env", "staging"), ("role", "web")]);
+        var update = new
+        {
+            name = "app01",
+            hostname = "app01",
+            tags = new object[] { new { name = "env", value = "production" }, new { name = "role", value = "web" } },
+            services = new[] { new { protocol = "Http", port = 8080 } },
+            version = host.Version,
+        };
 
         var first = await _client.SendJsonAsync(HttpMethod.Put, $"/api/hosts/{host.Id}", update, Ct);
         var stale = await _client.SendJsonAsync(HttpMethod.Put, $"/api/hosts/{host.Id}", update, Ct);
 
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         var updated = await ReadAsync<HostResponse>(first);
-        Assert.Equal(["new-tag"], updated.Tags);
+        Assert.Equal([new HostTagResponse("env", "production"), new HostTagResponse("role", "web")], updated.Tags);
         Assert.Equal(ServiceProtocol.Http, Assert.Single(updated.Services).Protocol);
         Assert.NotEqual(host.Version, updated.Version);
 
         Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
         using var problem = JsonDocument.Parse(await stale.Content.ReadAsStringAsync(Ct));
         Assert.Equal("concurrency_conflict", problem.RootElement.GetProperty("code").GetString());
-
-        // Tags no host uses any more are removed.
-        var tags = await ReadAsync<List<TagResponse>>(await _client.GetAsync("/api/tags", Ct));
-        Assert.Equal([new TagResponse("new-tag", 1)], tags);
-    }
-
-    [Fact]
-    public async Task DeleteHost_RemovesItAndReturns404Afterwards()
-    {
-        var host = await CreateHostAsync("temp", hostname: "temp", tags: ["short-lived"]);
-
-        var delete = await _client.SendJsonAsync(HttpMethod.Delete, $"/api/hosts/{host.Id}", null, Ct);
-        var get = await _client.GetAsync($"/api/hosts/{host.Id}", Ct);
-        var deleteAgain = await _client.SendJsonAsync(HttpMethod.Delete, $"/api/hosts/{host.Id}", null, Ct);
-
-        Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, deleteAgain.StatusCode);
-        Assert.Empty(await ReadAsync<List<TagResponse>>(await _client.GetAsync("/api/tags", Ct)));
     }
 
     [Fact]
@@ -200,109 +153,130 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
         const string password = "Pa55word-that-must-not-leak";
         const string privateKey = "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----";
 
-        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/credentials",
-            new { name = "Linux root", username = "root", password, privateKey }, Ct);
+        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        {
+            name = "linux01",
+            hostname = "linux01",
+            credentials = new[] { new { username = "root", password, privateKey } },
+        }, Ct);
         var body = await response.Content.ReadAsStringAsync(Ct);
+        var list = await (await _client.GetAsync("/api/hosts", Ct)).Content.ReadAsStringAsync(Ct);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        Assert.DoesNotContain(password, body, StringComparison.Ordinal);
-        Assert.DoesNotContain("BEGIN OPENSSH", body, StringComparison.Ordinal);
-        var credential = JsonSerializer.Deserialize<CredentialResponse>(body, Json)!;
+        foreach (var json in new[] { body, list })
+        {
+            Assert.DoesNotContain(password, json, StringComparison.Ordinal);
+            Assert.DoesNotContain("BEGIN OPENSSH", json, StringComparison.Ordinal);
+        }
+
+        var credential = Assert.Single(JsonSerializer.Deserialize<HostResponse>(body, Json)!.Credentials);
         Assert.True(credential.HasPassword);
         Assert.True(credential.HasPrivateKey);
 
         await using var scope = _factory.Services.CreateAsyncScope();
-        var stored = await scope.ServiceProvider.GetRequiredService<NKeeperDbContext>().Credentials.AsNoTracking().SingleAsync(Ct);
+        var stored = await scope.ServiceProvider.GetRequiredService<NKeeperDbContext>().HostCredentials.AsNoTracking().SingleAsync(Ct);
         Assert.DoesNotContain(password, Encoding.UTF8.GetString(stored.ProtectedPassword!), StringComparison.Ordinal);
         Assert.Equal(password, scope.ServiceProvider.GetRequiredService<CredentialProtector>().Unprotect(stored.ProtectedPassword!));
     }
 
     [Fact]
-    public async Task UpdateCredential_KeepsOrClearsSecretsExplicitly()
+    public async Task UpdateHost_KeepsClearsAndRemovesCredentialsById()
     {
-        var credential = await CreateCredentialAsync("svc", password: "first-password");
+        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        {
+            name = "db01",
+            hostname = "db01",
+            credentials = new object[]
+            {
+                new { username = "keep", password = "keep-password" },
+                new { username = "clear", password = "clear-password" },
+                new { username = "remove", password = "remove-password" },
+            },
+        }, Ct);
+        var host = await ReadAsync<HostResponse>(response);
+        var (keep, clear) = (host.Credentials[0], host.Credentials[1]);
 
-        var keep = await ReadAsync<CredentialResponse>(await _client.SendJsonAsync(HttpMethod.Put, $"/api/credentials/{credential.Id}",
-            new { name = "svc renamed", username = "svc", version = credential.Version }, Ct));
-        var cleared = await ReadAsync<CredentialResponse>(await _client.SendJsonAsync(HttpMethod.Put, $"/api/credentials/{credential.Id}",
-            new { name = "svc renamed", clearPassword = true, version = keep.Version }, Ct));
+        var updated = await ReadAsync<HostResponse>(await _client.SendJsonAsync(HttpMethod.Put, $"/api/hosts/{host.Id}", new
+        {
+            name = "db01",
+            hostname = "db01",
+            credentials = new object[]
+            {
+                new { username = "new" },
+                new { id = clear.Id, username = "clear", clearPassword = true },
+                new { id = keep.Id, username = "kept-renamed" },
+            },
+            version = host.Version,
+        }, Ct));
 
-        Assert.True(keep.HasPassword);
-        Assert.Equal("svc renamed", keep.Name);
-        Assert.False(cleared.HasPassword);
+        Assert.Equal(["new", "clear", "kept-renamed"], updated.Credentials.Select(c => c.Username));
+        Assert.Equal([false, false, true], updated.Credentials.Select(c => c.HasPassword));
+        Assert.Equal(keep.Id, updated.Credentials[2].Id);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<NKeeperDbContext>().HostCredentials.AsNoTracking().ToListAsync(Ct);
+        Assert.Equal(3, stored.Count);
+        Assert.Equal("keep-password", scope.ServiceProvider.GetRequiredService<CredentialProtector>()
+            .Unprotect(stored.Single(c => c.Id == keep.Id).ProtectedPassword!));
     }
 
     [Fact]
-    public async Task DeleteCredential_DetachesItFromHosts()
+    public async Task UpdateHost_CannotTakeOverAnotherHostsCredential()
     {
-        var credential = await CreateCredentialAsync("shared");
-        var host = await CreateHostAsync("h1", hostname: "h1", credentialIds: [credential.Id]);
-        Assert.Equal(1, (await ReadAsync<List<CredentialResponse>>(await _client.GetAsync("/api/credentials", Ct))).Single().HostCount);
+        var other = await ReadAsync<HostResponse>(await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts",
+            new { name = "other", hostname = "other", credentials = new[] { new { username = "u", password = "p" } } }, Ct));
+        var host = await CreateHostAsync("mine", hostname: "mine");
 
-        var delete = await _client.SendJsonAsync(HttpMethod.Delete, $"/api/credentials/{credential.Id}", null, Ct);
+        var response = await _client.SendJsonAsync(HttpMethod.Put, $"/api/hosts/{host.Id}", new
+        {
+            name = "mine",
+            hostname = "mine",
+            credentials = new[] { new { id = other.Credentials[0].Id, username = "u" } },
+            version = host.Version,
+        }, Ct);
 
-        Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
-        Assert.Empty((await ReadAsync<HostResponse>(await _client.GetAsync($"/api/hosts/{host.Id}", Ct))).Credentials);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
-    public async Task Groups_RejectDuplicateNamesAndDeletingUngroupsHosts()
+    public async Task DeleteHost_RemovesOwnedItemsAndReturns404Afterwards()
     {
-        var group = await CreateGroupAsync("Servers");
-        var host = await CreateHostAsync("h1", hostname: "h1", groupId: group.Id);
+        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        {
+            name = "tmp",
+            hostname = "tmp",
+            tags = new[] { new { name = "env", value = "dev" } },
+            services = new[] { new { protocol = "Ssh" } },
+            credentials = new[] { new { username = "u", password = "p" } },
+        }, Ct);
+        var host = await ReadAsync<HostResponse>(response);
 
-        var duplicate = await _client.SendJsonAsync(HttpMethod.Post, "/api/groups", new { name = "SERVERS" }, Ct);
-        var delete = await _client.SendJsonAsync(HttpMethod.Delete, $"/api/groups/{group.Id}", null, Ct);
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.SendJsonAsync(HttpMethod.Delete, $"/api/hosts/{host.Id}", null, Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/hosts/{host.Id}", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.SendJsonAsync(HttpMethod.Delete, $"/api/hosts/{host.Id}", null, Ct)).StatusCode);
 
-        Assert.Equal(HttpStatusCode.BadRequest, duplicate.StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
-        Assert.Null((await ReadAsync<HostResponse>(await _client.GetAsync($"/api/hosts/{host.Id}", Ct))).Group);
-    }
-
-    private async Task<List<string>> SearchNamesAsync(string queryString)
-    {
-        var response = await _client.GetAsync($"/api/hosts?{queryString}", Ct);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        return [.. (await ReadAsync<PagedResponse<HostSummaryResponse>>(response)).Items.Select(h => h.Name)];
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<NKeeperDbContext>();
+        Assert.Equal(0, await db.HostTags.CountAsync(Ct));
+        Assert.Equal(0, await db.HostServices.CountAsync(Ct));
+        Assert.Equal(0, await db.HostCredentials.CountAsync(Ct));
     }
 
     private async Task<HostResponse> CreateHostAsync(
         string name,
         string? hostname = null,
         string? ip = null,
-        string? description = null,
-        Guid? groupId = null,
-        string[]? tags = null,
-        ServiceProtocol[]? services = null,
-        Guid[]? credentialIds = null)
+        (string Name, string? Value)[]? tags = null)
     {
         var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
         {
             name,
             hostname,
             ipAddress = ip,
-            description,
-            groupId,
-            tags = tags ?? [],
-            services = (services ?? []).Select(p => new { protocol = p.ToString() }),
-            credentialIds = credentialIds ?? [],
+            tags = (tags ?? []).Select(t => new { name = t.Name, value = t.Value }),
         }, Ct);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return await ReadAsync<HostResponse>(response);
-    }
-
-    private async Task<GroupResponse> CreateGroupAsync(string name)
-    {
-        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/groups", new { name }, Ct);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return await ReadAsync<GroupResponse>(response);
-    }
-
-    private async Task<CredentialResponse> CreateCredentialAsync(string name, string? password = null)
-    {
-        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/credentials", new { name, password }, Ct);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return await ReadAsync<CredentialResponse>(response);
     }
 
     private static async Task<T> ReadAsync<T>(HttpResponseMessage response) =>
