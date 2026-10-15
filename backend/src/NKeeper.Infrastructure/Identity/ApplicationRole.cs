@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 
-namespace OpenRemote.Infrastructure.Identity;
+namespace NKeeper.Infrastructure.Identity;
 
 public sealed class ApplicationRole : IdentityRole<Guid>
 {

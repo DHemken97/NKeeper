@@ -1,4 +1,4 @@
-namespace OpenRemote.Infrastructure.Identity;
+namespace NKeeper.Infrastructure.Identity;
 
 /// <summary>
 /// A server-side authentication session. The browser cookie only carries an encrypted

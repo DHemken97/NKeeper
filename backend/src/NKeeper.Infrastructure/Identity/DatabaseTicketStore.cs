@@ -7,9 +7,9 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using OpenRemote.Infrastructure.Persistence;
+using NKeeper.Infrastructure.Persistence;
 
-namespace OpenRemote.Infrastructure.Identity;
+namespace NKeeper.Infrastructure.Identity;
 
 /// <summary>
 /// Stores cookie authentication tickets in PostgreSQL so sessions are server-managed:
@@ -22,7 +22,7 @@ public sealed class DatabaseTicketStore(
     TimeProvider timeProvider) : ITicketStore
 {
     private readonly IDataProtector _protector =
-        dataProtectionProvider.CreateProtector("OpenRemote.Identity.AuthSessions.v1");
+        dataProtectionProvider.CreateProtector("NKeeper.Identity.AuthSessions.v1");
 
     public Task<string> StoreAsync(AuthenticationTicket ticket) => StoreAsync(ticket, CancellationToken.None);
 
@@ -40,7 +40,7 @@ public sealed class DatabaseTicketStore(
         };
 
         await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<OpenRemoteDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<NKeeperDbContext>();
 
         // Opportunistically purge expired sessions so the table does not grow without bound.
         await db.AuthSessions.Where(s => s.ExpiresAtUtc < now).ExecuteDeleteAsync(cancellationToken);
@@ -64,7 +64,7 @@ public sealed class DatabaseTicketStore(
         var expires = ticket.Properties.ExpiresUtc;
 
         await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<OpenRemoteDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<NKeeperDbContext>();
 
         // Update in place only: a session revoked concurrently must not be resurrected.
         await db.AuthSessions
@@ -87,7 +87,7 @@ public sealed class DatabaseTicketStore(
         }
 
         await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<OpenRemoteDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<NKeeperDbContext>();
 
         var session = await db.AuthSessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
         if (session is null)
@@ -123,7 +123,7 @@ public sealed class DatabaseTicketStore(
         }
 
         await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<OpenRemoteDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<NKeeperDbContext>();
         await db.AuthSessions.Where(s => s.Id == id).ExecuteDeleteAsync(cancellationToken);
     }
 

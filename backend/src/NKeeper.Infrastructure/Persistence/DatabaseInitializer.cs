@@ -3,13 +3,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using OpenRemote.Infrastructure.Identity;
+using NKeeper.Infrastructure.Identity;
 
-namespace OpenRemote.Infrastructure.Persistence;
+namespace NKeeper.Infrastructure.Persistence;
 
 /// <summary>Runs optional startup migrations and the optional bootstrap administrator setup.</summary>
 public sealed class DatabaseInitializer(
-    OpenRemoteDbContext db,
+    NKeeperDbContext db,
     UserManager<ApplicationUser> userManager,
     RoleManager<ApplicationRole> roleManager,
     IOptions<DatabaseOptions> databaseOptions,

@@ -1,14 +1,14 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace OpenRemote.Infrastructure.Persistence;
+namespace NKeeper.Infrastructure.Persistence;
 
 public sealed class DatabaseOptions
 {
     public const string SectionName = "Database";
-    public const string ConnectionStringName = "OpenRemote";
+    public const string ConnectionStringName = "NKeeper";
 
-    /// <summary>Populated from <c>ConnectionStrings:OpenRemote</c>.</summary>
-    [Required(ErrorMessage = "ConnectionStrings:OpenRemote must be configured.")]
+    /// <summary>Populated from <c>ConnectionStrings:NKeeper</c>.</summary>
+    [Required(ErrorMessage = "ConnectionStrings:NKeeper must be configured.")]
     public string ConnectionString { get; set; } = string.Empty;
 
     /// <summary>Apply pending EF Core migrations when the application starts.</summary>

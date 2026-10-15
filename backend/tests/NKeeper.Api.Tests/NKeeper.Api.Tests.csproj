@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\OpenRemote.Api\OpenRemote.Api.csproj" />
+    <ProjectReference Include="..\..\src\NKeeper.Api\NKeeper.Api.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
-using OpenRemote.Infrastructure.Identity;
+using NKeeper.Infrastructure.Identity;
 
-namespace OpenRemote.Infrastructure.Persistence;
+namespace NKeeper.Infrastructure.Persistence;
 
-public sealed class OpenRemoteDbContext(DbContextOptions<OpenRemoteDbContext> options)
+public sealed class NKeeperDbContext(DbContextOptions<NKeeperDbContext> options)
     : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>(options), IDataProtectionKeyContext
 {
     public DbSet<AuthSession> AuthSessions => Set<AuthSession>();
@@ -15,6 +15,6 @@ public sealed class OpenRemoteDbContext(DbContextOptions<OpenRemoteDbContext> op
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
-        builder.ApplyConfigurationsFromAssembly(typeof(OpenRemoteDbContext).Assembly);
+        builder.ApplyConfigurationsFromAssembly(typeof(NKeeperDbContext).Assembly);
     }
 }

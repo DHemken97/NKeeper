@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 
-namespace OpenRemote.Infrastructure.Identity;
+namespace NKeeper.Infrastructure.Identity;
 
 /// <summary>
 /// Verifies a username-or-email and password pair. Failures are deliberately indistinguishable

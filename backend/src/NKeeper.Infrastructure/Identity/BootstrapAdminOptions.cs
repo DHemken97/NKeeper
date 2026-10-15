@@ -1,4 +1,4 @@
-namespace OpenRemote.Infrastructure.Identity;
+namespace NKeeper.Infrastructure.Identity;
 
 /// <summary>
 /// Development-time creation of an initial administrator. Disabled unless explicitly enabled,

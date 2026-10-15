@@ -5,14 +5,14 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
-using OpenRemote.Infrastructure.Identity;
-using OpenRemote.Infrastructure.Persistence;
+using NKeeper.Infrastructure.Identity;
+using NKeeper.Infrastructure.Persistence;
 
-namespace OpenRemote.Infrastructure;
+namespace NKeeper.Infrastructure;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddOpenRemoteInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddNKeeperInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString(DatabaseOptions.ConnectionStringName);
 
@@ -30,7 +30,7 @@ public static class DependencyInjection
             .ValidateOnStart();
 
         // The connection string is validated at startup; tooling such as 'dotnet ef migrations add' runs without one.
-        services.AddDbContext<OpenRemoteDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddDbContext<NKeeperDbContext>(options => options.UseNpgsql(connectionString));
 
         services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
             {
@@ -42,12 +42,12 @@ public static class DependencyInjection
                 options.Lockout.MaxFailedAccessAttempts = 5;
                 options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
             })
-            .AddEntityFrameworkStores<OpenRemoteDbContext>();
+            .AddEntityFrameworkStores<NKeeperDbContext>();
 
         // Keys live in PostgreSQL so cookies and antiforgery tokens survive container restarts.
         services.AddDataProtection()
-            .SetApplicationName("OpenRemote")
-            .PersistKeysToDbContext<OpenRemoteDbContext>();
+            .SetApplicationName("NKeeper")
+            .PersistKeysToDbContext<NKeeperDbContext>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<DatabaseTicketStore>();

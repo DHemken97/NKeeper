@@ -1,9 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/OpenRemote.Api/OpenRemote.Api.csproj" />
-    <Project Path="src/OpenRemote.Infrastructure/OpenRemote.Infrastructure.csproj" />
-  </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/OpenRemote.Api.Tests/OpenRemote.Api.Tests.csproj" />
-  </Folder>
-</Solution>

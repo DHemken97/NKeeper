@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using OpenRemote.Infrastructure.Identity;
+using NKeeper.Infrastructure.Identity;
 
-namespace OpenRemote.Infrastructure.Persistence;
+namespace NKeeper.Infrastructure.Persistence;
 
 internal sealed class AuthSessionConfiguration : IEntityTypeConfiguration<AuthSession>
 {
