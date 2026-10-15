@@ -24,6 +24,7 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
         builder.HasMany(h => h.Services).WithOne().HasForeignKey(s => s.HostId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(h => h.Tags).WithOne().HasForeignKey(t => t.HostId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(h => h.Credentials).WithOne().HasForeignKey(c => c.HostId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(h => h.SshHostKeys).WithOne().HasForeignKey(k => k.HostId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(h => h.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(h => h.UpdatedByUserId).OnDelete(DeleteBehavior.SetNull);
@@ -52,6 +53,18 @@ internal sealed class HostTagConfiguration : IEntityTypeConfiguration<HostTag>
         builder.HasIndex(t => new { t.HostId, t.Name, t.Value }).IsUnique();
         // Supports "every host with tag env" / "env: production" lookups across hosts.
         builder.HasIndex(t => new { t.Name, t.Value });
+    }
+}
+
+internal sealed class HostSshKeyConfiguration : IEntityTypeConfiguration<HostSshKey>
+{
+    public void Configure(EntityTypeBuilder<HostSshKey> builder)
+    {
+        builder.ToTable("HostSshKeys");
+        builder.Property(k => k.Algorithm).HasMaxLength(64).IsRequired();
+        builder.Property(k => k.Fingerprint).HasMaxLength(64).IsRequired();
+        builder.HasIndex(k => new { k.HostId, k.Port, k.Algorithm }).IsUnique();
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(k => k.TrustedByUserId).OnDelete(DeleteBehavior.SetNull);
     }
 }
 

@@ -21,6 +21,8 @@ public sealed class NKeeperDbContext(DbContextOptions<NKeeperDbContext> options)
 
     public DbSet<HostCredential> HostCredentials => Set<HostCredential>();
 
+    public DbSet<HostSshKey> HostSshKeys => Set<HostSshKey>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);

@@ -156,6 +156,9 @@ public sealed record HostCredentialResponse(
     bool HasPassword,
     bool HasPrivateKey);
 
+/// <summary>An SSH host key trusted for one of the host's ports.</summary>
+public sealed record SshHostKeyResponse(int Port, string Algorithm, string Fingerprint, DateTimeOffset TrustedAtUtc);
+
 public sealed record HostResponse(
     Guid Id,
     string Name,
@@ -166,6 +169,7 @@ public sealed record HostResponse(
     IReadOnlyList<HostTagResponse> Tags,
     IReadOnlyList<HostServiceResponse> Services,
     IReadOnlyList<HostCredentialResponse> Credentials,
+    IReadOnlyList<SshHostKeyResponse> SshHostKeys,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     uint Version);

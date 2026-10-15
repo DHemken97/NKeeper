@@ -29,6 +29,10 @@ public sealed class HostManager(NKeeperDbContext db, CredentialProtector protect
             .OrderBy(c => c.Position)
             .Select(c => new HostCredentialResponse(c.Id, c.Label, c.Username, c.Domain, c.Notes, c.ProtectedPassword != null, c.ProtectedPrivateKey != null))
             .ToList(),
+        h.SshHostKeys
+            .OrderBy(k => k.Port).ThenBy(k => k.Algorithm)
+            .Select(k => new SshHostKeyResponse(k.Port, k.Algorithm, k.Fingerprint, k.TrustedAtUtc))
+            .ToList(),
         h.CreatedAtUtc,
         h.UpdatedAtUtc,
         h.Version);
@@ -77,9 +81,30 @@ public sealed class HostManager(NKeeperDbContext db, CredentialProtector protect
         }
 
         db.Entry(host).Property(h => h.Version).OriginalValue = version;
+        var previousAddress = (host.Hostname, host.IpAddress);
         Apply(host, request, userId);
         await db.SaveChangesAsync(cancellationToken);
+
+        // A new address may be a different machine: its SSH keys must be confirmed again.
+        if ((host.Hostname, host.IpAddress) != previousAddress)
+        {
+            await db.HostSshKeys.Where(k => k.HostId == id).ExecuteDeleteAsync(cancellationToken);
+        }
+
         return await GetAsync(id, cancellationToken);
+    }
+
+    /// <summary>Forgets every trusted SSH host key, so the next connection asks again.</summary>
+    /// <returns>False when the host does not exist.</returns>
+    public async Task<bool> ForgetSshHostKeysAsync(Guid id, CancellationToken cancellationToken)
+    {
+        if (!await db.Hosts.AnyAsync(h => h.Id == id, cancellationToken))
+        {
+            return false;
+        }
+
+        await db.HostSshKeys.Where(k => k.HostId == id).ExecuteDeleteAsync(cancellationToken);
+        return true;
     }
 
     /// <summary>Deletes the host; its tags, services and credentials go with it (cascade).</summary>

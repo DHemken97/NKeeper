@@ -29,6 +29,9 @@ public sealed class Host
 
     public List<HostCredential> Credentials { get; set; } = [];
 
+    /// <summary>SSH host keys the users trusted (trust on first use). Cleared when the address changes.</summary>
+    public List<HostSshKey> SshHostKeys { get; set; } = [];
+
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset UpdatedAtUtc { get; set; }
@@ -110,6 +113,29 @@ public sealed class HostCredential
 
     /// <summary>Preserves the order the user entered credentials in.</summary>
     public int Position { get; set; }
+}
+
+/// <summary>
+/// A trusted SSH host key for one port of a host. A later connection that presents a different
+/// key for the same algorithm is refused, which is how a man-in-the-middle is detected.
+/// </summary>
+public sealed class HostSshKey
+{
+    public Guid Id { get; set; }
+
+    public Guid HostId { get; set; }
+
+    public int Port { get; set; }
+
+    /// <summary>Host key algorithm, e.g. "ssh-ed25519".</summary>
+    public string Algorithm { get; set; } = string.Empty;
+
+    /// <summary>SHA-256 fingerprint as unpadded base64, as printed by OpenSSH (without the "SHA256:" prefix).</summary>
+    public string Fingerprint { get; set; } = string.Empty;
+
+    public DateTimeOffset TrustedAtUtc { get; set; }
+
+    public Guid? TrustedByUserId { get; set; }
 }
 
 public enum ServiceProtocol

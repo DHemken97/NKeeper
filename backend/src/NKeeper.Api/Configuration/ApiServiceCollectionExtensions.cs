@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using NKeeper.Api.Inventory;
 using NKeeper.Api.Security;
+using NKeeper.Api.Ssh;
 
 namespace NKeeper.Api.Configuration;
 
@@ -49,6 +50,8 @@ internal static class ApiServiceCollectionExtensions
             .AddJsonOptions(options =>
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
         services.AddScoped<HostManager>();
+        services.AddScoped<SshTerminalSession>();
+        services.AddSingleton<SshSessionLimiter>();
         services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier));
         services.AddOpenApi();

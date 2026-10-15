@@ -409,6 +409,44 @@ namespace NKeeper.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostSshKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Algorithm")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("HostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("TrustedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("TrustedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TrustedByUserId");
+
+                    b.HasIndex("HostId", "Port", "Algorithm")
+                        .IsUnique();
+
+                    b.ToTable("HostSshKeys", (string)null);
+                });
+
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostTag", b =>
                 {
                     b.Property<Guid>("Id")
@@ -529,6 +567,20 @@ namespace NKeeper.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostSshKey", b =>
+                {
+                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
+                        .WithMany("SshHostKeys")
+                        .HasForeignKey("HostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("TrustedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostTag", b =>
                 {
                     b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
@@ -543,6 +595,8 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Navigation("Credentials");
 
                     b.Navigation("Services");
+
+                    b.Navigation("SshHostKeys");
 
                     b.Navigation("Tags");
                 });
