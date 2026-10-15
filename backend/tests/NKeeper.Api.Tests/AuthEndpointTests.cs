@@ -78,7 +78,7 @@ public sealed class AuthEndpointTests(PostgresServerFixture postgres) : IAsyncLi
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var problem = await ReadProblemAsync(response);
-        Assert.True(problem.GetProperty("errors").TryGetProperty("UserNameOrEmail", out _));
+        Assert.True(problem.GetProperty("errors").TryGetProperty("userNameOrEmail", out _));
     }
 
     [Fact]

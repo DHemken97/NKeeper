@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -5,8 +6,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
+using NKeeper.Api.Inventory;
 using NKeeper.Api.Security;
 
 namespace NKeeper.Api.Configuration;
@@ -36,7 +39,18 @@ internal static class ApiServiceCollectionExtensions
             .Validate(o => o.IsValid(), "ForwardedHeaders:KnownNetworks entries must be valid CIDR ranges.")
             .ValidateOnStart();
 
-        services.AddControllers(options => options.Filters.Add<ValidateAntiforgeryTokenFilter>());
+        services.AddControllers(options =>
+            {
+                options.Filters.Add<ValidateAntiforgeryTokenFilter>();
+                options.Filters.Add<InventoryExceptionFilter>();
+                // Validation error keys use JSON (camelCase) names so clients can map them to fields.
+                options.ModelMetadataDetailsProviders.Add(new SystemTextJsonValidationMetadataProvider());
+            })
+            .AddJsonOptions(options =>
+                options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
+        services.AddScoped<HostManager>();
+        services.AddScoped<CredentialManager>();
+        services.AddScoped<GroupManager>();
         services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier));
         services.AddOpenApi();

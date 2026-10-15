@@ -3,8 +3,8 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <OutputType>Exe</OutputType>
-    <!-- Test method names use underscores; async test methods do not need ConfigureAwait. -->
-    <NoWarn>$(NoWarn);CA1707;CA2234</NoWarn>
+    <!-- Test names use underscores; inline test-data arrays (CA1861) are clearer than static fields. -->
+    <NoWarn>$(NoWarn);CA1707;CA2234;CA1861</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

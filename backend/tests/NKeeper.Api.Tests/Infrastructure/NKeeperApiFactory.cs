@@ -66,6 +66,26 @@ public static class AuthClientExtensions
         return await client.SendAsync(request, cancellationToken);
     }
 
+    public static async Task<HttpClient> CreateSignedInClientAsync(this NKeeperApiFactory factory, CancellationToken cancellationToken)
+    {
+        var client = factory.CreateClient();
+        (await client.LoginAsync(NKeeperApiFactory.AdminUserName, NKeeperApiFactory.AdminPassword, cancellationToken)).EnsureSuccessStatusCode();
+        return client;
+    }
+
+    /// <summary>Sends a JSON request with a fresh antiforgery token, as the frontend does.</summary>
+    public static async Task<HttpResponseMessage> SendJsonAsync(
+        this HttpClient client, HttpMethod method, string url, object? body, CancellationToken cancellationToken)
+    {
+        var token = await client.GetAntiforgeryTokenAsync(cancellationToken);
+        using var request = new HttpRequestMessage(method, url)
+        {
+            Content = body is null ? null : JsonContent.Create(body),
+        };
+        request.Headers.Add(AntiforgeryHeader, token);
+        return await client.SendAsync(request, cancellationToken);
+    }
+
     public static async Task<HttpResponseMessage> LogoutAsync(this HttpClient client, CancellationToken cancellationToken)
     {
         var token = await client.GetAntiforgeryTokenAsync(cancellationToken);
