@@ -1,0 +1,59 @@
+# NKeeper: full stack (PostgreSQL + API + web frontend).
+#   cp .env.example .env   # then set POSTGRES_PASSWORD
+#   docker compose up -d --build
+# The app is served on http://localhost:${NKEEPER_HTTP_PORT:-8080}. Only the frontend publishes a port;
+# PostgreSQL and the API are reachable solely on the internal Compose network.
+name: nkeeper
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nkeeper}
+      POSTGRES_USER: ${POSTGRES_USER:-nkeeper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    image: nkeeper-backend:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # "postgres" is the service name; never localhost inside a container.
+      ConnectionStrings__NKeeper: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-nkeeper};Username=${POSTGRES_USER:-nkeeper};Password=${POSTGRES_PASSWORD}"
+      Database__MigrateOnStartup: ${NKEEPER_MIGRATE_ON_STARTUP:-true}
+      Authentication__RequireSecureCookies: ${NKEEPER_REQUIRE_SECURE_COOKIES:-true}
+      # The API is only reachable through the frontend's nginx, so its forwarded headers can be trusted.
+      ForwardedHeaders__Enabled: "true"
+      BootstrapAdmin__Enabled: ${NKEEPER_BOOTSTRAP_ADMIN_ENABLED:-false}
+      BootstrapAdmin__AllowOutsideDevelopment: ${NKEEPER_BOOTSTRAP_ADMIN_ALLOW_OUTSIDE_DEVELOPMENT:-false}
+      BootstrapAdmin__UserName: ${NKEEPER_BOOTSTRAP_ADMIN_USERNAME:-}
+      BootstrapAdmin__Email: ${NKEEPER_BOOTSTRAP_ADMIN_EMAIL:-}
+      BootstrapAdmin__Password: ${NKEEPER_BOOTSTRAP_ADMIN_PASSWORD:-}
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    image: nkeeper-frontend:local
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${NKEEPER_HTTP_BIND:-127.0.0.1}:${NKEEPER_HTTP_PORT:-8080}:8080"
+
+volumes:
+  postgres-data:

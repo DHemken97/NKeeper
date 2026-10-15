@@ -1,0 +1,7 @@
+# Local development: run only PostgreSQL in Docker and expose it on the loopback interface,
+# so the API (dotnet run) and frontend (npm run dev) can run directly on the host.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${POSTGRES_DEV_PORT:-5432}:5432"
