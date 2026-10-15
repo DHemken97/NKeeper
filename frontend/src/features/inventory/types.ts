@@ -31,16 +31,10 @@ export const PROTOCOL_INFO: Record<ServiceProtocol, { label: string; name: strin
   Other: { label: 'Other', name: 'Other' },
 }
 
-export interface GroupReference {
-  id: string
+/** A Zabbix-style tag, e.g. { name: 'env', value: 'production' }. */
+export interface HostTag {
   name: string
-}
-
-export interface CredentialReference {
-  id: string
-  name: string
-  username: string | null
-  domain: string | null
+  value: string | null
 }
 
 export interface HostService {
@@ -49,17 +43,15 @@ export interface HostService {
   label: string | null
 }
 
-export interface HostSummary {
+/** A credential as returned by the API. Secrets are never included, only whether they are set. */
+export interface HostCredential {
   id: string
-  name: string
-  hostname: string | null
-  ipAddress: string | null
-  macAddress: string | null
-  group: GroupReference | null
-  tags: string[]
-  services: HostService[]
-  credentialCount: number
-  updatedAtUtc: string
+  label: string | null
+  username: string | null
+  domain: string | null
+  notes: string | null
+  hasPassword: boolean
+  hasPrivateKey: boolean
 }
 
 export interface Host {
@@ -69,13 +61,28 @@ export interface Host {
   ipAddress: string | null
   macAddress: string | null
   description: string | null
-  group: GroupReference | null
-  tags: string[]
+  tags: HostTag[]
   services: HostService[]
-  credentials: CredentialReference[]
+  credentials: HostCredential[]
   createdAtUtc: string
   updatedAtUtc: string
   version: number
+}
+
+/**
+ * A credential in a save request. Send `id` to update an existing one (credentials left out are
+ * deleted). Omit `password`/`privateKey` to keep the stored secret; set `clear…` to remove it.
+ */
+export interface HostCredentialInput {
+  id?: string
+  label: string | null
+  username: string | null
+  domain: string | null
+  notes: string | null
+  password?: string
+  clearPassword?: boolean
+  privateKey?: string
+  clearPrivateKey?: boolean
 }
 
 export interface HostInput {
@@ -84,83 +91,26 @@ export interface HostInput {
   ipAddress: string | null
   macAddress: string | null
   description: string | null
-  groupId: string | null
-  tags: string[]
+  tags: HostTag[]
   services: HostService[]
-  credentialIds: string[]
+  credentials: HostCredentialInput[]
   version?: number
-}
-
-export type HostSortField = 'name' | 'address' | 'group' | 'updated'
-export type SortDirection = 'asc' | 'desc'
-
-export interface HostListQuery {
-  search?: string
-  groupId?: string
-  ungrouped?: boolean
-  tag?: string
-  protocol?: ServiceProtocol
-  sort?: HostSortField
-  direction?: SortDirection
-  page?: number
-  pageSize?: number
-}
-
-export interface Paged<T> {
-  items: T[]
-  totalCount: number
-  page: number
-  pageSize: number
-}
-
-export interface Credential {
-  id: string
-  name: string
-  username: string | null
-  domain: string | null
-  notes: string | null
-  hasPassword: boolean
-  hasPrivateKey: boolean
-  hostCount: number
-  createdAtUtc: string
-  updatedAtUtc: string
-  version: number
-}
-
-export interface CredentialInput {
-  name: string
-  username: string | null
-  domain: string | null
-  /** Omit (undefined) to keep the stored secret. */
-  password?: string
-  clearPassword?: boolean
-  privateKey?: string
-  clearPrivateKey?: boolean
-  notes: string | null
-  version?: number
-}
-
-export interface Group {
-  id: string
-  name: string
-  description: string | null
-  hostCount: number
-}
-
-export interface GroupInput {
-  name: string
-  description: string | null
-}
-
-export interface TagSummary {
-  name: string
-  hostCount: number
 }
 
 /** "DOMAIN\user", "user" or null. */
-export function formatAccount(credential: Pick<CredentialReference, 'username' | 'domain'>): string | null {
+export function formatAccount(credential: Pick<HostCredential, 'username' | 'domain'>): string | null {
   if (!credential.username) {
     return null
   }
   return credential.domain ? `${credential.domain}\\${credential.username}` : credential.username
+}
+
+/** "env: production", or just "backup" for a tag without a value. */
+export function formatTag(tag: HostTag): string {
+  return tag.value ? `${tag.name}: ${tag.value}` : tag.name
+}
+
+/** The address to show for a host: hostname first, else IP. */
+export function primaryAddress(host: Pick<Host, 'hostname' | 'ipAddress'>): string {
+  return host.hostname ?? host.ipAddress ?? ''
 }

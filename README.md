@@ -41,15 +41,15 @@ backend/
   dotnet-tools.json              pins dotnet-ef for migrations
   src/
     NKeeper.Api/                 HTTP layer
-      Controllers/               Auth, Hosts, Credentials, Groups/Tags controllers
-      Inventory/                 host/credential/group managers, address validation, error mapping
+      Controllers/               AuthController (/api/auth/*), HostsController (/api/hosts)
+      Inventory/                 HostManager, address validation, error mapping
       Contracts/                 request/response DTOs (never EF entities)
       Configuration/             options classes, service registration, health check
       Security/                  antiforgery validation filter
       Program.cs
     NKeeper.Infrastructure/      persistence and identity
       Identity/                  ApplicationUser, credential validation, DB ticket store, bootstrap options
-      Inventory/                 Host, HostService, Credential, HostGroup, Tag entities; secret protector
+      Inventory/                 Host and its owned HostTag, HostService, HostCredential; secret protector
       Persistence/               NKeeperDbContext, entity configuration, startup initializer
       Migrations/                EF Core migrations (committed)
   tests/
@@ -58,10 +58,9 @@ frontend/
   src/
     app/                         App, routes, product name config
     components/layout/           AuthLayout, AppLayout, FullPageStatus
-    components/ui/               Button, TextField, PasswordField, Select, TextArea, Checkbox, Dialog, Badge, Alert, Spinner, Logo
+    components/ui/               Button, TextField, PasswordField, TextArea, Checkbox, Badge, Alert, Spinner, Logo
     features/auth/               api/, components/, pages/, types/, context
-    features/dashboard/          overview page
-    features/inventory/          hosts, credentials, groups & tags pages and forms
+    features/inventory/          workspace page, host tree, details and editor; search and grouping logic
     lib/api.ts                   the single HTTP client
     styles/global.css            design tokens
   nginx/                         nginx config used by the Docker image
@@ -178,13 +177,18 @@ run `docker compose up -d`, sign in, then set `NKEEPER_BOOTSTRAP_ADMIN_ENABLED=f
 
 ## Host inventory
 
-Signed-in users manage a shared inventory (there is no per-user or per-workspace scoping yet):
+After sign-in, NKeeper is a single-page workspace in the spirit of mRemoteNG: a host tree on the left, the selected host's details (or editor) on the right. On phones the two panes show one at a time.
 
-- **Hosts** (`/hosts`, API `/api/hosts`): a name, a hostname and/or IP address, optional MAC address and description, one optional group, tags, an ordered list of **services** (SSH, RDP, VNC, SSMS, Telnet, SFTP, FTP, HTTP(S), WinRM, PowerShell, Other, each with an optional port and label; the first is the default) and any number of attached **credentials**. The list is searchable (every space-separated term must match the name, address, MAC, description, group or a tag), filterable by group, tag and service, sortable by name, address, group or last update, and paged. Filters, sort and page live in the URL, so views can be bookmarked.
-- **Credentials** (`/credentials`, API `/api/credentials`): a reusable library of username/domain plus an optional password and SSH private key. Secrets are write-only: they are encrypted with ASP.NET Core Data Protection before storage and never returned by the API (responses only say `hasPassword` / `hasPrivateKey`). Deleting a credential detaches it from its hosts.
-- **Groups & tags** (`/groups`, API `/api/groups`, `/api/tags`): deleting a group leaves its hosts ungrouped. Tags are case-insensitive, created on first use and removed when no host uses them.
+- **Hosts** have a name, a hostname and/or IP address, an optional MAC address and description, and own their **tags**, **services** and **credentials**:
+  - **Tags** are Zabbix-style `name: value` pairs (value optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can carry the same name twice with different values.
+  - **Services** are the ways to connect (SSH, RDP, VNC, SSMS, Telnet, SFTP, FTP, HTTP(S), WinRM, PowerShell, Other), each with an optional port and label. The first one is the default.
+  - **Credentials** (username, domain, label, password, SSH private key, notes) belong to one host. Secrets are write-only: they are encrypted with ASP.NET Core Data Protection before storage and never returned by the API (responses only say `hasPassword` / `hasPrivateKey`). On update, send a credential's `id` to keep it; omitting a secret keeps the stored value, `clearPassword` / `clearPrivateKey` removes it, and credentials left out of the request are deleted.
+- **Hosts are not placed in folders.** The tree is a view: **group by** up to three levels of tag names or service (e.g. site → role). A host appears under every value it has; hosts without the tag collect in a "No site" group.
+- **Search** matches every term against names, addresses, MAC, description, tags, services and accounts. `env:prod` matches a tag by name and value, `site:"Datacenter A"` quotes values with spaces, and `env:` means "has an env tag". Clicking a tag on a host filters by it.
+- **Sort** by name, address or last update (names sort case-insensitively and numerically, so `srv2` comes before `srv10`).
+- Selection, search, grouping and sort live in the URL (`/?group=site&group=role&q=env:prod&host=<id>`), so views can be bookmarked and shared.
 
-Updates use optimistic concurrency: `PUT` requests send back the `version` they read, and a stale version returns `409` with `"code": "concurrency_conflict"`. Connecting to a host (connect → service → credential) is not implemented yet.
+`GET /api/hosts` returns the whole inventory and the browser searches, groups and sorts it locally, which keeps the tree instant for inventories of hundreds to a few thousand hosts. Updates use optimistic concurrency: `PUT /api/hosts/{id}` sends back the `version` it read, and a stale version returns `409` with `"code": "concurrency_conflict"`. Connecting to a host (connect → service → credential) is not implemented yet.
 
 ## Database migrations
 

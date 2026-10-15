@@ -153,15 +153,3 @@ export const api = {
   put: <T>(path: string, options?: RequestOptions) => request<T>('PUT', path, options),
   delete: <T = void>(path: string, options?: RequestOptions) => request<T>('DELETE', path, options),
 }
-
-/** Builds a query string from defined, non-empty values. Returns '' or '?a=1&b=2'. */
-export function toQueryString(params: Record<string, string | number | boolean | null | undefined>): string {
-  const search = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== '' && value !== false) {
-      search.set(key, String(value))
-    }
-  }
-  const query = search.toString()
-  return query ? `?${query}` : ''
-}

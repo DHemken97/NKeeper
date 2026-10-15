@@ -36,6 +36,18 @@
   gap: var(--space-2);
 }
 
+.tagRow {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) auto minmax(9rem, 1.6fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.separator {
+  color: var(--color-text-subtle);
+  font-weight: 600;
+}
+
 .input {
   width: 100%;
   min-height: 2.5rem;
@@ -107,5 +119,9 @@ select.input {
 
   .label {
     grid-column: 1;
+  }
+
+  .tagRow {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.4fr) auto;
   }
 }

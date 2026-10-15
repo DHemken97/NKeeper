@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button } from '../../../components/ui/Button'
-import styles from './Form.module.css'
+import styles from './DeleteButton.module.css'
 
 interface DeleteButtonProps {
   /** What the confirmation asks, e.g. "Delete this host?" */
@@ -10,13 +10,13 @@ interface DeleteButtonProps {
   disabled?: boolean
 }
 
-/** Two-step delete for dialog footers: the first click asks, the second deletes. */
+/** Two-step delete: the first click asks, the second deletes. */
 export function DeleteButton({ question, onConfirm, loading, disabled }: DeleteButtonProps) {
   const [confirming, setConfirming] = useState(false)
 
   if (!confirming) {
     return (
-      <Button variant="danger" className={styles.footerStart} onClick={() => setConfirming(true)} disabled={disabled}>
+      <Button variant="danger" onClick={() => setConfirming(true)} disabled={disabled}>
         Delete
       </Button>
     )

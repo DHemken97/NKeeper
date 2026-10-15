@@ -1,8 +1,8 @@
 import { Button } from '../../../components/ui/Button'
 import { errorFor } from '../../../lib/formErrors'
-import { newServiceDraft, type ServiceDraft } from '../serviceDraft'
+import { newServiceDraft, type ServiceDraft } from '../drafts'
 import { PROTOCOL_INFO, SERVICE_PROTOCOLS, type ServiceProtocol } from '../types'
-import styles from './ServicesEditor.module.css'
+import styles from './ListEditor.module.css'
 
 interface ServicesEditorProps {
   value: ServiceDraft[]

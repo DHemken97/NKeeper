@@ -6,6 +6,8 @@ import { AuthProvider } from '../features/auth/components/AuthProvider'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../test/http'
 import { routes } from './router'
 
+const emptyInventory = { 'GET /api/hosts': () => jsonResponse(200, []) }
+
 const adminUser = { id: '6f1c0d4e-0000-4000-8000-000000000001', userName: 'admin', email: 'admin@example.com', roles: ['Administrator'] }
 
 function renderApp(initialPath = '/') {
@@ -30,17 +32,18 @@ describe('authentication flow', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the dashboard for an existing session', async () => {
-    mockFetch({ 'GET /api/auth/me': () => jsonResponse(200, adminUser) })
+  it('shows the workspace for an existing session', async () => {
+    mockFetch({ ...emptyInventory, 'GET /api/auth/me': () => jsonResponse(200, adminUser) })
 
     renderApp('/')
 
-    expect(await screen.findByRole('heading', { name: 'Welcome to NKeeper' })).toBeInTheDocument()
+    expect(await screen.findByText('Your inventory is empty')).toBeInTheDocument()
   })
 
-  it('signs in, lands on the dashboard, and signs out again', async () => {
+  it('signs in, lands on the workspace, and signs out again', async () => {
     mockFetch({
       ...antiforgeryRoute,
+      ...emptyInventory,
       'GET /api/auth/me': () => jsonResponse(401, { status: 401 }),
       'POST /api/auth/login': () => jsonResponse(200, adminUser),
       'POST /api/auth/logout': () => jsonResponse(204),
@@ -51,7 +54,7 @@ describe('authentication flow', () => {
     await user.type(screen.getByLabelText('Password'), 'correct-password')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
 
-    expect(await screen.findByRole('heading', { name: 'Welcome to NKeeper' })).toBeInTheDocument()
+    expect(await screen.findByText('Your inventory is empty')).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/')
 
     await user.click(screen.getByRole('button', { name: 'Sign out' }))

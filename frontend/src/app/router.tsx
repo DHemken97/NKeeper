@@ -3,10 +3,7 @@ import { AppLayout } from '../components/layout/AppLayout'
 import { ProtectedRoute, PublicOnlyRoute } from '../features/auth/components/RouteGuards'
 import { ForgotPasswordPage } from '../features/auth/pages/ForgotPasswordPage'
 import { LoginPage } from '../features/auth/pages/LoginPage'
-import { DashboardPage } from '../features/dashboard/pages/DashboardPage'
-import { CredentialsPage } from '../features/inventory/pages/CredentialsPage'
-import { GroupsPage } from '../features/inventory/pages/GroupsPage'
-import { HostsPage } from '../features/inventory/pages/HostsPage'
+import { WorkspacePage } from '../features/inventory/pages/WorkspacePage'
 
 /** Route table, kept separate from the router instance so tests can mount it in memory. */
 export const routes: RouteObject[] = [
@@ -22,12 +19,8 @@ export const routes: RouteObject[] = [
     children: [
       {
         element: <AppLayout />,
-        children: [
-          { index: true, element: <DashboardPage /> },
-          { path: '/hosts', element: <HostsPage /> },
-          { path: '/credentials', element: <CredentialsPage /> },
-          { path: '/groups', element: <GroupsPage /> },
-        ],
+        // A single-page workspace; view state (selection, search, grouping) lives in the query string.
+        children: [{ index: true, element: <WorkspacePage /> }],
       },
     ],
   },
