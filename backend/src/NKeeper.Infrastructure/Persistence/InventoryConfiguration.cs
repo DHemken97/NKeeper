@@ -24,7 +24,7 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
         builder.HasMany(h => h.Services).WithOne().HasForeignKey(s => s.HostId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(h => h.Tags).WithOne().HasForeignKey(t => t.HostId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(h => h.Credentials).WithOne().HasForeignKey(c => c.HostId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasMany(h => h.SshHostKeys).WithOne().HasForeignKey(k => k.HostId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(h => h.TrustedKeys).WithOne().HasForeignKey(k => k.HostId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(h => h.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(h => h.UpdatedByUserId).OnDelete(DeleteBehavior.SetNull);
@@ -38,6 +38,7 @@ internal sealed class HostServiceConfiguration : IEntityTypeConfiguration<HostSe
         builder.ToTable("HostServices", t => t.HasCheckConstraint("CK_HostServices_Port", "\"Port\" IS NULL OR (\"Port\" BETWEEN 1 AND 65535)"));
         builder.Property(s => s.Protocol).HasConversion<string>().HasMaxLength(32);
         builder.Property(s => s.Label).HasMaxLength(100);
+        builder.Property(s => s.RdpSecurity).HasConversion<string>().HasMaxLength(16);
         builder.HasIndex(s => new { s.HostId, s.Position });
         builder.HasIndex(s => s.Protocol);
     }
@@ -56,14 +57,15 @@ internal sealed class HostTagConfiguration : IEntityTypeConfiguration<HostTag>
     }
 }
 
-internal sealed class HostSshKeyConfiguration : IEntityTypeConfiguration<HostSshKey>
+internal sealed class HostTrustedKeyConfiguration : IEntityTypeConfiguration<HostTrustedKey>
 {
-    public void Configure(EntityTypeBuilder<HostSshKey> builder)
+    public void Configure(EntityTypeBuilder<HostTrustedKey> builder)
     {
-        builder.ToTable("HostSshKeys");
+        builder.ToTable("HostTrustedKeys");
+        builder.Property(k => k.Protocol).HasConversion<string>().HasMaxLength(32);
         builder.Property(k => k.Algorithm).HasMaxLength(64).IsRequired();
-        builder.Property(k => k.Fingerprint).HasMaxLength(64).IsRequired();
-        builder.HasIndex(k => new { k.HostId, k.Port, k.Algorithm }).IsUnique();
+        builder.Property(k => k.Fingerprint).HasMaxLength(128).IsRequired();
+        builder.HasIndex(k => new { k.HostId, k.Protocol, k.Port, k.Algorithm }).IsUnique();
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(k => k.TrustedByUserId).OnDelete(DeleteBehavior.SetNull);
     }
 }

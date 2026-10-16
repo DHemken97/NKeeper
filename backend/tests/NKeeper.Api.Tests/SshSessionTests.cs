@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NKeeper.Api.Contracts.Inventory;
-using NKeeper.Api.Ssh;
+using NKeeper.Api.RemoteSessions;
 using NKeeper.Api.Tests.Infrastructure;
 using NKeeper.Infrastructure.Persistence;
 
@@ -57,7 +57,7 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
         }
 
         var stored = await GetHostAsync(host.Id);
-        var key = Assert.Single(stored.SshHostKeys);
+        var key = Assert.Single(stored.TrustedKeys);
         Assert.Equal(ssh.Port, key.Port);
 
         // The trusted key is not asked about again.
@@ -77,8 +77,8 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
         await terminal.SendJsonAsync(new { type = "hostKeyDecision", trust = false }, Ct);
 
         var error = await terminal.ExpectAsync("error", Ct);
-        Assert.Equal(SshErrorCodes.HostKeyRejected, error.GetProperty("code").GetString());
-        Assert.Empty((await GetHostAsync(host.Id)).SshHostKeys);
+        Assert.Equal(SessionErrorCodes.HostKeyRejected, error.GetProperty("code").GetString());
+        Assert.Empty((await GetHostAsync(host.Id)).TrustedKeys);
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
         await TrustHostKeyAsync(host);
         await using (var scope = _factory.Services.CreateAsyncScope())
         {
-            await scope.ServiceProvider.GetRequiredService<NKeeperDbContext>().HostSshKeys
+            await scope.ServiceProvider.GetRequiredService<NKeeperDbContext>().HostTrustedKeys
                 .ExecuteUpdateAsync(k => k.SetProperty(x => x.Fingerprint, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"), Ct);
         }
 
@@ -98,7 +98,7 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
         var error = await terminal.ExpectAsync("error", Ct);
 
         Assert.Equal("changed", hostKey.GetProperty("status").GetString());
-        Assert.Equal(SshErrorCodes.HostKeyChanged, error.GetProperty("code").GetString());
+        Assert.Equal(SessionErrorCodes.HostKeyChanged, error.GetProperty("code").GetString());
         Assert.Contains("intercepting", error.GetProperty("message").GetString(), StringComparison.Ordinal);
     }
 
@@ -108,10 +108,10 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
         var host = await CreateHostAsync(new { username = SshServerFixture.UserName, password = SshServerFixture.Password });
         await TrustHostKeyAsync(host);
 
-        var response = await _client.SendJsonAsync(HttpMethod.Delete, $"/api/hosts/{host.Id}/ssh-host-keys", null, Ct);
+        var response = await _client.SendJsonAsync(HttpMethod.Delete, $"/api/hosts/{host.Id}/trusted-keys", null, Ct);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-        Assert.Empty((await GetHostAsync(host.Id)).SshHostKeys);
+        Assert.Empty((await GetHostAsync(host.Id)).TrustedKeys);
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
         await terminal.ExpectAsync("status", Ct);
 
         var error = await terminal.ExpectAsync("error", Ct);
-        Assert.Equal(SshErrorCodes.AuthenticationFailed, error.GetProperty("code").GetString());
+        Assert.Equal(SessionErrorCodes.AuthenticationFailed, error.GetProperty("code").GetString());
     }
 
     [Fact]
@@ -162,7 +162,7 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
         await using var terminal = await StartAsync(host, credentialIndex: 0);
 
         var error = await terminal.ExpectAsync("error", Ct);
-        Assert.Equal(SshErrorCodes.NotSshService, error.GetProperty("code").GetString());
+        Assert.Equal(SessionErrorCodes.WrongService, error.GetProperty("code").GetString());
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
         await terminal.SendJsonAsync(new { type = "start", hostId = host.Id, serviceIndex = 0, credentialId = other.Credentials[0].Id, cols = 80, rows = 24 }, Ct);
 
         var error = await terminal.ExpectAsync("error", Ct);
-        Assert.Equal(SshErrorCodes.CredentialNotFound, error.GetProperty("code").GetString());
+        Assert.Equal(SessionErrorCodes.CredentialNotFound, error.GetProperty("code").GetString());
     }
 
     [Fact]
@@ -206,7 +206,7 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
         }, Ct);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Empty((await response.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!.SshHostKeys);
+        Assert.Empty((await response.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!.TrustedKeys);
     }
 
     private async Task<HostResponse> CreateHostAsync(object? credential, string protocol = "Ssh")

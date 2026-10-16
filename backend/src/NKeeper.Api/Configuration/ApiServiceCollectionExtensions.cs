@@ -11,6 +11,8 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using NKeeper.Api.Inventory;
 using NKeeper.Api.Security;
+using NKeeper.Api.Rdp;
+using NKeeper.Api.RemoteSessions;
 using NKeeper.Api.Ssh;
 
 namespace NKeeper.Api.Configuration;
@@ -34,6 +36,10 @@ internal static class ApiServiceCollectionExtensions
             .Bind(configuration.GetSection(LoginRateLimitSettings.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
+        services.AddOptions<GuacdSettings>()
+            .Bind(configuration.GetSection(GuacdSettings.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
         services.AddOptions<ForwardedHeadersSettings>()
             .Bind(configuration.GetSection(ForwardedHeadersSettings.SectionName))
             .ValidateDataAnnotations()
@@ -50,8 +56,11 @@ internal static class ApiServiceCollectionExtensions
             .AddJsonOptions(options =>
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
         services.AddScoped<HostManager>();
+        services.AddScoped<SessionTargetResolver>();
+        services.AddScoped<TrustedKeyStore>();
         services.AddScoped<SshTerminalSession>();
-        services.AddSingleton<SshSessionLimiter>();
+        services.AddScoped<RdpSession>();
+        services.AddSingleton<SessionLimiter>();
         services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier));
         services.AddOpenApi();

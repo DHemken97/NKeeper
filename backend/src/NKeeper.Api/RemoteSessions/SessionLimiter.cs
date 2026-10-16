@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 
-namespace NKeeper.Api.Ssh;
+namespace NKeeper.Api.RemoteSessions;
 
-/// <summary>Caps concurrent terminal sessions per user (in memory, per API instance).</summary>
-public sealed class SshSessionLimiter
+/// <summary>Caps concurrent remote sessions (SSH and RDP together) per user, in memory, per API instance.</summary>
+public sealed class SessionLimiter
 {
     public const int MaxSessionsPerUser = 20;
 

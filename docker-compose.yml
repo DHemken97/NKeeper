@@ -1,8 +1,8 @@
-# NKeeper: full stack (PostgreSQL + API + web frontend).
+# NKeeper: full stack (PostgreSQL + API + guacd + web frontend).
 #   cp .env.example .env   # then set POSTGRES_PASSWORD
 #   docker compose up -d --build
 # The app is served on http://localhost:${NKEEPER_HTTP_PORT:-8080}. Only the frontend publishes a port;
-# PostgreSQL and the API are reachable solely on the internal Compose network.
+# PostgreSQL, the API and guacd are reachable solely on the internal Compose network.
 name: nkeeper
 
 services:
@@ -21,6 +21,15 @@ services:
       timeout: 5s
       retries: 10
 
+  # Apache Guacamole's connection daemon: the API hands it RDP sessions (with pinned
+  # certificates) and relays the result to the browser. It has no authentication of its own,
+  # so it must never be published or reachable by anything but the API.
+  guacd:
+    image: guacamole/guacd:1.6.0
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
   backend:
     build:
       context: ./backend
@@ -29,12 +38,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      guacd:
+        condition: service_started
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       # "postgres" is the service name; never localhost inside a container.
       ConnectionStrings__NKeeper: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-nkeeper};Username=${POSTGRES_USER:-nkeeper};Password=${POSTGRES_PASSWORD}"
       Database__MigrateOnStartup: ${NKEEPER_MIGRATE_ON_STARTUP:-true}
       Authentication__RequireSecureCookies: ${NKEEPER_REQUIRE_SECURE_COOKIES:-true}
+      Guacd__Host: guacd
+      Guacd__Port: "4822"
       # The API is only reachable through the frontend's nginx, so its forwarded headers can be trusted.
       ForwardedHeaders__Enabled: "true"
       BootstrapAdmin__Enabled: ${NKEEPER_BOOTSTRAP_ADMIN_ENABLED:-false}

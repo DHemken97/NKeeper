@@ -25,7 +25,7 @@ app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
 
-// Terminal sessions (/api/ssh/session). Pings keep idle sessions alive through proxies.
+// Remote sessions (/api/ssh/session, /api/rdp/session). Pings keep idle sessions alive through proxies.
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
 
 if (app.Environment.IsDevelopment())

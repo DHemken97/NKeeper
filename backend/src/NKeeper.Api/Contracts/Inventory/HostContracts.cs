@@ -14,6 +14,9 @@ public sealed record HostServiceRequest
 
     [StringLength(100)]
     public string? Label { get; init; }
+
+    /// <summary>RDP services only; defaults to <see cref="RdpSecurityMode.Auto"/>.</summary>
+    public RdpSecurityMode? RdpSecurity { get; init; }
 }
 
 /// <summary>A <c>name: value</c> tag. The value is optional.</summary>
@@ -144,7 +147,8 @@ public sealed record HostRequest : IValidatableObject
 
 public sealed record HostTagResponse(string Name, string? Value);
 
-public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label);
+/// <summary>A connection method. <see cref="RdpSecurity"/> is set for RDP services only.</summary>
+public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity);
 
 /// <summary>A credential as seen by clients. Secret values are never included.</summary>
 public sealed record HostCredentialResponse(
@@ -156,8 +160,8 @@ public sealed record HostCredentialResponse(
     bool HasPassword,
     bool HasPrivateKey);
 
-/// <summary>An SSH host key trusted for one of the host's ports.</summary>
-public sealed record SshHostKeyResponse(int Port, string Algorithm, string Fingerprint, DateTimeOffset TrustedAtUtc);
+/// <summary>An SSH host key or RDP certificate trusted for one of the host's ports.</summary>
+public sealed record TrustedKeyResponse(ServiceProtocol Protocol, int Port, string Algorithm, string Fingerprint, DateTimeOffset TrustedAtUtc);
 
 public sealed record HostResponse(
     Guid Id,
@@ -169,7 +173,7 @@ public sealed record HostResponse(
     IReadOnlyList<HostTagResponse> Tags,
     IReadOnlyList<HostServiceResponse> Services,
     IReadOnlyList<HostCredentialResponse> Credentials,
-    IReadOnlyList<SshHostKeyResponse> SshHostKeys,
+    IReadOnlyList<TrustedKeyResponse> TrustedKeys,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     uint Version);

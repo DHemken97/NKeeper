@@ -43,12 +43,12 @@ public sealed class HostsController(HostManager hosts) : ControllerBase
     public async Task<ActionResult<HostResponse>> Update(Guid id, HostRequest request, CancellationToken cancellationToken) =>
         await hosts.UpdateAsync(id, request, User.GetUserId(), cancellationToken) is { } host ? host : NotFound();
 
-    /// <summary>Forgets the host's trusted SSH host keys; the next SSH connection asks to trust the key again.</summary>
-    [HttpDelete("{id:guid}/ssh-host-keys")]
+    /// <summary>Forgets the host's trusted SSH host keys and RDP certificates; the next connection asks again.</summary>
+    [HttpDelete("{id:guid}/trusted-keys")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ForgetSshHostKeys(Guid id, CancellationToken cancellationToken) =>
-        await hosts.ForgetSshHostKeysAsync(id, cancellationToken) ? NoContent() : NotFound();
+    public async Task<IActionResult> ForgetTrustedKeys(Guid id, CancellationToken cancellationToken) =>
+        await hosts.ForgetTrustedKeysAsync(id, cancellationToken) ? NoContent() : NotFound();
 
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

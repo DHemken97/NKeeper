@@ -397,6 +397,10 @@ namespace NKeeper.Infrastructure.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<string>("RdpSecurity")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Protocol");
@@ -407,44 +411,6 @@ namespace NKeeper.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("CK_HostServices_Port", "\"Port\" IS NULL OR (\"Port\" BETWEEN 1 AND 65535)");
                         });
-                });
-
-            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostSshKey", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Algorithm")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Fingerprint")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<Guid>("HostId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Port")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("TrustedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("TrustedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TrustedByUserId");
-
-                    b.HasIndex("HostId", "Port", "Algorithm")
-                        .IsUnique();
-
-                    b.ToTable("HostSshKeys", (string)null);
                 });
 
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostTag", b =>
@@ -474,6 +440,49 @@ namespace NKeeper.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("HostTags", (string)null);
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostTrustedKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Algorithm")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("HostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Protocol")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("TrustedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("TrustedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TrustedByUserId");
+
+                    b.HasIndex("HostId", "Protocol", "Port", "Algorithm")
+                        .IsUnique();
+
+                    b.ToTable("HostTrustedKeys", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
@@ -567,10 +576,19 @@ namespace NKeeper.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostSshKey", b =>
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostTag", b =>
                 {
                     b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
-                        .WithMany("SshHostKeys")
+                        .WithMany("Tags")
+                        .HasForeignKey("HostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostTrustedKey", b =>
+                {
+                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
+                        .WithMany("TrustedKeys")
                         .HasForeignKey("HostId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -581,24 +599,15 @@ namespace NKeeper.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
                 });
 
-            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.HostTag", b =>
-                {
-                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
-                        .WithMany("Tags")
-                        .HasForeignKey("HostId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Host", b =>
                 {
                     b.Navigation("Credentials");
 
                     b.Navigation("Services");
 
-                    b.Navigation("SshHostKeys");
-
                     b.Navigation("Tags");
+
+                    b.Navigation("TrustedKeys");
                 });
 #pragma warning restore 612, 618
         }

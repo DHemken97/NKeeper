@@ -55,3 +55,15 @@ public sealed class ForwardedHeadersSettings
 
     internal bool IsValid() => KnownNetworks.All(n => System.Net.IPNetwork.TryParse(n, out _));
 }
+
+/// <summary>Where Apache Guacamole's guacd daemon (the RDP gateway) listens. Never expose it publicly.</summary>
+public sealed class GuacdSettings
+{
+    public const string SectionName = "Guacd";
+
+    [Required]
+    public string Host { get; set; } = "localhost";
+
+    [Range(1, 65535)]
+    public int Port { get; set; } = 4822;
+}

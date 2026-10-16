@@ -1,6 +1,6 @@
 using NKeeper.Api.Configuration;
 
-namespace NKeeper.Api.Ssh;
+namespace NKeeper.Api.RemoteSessions;
 
 /// <summary>
 /// Defends against cross-site WebSocket hijacking. Browsers send cookies with WebSocket

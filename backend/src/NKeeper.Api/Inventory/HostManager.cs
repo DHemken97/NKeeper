@@ -24,14 +24,18 @@ public sealed class HostManager(NKeeperDbContext db, CredentialProtector protect
             .OrderBy(t => t.Name.ToUpper()).ThenBy(t => t.Value.ToUpper())
             .Select(t => new HostTagResponse(t.Name, t.Value == "" ? null : t.Value))
             .ToList(),
-        h.Services.OrderBy(s => s.Position).Select(s => new HostServiceResponse(s.Protocol, s.Port, s.Label)).ToList(),
+        h.Services
+            .OrderBy(s => s.Position)
+            .Select(s => new HostServiceResponse(
+                s.Protocol, s.Port, s.Label, s.Protocol == ServiceProtocol.Rdp ? s.RdpSecurity ?? RdpSecurityMode.Auto : null))
+            .ToList(),
         h.Credentials
             .OrderBy(c => c.Position)
             .Select(c => new HostCredentialResponse(c.Id, c.Label, c.Username, c.Domain, c.Notes, c.ProtectedPassword != null, c.ProtectedPrivateKey != null))
             .ToList(),
-        h.SshHostKeys
-            .OrderBy(k => k.Port).ThenBy(k => k.Algorithm)
-            .Select(k => new SshHostKeyResponse(k.Port, k.Algorithm, k.Fingerprint, k.TrustedAtUtc))
+        h.TrustedKeys
+            .OrderBy(k => k.Protocol).ThenBy(k => k.Port).ThenBy(k => k.Algorithm)
+            .Select(k => new TrustedKeyResponse(k.Protocol, k.Port, k.Algorithm, k.Fingerprint, k.TrustedAtUtc))
             .ToList(),
         h.CreatedAtUtc,
         h.UpdatedAtUtc,
@@ -85,25 +89,25 @@ public sealed class HostManager(NKeeperDbContext db, CredentialProtector protect
         Apply(host, request, userId);
         await db.SaveChangesAsync(cancellationToken);
 
-        // A new address may be a different machine: its SSH keys must be confirmed again.
+        // A new address may be a different machine: its keys and certificates must be confirmed again.
         if ((host.Hostname, host.IpAddress) != previousAddress)
         {
-            await db.HostSshKeys.Where(k => k.HostId == id).ExecuteDeleteAsync(cancellationToken);
+            await db.HostTrustedKeys.Where(k => k.HostId == id).ExecuteDeleteAsync(cancellationToken);
         }
 
         return await GetAsync(id, cancellationToken);
     }
 
-    /// <summary>Forgets every trusted SSH host key, so the next connection asks again.</summary>
+    /// <summary>Forgets every trusted SSH host key and RDP certificate, so the next connection asks again.</summary>
     /// <returns>False when the host does not exist.</returns>
-    public async Task<bool> ForgetSshHostKeysAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<bool> ForgetTrustedKeysAsync(Guid id, CancellationToken cancellationToken)
     {
         if (!await db.Hosts.AnyAsync(h => h.Id == id, cancellationToken))
         {
             return false;
         }
 
-        await db.HostSshKeys.Where(k => k.HostId == id).ExecuteDeleteAsync(cancellationToken);
+        await db.HostTrustedKeys.Where(k => k.HostId == id).ExecuteDeleteAsync(cancellationToken);
         return true;
     }
 
@@ -135,6 +139,7 @@ public sealed class HostManager(NKeeperDbContext db, CredentialProtector protect
             Port = s.Port,
             Label = InventoryText.TrimToNull(s.Label),
             Position = index,
+            RdpSecurity = s.Protocol == ServiceProtocol.Rdp && s.RdpSecurity is not RdpSecurityMode.Auto ? s.RdpSecurity : null,
         }));
     }
 
