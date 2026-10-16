@@ -193,6 +193,7 @@ To put NKeeper behind an existing proxy or load balancer (Caddy, Traefik, F5…)
 1. Point the proxy at the frontend container's HTTP port (`NKEEPER_HTTP_BIND`/`NKEEPER_HTTP_PORT`), and keep that port private to the proxy.
 2. Forward the original `Host` header, and send `X-Forwarded-Proto: https` and `X-Forwarded-For`. The bundled nginx passes an existing `X-Forwarded-Proto` through.
 3. Allow WebSocket upgrades and long idle times (an hour) for `/api/ssh/`, `/api/rdp/`, `/api/vnc/` and `/api/spice/`.
+   Allow request bodies up to 40 MB for `/api/hosts/import` (mRemoteNG imports send the whole file). Many proxies limit uploads to about 1 MB by default.
 4. Route the web-session wildcard names (`*.web.<name>`) to NKeeper too, with a certificate that covers them.
 5. Set `ForwardedHeaders__ForwardLimit=2` on the backend, so rate limiting sees real client IPs through both proxies. Do it in a `docker-compose.override.yml` (git-ignored), which Compose reads automatically:
 

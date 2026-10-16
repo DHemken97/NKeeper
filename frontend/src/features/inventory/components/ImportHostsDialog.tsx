@@ -4,6 +4,7 @@ import { Button } from '../../../components/ui/Button'
 import { Checkbox } from '../../../components/ui/Checkbox'
 import { Dialog } from '../../../components/ui/Dialog'
 import { PasswordField } from '../../../components/ui/PasswordField'
+import { ApiError } from '../../../lib/api'
 import { toFormErrors, type FormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
 import type { HostImportResult } from '../types'
@@ -16,6 +17,8 @@ interface ImportHostsDialogProps {
 }
 
 const FIELDS = ['content', 'masterPassword', 'add', 'delete'] as const
+/** The server accepts files up to 20 MB (HostImportRequest.MaxContentLength). */
+const MAX_FILE_BYTES = 20_000_000
 const NO_ERRORS: FormErrors = { fields: {}, message: null }
 
 /**
@@ -47,6 +50,10 @@ export function ImportHostsDialog({ onClose, onImported }: ImportHostsDialogProp
       setErrors({ fields: { content: 'Choose an mRemoteNG file (confCons.xml or an XML export).' }, message: null })
       return
     }
+    if (file.size > MAX_FILE_BYTES) {
+      setErrors({ fields: { content: 'The file is too large (20 MB at most).' }, message: null })
+      return
+    }
     setBusy(true)
     setErrors(NO_ERRORS)
     try {
@@ -65,7 +72,14 @@ export function ImportHostsDialog({ onClose, onImported }: ImportHostsDialogProp
         onImported()
       }
     } catch (error) {
-      setErrors(toFormErrors(error, FIELDS))
+      setErrors(
+        error instanceof ApiError && error.status === 413
+          ? {
+              fields: {},
+              message: 'The server refused the file as too large. A reverse proxy in front of NKeeper may limit uploads: allow up to 40 MB for /api/hosts/import.',
+            }
+          : toFormErrors(error, FIELDS),
+      )
     } finally {
       setBusy(false)
     }
