@@ -60,6 +60,7 @@ internal static class ApiServiceCollectionExtensions
         services.AddScoped<HostAccess>();
         services.AddScoped<HostManager>();
         services.AddScoped<NKeeper.Api.Inventory.Import.HostImporter>();
+        services.AddSingleton<NKeeper.Api.Inventory.Scanning.ExternalScan>();
         services.AddScoped<NKeeper.Api.Users.UserAdministration>();
         services.AddScoped<SessionTargetResolver>();
         services.AddScoped<TrustedKeyStore>();

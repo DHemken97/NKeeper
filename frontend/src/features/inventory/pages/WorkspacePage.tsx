@@ -11,14 +11,24 @@ import { HostDetails } from '../components/HostDetails'
 import { HostEditor } from '../components/HostEditor'
 import { HostTree } from '../components/HostTree'
 import { ImportHostsDialog } from '../components/ImportHostsDialog'
+import { ScanDialog } from '../components/ScanDialog'
 import { buildTree, decodeGroupKey, encodeGroupKey, sortHosts, tagNames, tagValues, type GroupKey, type HostSort } from '../grouping'
 import { CredentialPromptDialog } from '../../terminal/components/CredentialPromptDialog'
 import type { VirtualMachine } from '../../terminal/kvm'
 import type { RemoteSession } from '../../terminal/types'
 import { useResource } from '../hooks/useResource'
-import { connectMenuEntries, defaultConnection, directWebUrl, hostMenuEntries, serviceLabel, WEB_PROTOCOLS, type HostMenuActions } from '../hostMenu'
+import {
+  connectMenuEntries,
+  credentialNeedsPassword,
+  defaultConnection,
+  directWebUrl,
+  hostMenuEntries,
+  serviceLabel,
+  WEB_PROTOCOLS,
+  type HostMenuActions,
+} from '../hostMenu'
 import { matchesSearch, parseSearch, tagSearchTerm } from '../search'
-import { formatAccount, primaryAddress, type Host, type HostCredential, type HostTag, type ServiceProtocol } from '../types'
+import { formatAccount, primaryAddress, type Host, type HostCredential, type HostTag, type InternalScanLogin, type ServiceProtocol } from '../types'
 import { useAuth } from '../../auth/context'
 import { isAdministrator } from '../../auth/types'
 import styles from './WorkspacePage.module.css'
@@ -80,7 +90,9 @@ export function WorkspacePage() {
   const [sessions, setSessions] = useState<RemoteSession[]>([])
   const [activeTab, setActiveTab] = useState(DETAILS_TAB)
   const [menu, setMenu] = useState<MenuState | null>(null)
-  const [prompt, setPrompt] = useState<{ host: Host; serviceIndex: number } | null>(null)
+  /** Asking for a login: to connect, or for an internal scan. `account` prefills a credential without a secret. */
+  const [prompt, setPrompt] = useState<{ host: Host; serviceIndex: number; account?: HostCredential; purpose: 'connect' | 'scan' } | null>(null)
+  const [scan, setScan] = useState<{ host: Host; kind: 'internal' | 'external'; login?: InternalScanLogin } | null>(null)
   const [importing, setImporting] = useState(false)
 
   const allHosts = local.basedOn !== undefined && local.basedOn === resource.data ? local.hosts : resource.data
@@ -134,7 +146,12 @@ export function WorkspacePage() {
     setActiveTab(DETAILS_TAB)
   }
 
-  function openSession(host: Host, serviceIndex: number, credential?: HostCredential, oneOff?: { username: string; password: string }) {
+  function openSession(
+    host: Host,
+    serviceIndex: number,
+    credential?: HostCredential,
+    oneOff?: { username: string; password: string; domain?: string },
+  ) {
     const id = `session-${nextSessionId++}`
     const account = credential ? (formatAccount(credential) ?? credential.label) : oneOff?.username
     const sameHost = sessions.filter((s) => s.hostId === host.id).length
@@ -182,13 +199,18 @@ export function WorkspacePage() {
 
   const menuActions: HostMenuActions = {
     connect: (host, serviceIndex, credential) => openSession(host, serviceIndex, credential),
-    connectWithPrompt: (host, serviceIndex) => setPrompt({ host, serviceIndex }),
+    connectWithPrompt: (host, serviceIndex, account) => setPrompt({ host, serviceIndex, account, purpose: 'connect' }),
     connectWeb: (host, serviceIndex) => openSession(host, serviceIndex),
     // Called from the menu click itself, so the browser allows the new tab.
     openDirect: (host, serviceIndex) => void window.open(directWebUrl(host, host.services[serviceIndex]), '_blank', 'noopener,noreferrer'),
     edit: (host) => showHost(host.id, true),
     clone: admin ? cloneHost : undefined,
     copyAddress: (host) => void navigator.clipboard?.writeText(primaryAddress(host)),
+    scanInternal: (host, serviceIndex, credential) =>
+      credential && !credentialNeedsPassword(credential, 'Ssh')
+        ? setScan({ host, kind: 'internal', login: { serviceIndex, credentialId: credential.id } })
+        : setPrompt({ host, serviceIndex, account: credential, purpose: 'scan' }),
+    scanExternal: (host) => setScan({ host, kind: 'external' }),
   }
 
   /** Double-click: connect with the first SSH service and credential, or ask for one. */
@@ -197,10 +219,12 @@ export function WorkspacePage() {
     const connection = host ? defaultConnection(host) : null
     if (!host || !connection) {
       showHost(hostId)
-    } else if (WEB_PROTOCOLS.has(host.services[connection.serviceIndex].protocol) || connection.credential) {
-      openSession(host, connection.serviceIndex, connection.credential ?? undefined)
+    } else if (WEB_PROTOCOLS.has(host.services[connection.serviceIndex].protocol)) {
+      openSession(host, connection.serviceIndex)
+    } else if (connection.credential && !credentialNeedsPassword(connection.credential, host.services[connection.serviceIndex].protocol)) {
+      openSession(host, connection.serviceIndex, connection.credential)
     } else {
-      setPrompt({ host, serviceIndex: connection.serviceIndex })
+      setPrompt({ host, serviceIndex: connection.serviceIndex, account: connection.credential ?? undefined, purpose: 'connect' })
     }
   }
 
@@ -509,12 +533,22 @@ export function WorkspacePage() {
         <CredentialPromptDialog
           target={`${prompt.host.name} · ${serviceLabel(prompt.host.services[prompt.serviceIndex])}`}
           usernameOptional={prompt.host.services[prompt.serviceIndex].protocol === 'Vnc'}
+          initialUsername={prompt.account?.username ?? undefined}
+          submitLabel={prompt.purpose === 'scan' ? 'Scan' : undefined}
           onConnect={(username, password) => {
-            openSession(prompt.host, prompt.serviceIndex, undefined, { username, password })
+            if (prompt.purpose === 'scan') {
+              setScan({ host: prompt.host, kind: 'internal', login: { serviceIndex: prompt.serviceIndex, username, password } })
+            } else {
+              const domain = prompt.account?.domain ?? undefined
+              openSession(prompt.host, prompt.serviceIndex, undefined, { username, password, ...(domain ? { domain } : {}) })
+            }
             setPrompt(null)
           }}
           onCancel={() => setPrompt(null)}
         />
+      ) : null}
+      {scan ? (
+        <ScanDialog host={scan.host} kind={scan.kind} login={scan.login} onClose={() => setScan(null)} onApplied={handleChanged} />
       ) : null}
       {importing ? <ImportHostsDialog onClose={() => setImporting(false)} onImported={resource.reload} /> : null}
     </div>

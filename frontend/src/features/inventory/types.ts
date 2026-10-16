@@ -170,3 +170,46 @@ export interface HostImportResult {
   skipped: { name: string; reason: string }[]
   warnings: string[]
 }
+
+/** A listening (internal scan) or open (external scan) TCP port; `protocol` is set when it can be an NKeeper service. */
+export interface ScannedPort {
+  port: number
+  name: string | null
+  protocol: ServiceProtocol | null
+}
+
+/** A local account that can log in, found by an internal scan. */
+export interface ScannedUser {
+  username: string
+  uid: number
+  fullName: string | null
+  shell: string
+}
+
+/** What a scan found. Nothing is saved until the user applies findings to the host. */
+export interface ScanFindings {
+  hostname: string | null
+  /** The address the host was reached on. */
+  ipAddress: string | null
+  macAddress: string | null
+  operatingSystem: string | null
+  ports: ScannedPort[]
+  isKvmHost: boolean
+  /** Internal scans only. */
+  users: ScannedUser[]
+  notes: string[]
+}
+
+export interface ScanResponse {
+  status: 'ready' | 'trustRequired'
+  findings: ScanFindings | null
+  hostKey: { algorithm: string; fingerprint: string } | null
+}
+
+/** How an internal scan logs in: a saved credential, or a one-off username and password. */
+export interface InternalScanLogin {
+  serviceIndex: number
+  credentialId?: string
+  username?: string
+  password?: string
+}

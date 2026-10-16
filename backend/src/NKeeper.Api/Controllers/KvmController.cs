@@ -10,6 +10,7 @@ using NKeeper.Api.Configuration;
 using NKeeper.Api.Kvm;
 using NKeeper.Api.RemoteSessions;
 using NKeeper.Api.Security;
+using NKeeper.Api.Ssh;
 using NKeeper.Infrastructure.Inventory;
 using Renci.SshNet;
 
@@ -255,22 +256,8 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
         var services = HttpContext.RequestServices;
         var target = await services.GetRequiredService<SessionTargetResolver>()
             .ResolveAsync(request, RequestUser.From(User), ServiceProtocol.Kvm, DefaultSshPort, cancellationToken);
-        return await KvmHost.ConnectAsync(target, request.TrustFingerprint, User.GetUserId(), services.GetRequiredService<TrustedKeyStore>(), cancellationToken);
+        return await SshCommandConnection.ConnectAsync(target, request.TrustFingerprint, User.GetUserId(), services.GetRequiredService<TrustedKeyStore>(), cancellationToken);
     }
 
-    /// <summary>Session failures as problem details with the session error code (never 401, which would sign the user out).</summary>
-    private ObjectResult Failure(SessionException ex)
-    {
-        var status = ex.Code switch
-        {
-            SessionErrorCodes.HostNotFound or SessionErrorCodes.CredentialNotFound => StatusCodes.Status404NotFound,
-            SessionErrorCodes.HostKeyChanged => StatusCodes.Status409Conflict,
-            SessionErrorCodes.TooManySessions => StatusCodes.Status429TooManyRequests,
-            SessionErrorCodes.ConnectionFailed or SessionErrorCodes.Timeout => StatusCodes.Status502BadGateway,
-            _ => StatusCodes.Status400BadRequest,
-        };
-        var problem = ProblemDetailsFactory.CreateProblemDetails(HttpContext, status, detail: ex.Message);
-        problem.Extensions["code"] = ex.Code;
-        return new ObjectResult(problem) { StatusCode = status };
-    }
+    private ObjectResult Failure(SessionException ex) => this.SessionFailure(ex);
 }

@@ -10,13 +10,24 @@ interface CredentialPromptDialogProps {
   target: string
   /** VNC servers usually ask for a password only. */
   usernameOptional?: boolean
+  /** Prefilled from a saved credential that has no password; the password field then has focus. */
+  initialUsername?: string
+  /** The submit button, e.g. "Scan"; "Connect" by default. */
+  submitLabel?: string
   onConnect: (username: string, password: string) => void
   onCancel: () => void
 }
 
 /** Asks for a one-off username and password. Nothing is saved to the host. */
-export function CredentialPromptDialog({ target, usernameOptional = false, onConnect, onCancel }: CredentialPromptDialogProps) {
-  const [username, setUsername] = useState('')
+export function CredentialPromptDialog({
+  target,
+  usernameOptional = false,
+  initialUsername = '',
+  submitLabel = 'Connect',
+  onConnect,
+  onCancel,
+}: CredentialPromptDialogProps) {
+  const [username, setUsername] = useState(initialUsername)
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -40,7 +51,7 @@ export function CredentialPromptDialog({ target, usernameOptional = false, onCon
             Cancel
           </Button>
           <Button type="submit" form="credential-prompt">
-            Connect
+            {submitLabel}
           </Button>
         </>
       }
@@ -54,7 +65,7 @@ export function CredentialPromptDialog({ target, usernameOptional = false, onCon
           autoComplete="username"
           spellCheck={false}
           maxLength={256}
-          data-autofocus
+          data-autofocus={initialUsername ? undefined : true}
         />
         <PasswordField
           label="Password"
@@ -62,8 +73,13 @@ export function CredentialPromptDialog({ target, usernameOptional = false, onCon
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password"
           maxLength={1024}
+          data-autofocus={initialUsername ? true : undefined}
         />
-        <p className={styles.hint}>Used for this session only and not saved. To save it, add a credential to the host.</p>
+        <p className={styles.hint}>
+          {initialUsername
+            ? 'Used this time only and not saved. To save it, edit the host and set the credential’s password.'
+            : 'Used this time only and not saved. To save it, add a credential to the host.'}
+        </p>
       </form>
     </Dialog>
   )
