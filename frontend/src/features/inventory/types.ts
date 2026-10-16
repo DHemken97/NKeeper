@@ -11,6 +11,7 @@ export const SERVICE_PROTOCOLS = [
   'Https',
   'WinRm',
   'PowerShell',
+  'Kvm',
   'Other',
 ] as const
 
@@ -28,6 +29,7 @@ export const PROTOCOL_INFO: Record<ServiceProtocol, { label: string; name: strin
   Https: { label: 'HTTPS', name: 'Web (HTTPS)', defaultPort: 443 },
   WinRm: { label: 'WinRM', name: 'WinRM', defaultPort: 5985 },
   PowerShell: { label: 'PowerShell', name: 'PowerShell Remoting', defaultPort: 5985 },
+  Kvm: { label: 'KVM', name: 'KVM / libvirt (over SSH)', defaultPort: 22 },
   Other: { label: 'Other', name: 'Other' },
 }
 

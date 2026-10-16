@@ -226,3 +226,75 @@
   color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
+
+/* KVM: the host's virtual machines. */
+.vmList {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: var(--space-4);
+}
+
+.vmEmpty {
+  color: var(--color-text-muted);
+}
+
+.vmTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.vmTable th {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.vmTable td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.vmTable .dot {
+  display: inline-block;
+  margin-right: var(--space-1);
+}
+
+.vmName {
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+
+.vmActions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* SPICE console: the VM's display at its own resolution, scrollable when larger than the tab. */
+.spiceScroller {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: auto;
+  background: #000;
+}
+
+.spiceScreen {
+  flex-shrink: 0;
+  margin: auto;
+}
+
+.spiceScreen canvas {
+  display: block;
+}
+
+.spiceScreen canvas:focus {
+  outline: none;
+}

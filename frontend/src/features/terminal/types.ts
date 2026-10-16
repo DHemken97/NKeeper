@@ -1,5 +1,6 @@
 /** Protocols NKeeper opens sessions for. */
-export type SessionProtocol = 'ssh' | 'rdp' | 'vnc' | 'web'
+/** kvm: a hypervisor's VM list; spice: one VM's console. */
+export type SessionProtocol = 'ssh' | 'rdp' | 'vnc' | 'web' | 'kvm' | 'spice'
 
 /** What the browser asks the server to connect to. Secrets for saved credentials stay on the server. */
 export interface SessionRequest {
@@ -7,8 +8,13 @@ export interface SessionRequest {
   /** Index into the host's ordered services. */
   serviceIndex: number
   credentialId?: string
-  /** One-off login typed into the prompt; sent once and then dropped from memory. */
+  /**
+   * One-off login typed into the prompt. SSH/RDP/VNC send it once and drop it; a KVM tab keeps it
+   * (in memory, for the tab's lifetime) to open VM consoles.
+   */
   oneOff?: { username: string; password: string; domain?: string }
+  /** For VM consoles: the virtual machine on the KVM host. */
+  vm?: { uuid: string; name: string }
 }
 
 /** An open session tab. */

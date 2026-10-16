@@ -15,6 +15,7 @@ NKeeper is a free, open-source, web-based remote connection manager — a browse
 - [SSH sessions](#ssh-sessions)
 - [RDP sessions](#rdp-sessions)
 - [VNC sessions](#vnc-sessions)
+- [KVM virtual machines (SPICE consoles)](#kvm-virtual-machines-spice-consoles)
 - [Web sessions (HTTP/HTTPS)](#web-sessions-httphttps)
 - [Users and access](#users-and-access)
 - [Database migrations](#database-migrations)
@@ -188,7 +189,7 @@ After sign-in, NKeeper is a single-page workspace in the spirit of mRemoteNG: a 
 
 - **Hosts** have a name, a hostname and/or IP address, an optional MAC address and description, and own their **tags**, **services** and **credentials**:
   - **Tags** are Zabbix-style `name: value` pairs (value optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can carry the same name twice with different values.
-  - **Services** are the ways to connect (SSH, RDP, VNC, SSMS, Telnet, SFTP, FTP, HTTP(S), WinRM, PowerShell, Other), each with an optional port and label. The first one is the default.
+  - **Services** are the ways to connect (SSH, RDP, VNC, SSMS, Telnet, SFTP, FTP, HTTP(S), WinRM, PowerShell, KVM, Other), each with an optional port and label. The first one is the default.
   - **Credentials** (username, domain, label, password, SSH private key, notes) belong to one host. Secrets are write-only: they are encrypted with ASP.NET Core Data Protection before storage and never returned by the API (responses only say `hasPassword` / `hasPrivateKey`). On update, send a credential's `id` to keep it; omitting a secret keeps the stored value, `clearPassword` / `clearPrivateKey` removes it, and credentials left out of the request are deleted.
 - **Hosts are not placed in folders.** The tree is a view: **group by** up to three levels of tag names or service (e.g. site → role). A host appears under every value it has; hosts without the tag collect in a "No site" group.
 - **Search** matches every term against names, addresses, MAC, description, tags, services and accounts. `env:prod` matches a tag by name and value, `site:"Datacenter A"` quotes values with spaces, and `env:` means "has an env tag". Clicking a tag on a host filters by it.
@@ -224,6 +225,16 @@ In the session: keyboard input goes to the remote desktop while it has focus; **
 VNC services connect like RDP (**Connect ▸ VNC ▸ credential**), through the same guacd gateway. Most VNC servers only ask for a password, so a VNC credential needs a password and the username is optional (the one-off prompt marks it optional too). The desktop scales to the tab, the text clipboard syncs, and Ctrl+Alt+Del and Fullscreen are in the status bar.
 
 VNC has no certificate to verify, so there is no trust prompt — and plain VNC doesn't encrypt: your browser's connection to NKeeper is protected, but the hop from NKeeper to the host is not. The session's status bar says so ("Unencrypted to host"). Prefer VNC on trusted networks, or tunnel it.
+
+## KVM virtual machines (SPICE consoles)
+
+Add a **KVM** service to a hypervisor (port 22 by default) with an SSH credential, then **Connect ▸ KVM ▸ credential**. Like virt-manager, NKeeper connects over SSH and asks libvirt (`virsh -c qemu:///system`) for the VMs; the tab lists each VM's name, state and console type. **Open console** on a running VM with a SPICE display opens it in its own tab, drawn in the browser by the vendored [spice-html5](frontend/src/vendor/spice-html5/README.md) client, with Ctrl+Alt+Del and Fullscreen in the status bar.
+
+- The browser never connects to the hypervisor: NKeeper's server tunnels each SPICE channel through its SSH connection to the VM's console port (which usually listens only on the hypervisor's loopback). The host key is trusted on first use and shared with SSH sessions.
+- Requirements on the hypervisor: the SSH user can use `qemu:///system` (e.g. is in the `libvirt` group), and sshd allows TCP forwarding (`AllowTcpForwarding yes`, the OpenSSH default).
+- The display is shown at the VM's resolution (scroll if it's larger than the tab). With the SPICE guest agent (`spice-vdagent`) installed in the VM, the resolution follows the tab's size.
+- A VM's SPICE password (if set) is read from libvirt and used automatically. SPICE configured for TLS only isn't supported yet; nor are VMs with VNC displays (use a VNC service for those).
+- One console is open at a time (spice-html5 uses page-wide element IDs): opening another replaces it. A console with no open channel for 5 minutes is closed on the server, and none lasts more than 12 hours.
 
 ## Web sessions (HTTP/HTTPS)
 
@@ -374,7 +385,7 @@ NKeeper must be served over HTTPS in production. The frontend container speaks p
 
 ## Known limitations
 
-- SSH, RDP, VNC and web (HTTP/HTTPS) sessions are implemented; the other services are listed as "Coming soon". RDP one-off logins have no domain field yet (use a saved credential for domain accounts). Workspaces, user groups (teams), an audit-event store, SignalR collaboration and mRemoteNG import are not implemented yet. 
+- SSH, RDP, VNC, web (HTTP/HTTPS) sessions and KVM SPICE consoles are implemented (one SPICE console at a time; no TLS-only SPICE, audio is not tested); the other services are listed as "Coming soon". RDP one-off logins have no domain field yet (use a saved credential for domain accounts). Workspaces, user groups (teams), an audit-event store, SignalR collaboration and mRemoteNG import are not implemented yet. 
 - Terminal sessions live in the API process: restarting the backend ends them, and the per-user session limit is per instance. SSH agent forwarding, port forwarding, jump hosts and SFTP are not supported yet.
 - No self-service "forgot password" (an administrator resets it); the link shows a placeholder.
 - Data Protection keys are stored unencrypted in PostgreSQL (ASP.NET Core logs a warning about this), next to the credential secrets they encrypt. Protect them with a certificate or key vault (`ProtectKeysWith…`) before production use, and back them up: losing the keys makes stored passwords and SSH keys unrecoverable.

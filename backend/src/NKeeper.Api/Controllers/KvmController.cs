@@ -79,6 +79,12 @@ public sealed class KvmController(SpiceSessionStore consoles, IOptions<CorsSetti
             var vms = await KvmHost.ListAsync(client, cancellationToken);
             var machine = vms.FirstOrDefault(v => v.Uuid == vm)
                 ?? throw new SessionException(SessionErrorCodes.HostNotFound, "This virtual machine no longer exists.");
+            if (!string.Equals(machine.State, "running", StringComparison.Ordinal))
+            {
+                throw new SessionException(
+                    SessionErrorCodes.ConnectionFailed, $"“{machine.Name}” is not running ({machine.State}). Start it, then open its console.");
+            }
+
             var display = await KvmHost.GetSpiceDisplayAsync(client, vm, cancellationToken);
 
             var session = consoles.TryCreate(User.GetUserId(), request.HostId, machine.Name, client, display);

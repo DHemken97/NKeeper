@@ -2,7 +2,7 @@ import type { MenuEntry } from '../../components/ui/ContextMenu'
 import { formatAccount, PROTOCOL_INFO, primaryAddress, type Host, type HostCredential, type HostService, type ServiceProtocol } from './types'
 
 /** Protocols NKeeper can open sessions for today. */
-const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp', 'Vnc', 'Http', 'Https'])
+const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp', 'Vnc', 'Http', 'Https', 'Kvm'])
 
 /** Web services open the host's own web interface; they need no credential from NKeeper. */
 export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https'])

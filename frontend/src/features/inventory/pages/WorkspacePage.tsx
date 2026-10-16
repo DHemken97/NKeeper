@@ -12,6 +12,7 @@ import { HostEditor } from '../components/HostEditor'
 import { HostTree } from '../components/HostTree'
 import { buildTree, decodeGroupKey, encodeGroupKey, sortHosts, tagNames, tagValues, type GroupKey, type HostSort } from '../grouping'
 import { CredentialPromptDialog } from '../../terminal/components/CredentialPromptDialog'
+import type { VirtualMachine } from '../../terminal/kvm'
 import type { RemoteSession } from '../../terminal/types'
 import { useResource } from '../hooks/useResource'
 import { connectMenuEntries, defaultConnection, directWebUrl, hostMenuEntries, serviceLabel, WEB_PROTOCOLS, type HostMenuActions } from '../hostMenu'
@@ -29,6 +30,10 @@ let nextSessionId = 1
 const SshTerminal = lazy(() => import('../../terminal/components/SshTerminal').then((m) => ({ default: m.SshTerminal })))
 const WebSession = lazy(() => import('../../terminal/components/WebSession').then((m) => ({ default: m.WebSession })))
 const DesktopSession = lazy(() => import('../../terminal/components/DesktopSession').then((m) => ({ default: m.DesktopSession })))
+const VirtualMachinesView = lazy(() =>
+  import('../../terminal/components/VirtualMachinesView').then((m) => ({ default: m.VirtualMachinesView })),
+)
+const SpiceConsole = lazy(() => import('../../terminal/components/SpiceConsole').then((m) => ({ default: m.SpiceConsole })))
 const SORTS: { value: HostSort; label: string }[] = [
   { value: 'name', label: 'Name' },
   { value: 'address', label: 'Address' },
@@ -46,7 +51,7 @@ function sessionProtocol(protocol: ServiceProtocol): RemoteSession['protocol'] {
   if (WEB_PROTOCOLS.has(protocol)) {
     return 'web'
   }
-  return protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : 'ssh'
+  return protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : 'ssh'
 }
 
 interface MenuState {
@@ -131,6 +136,24 @@ export function WorkspacePage() {
         title: sameHost > 0 ? `${host.name} (${sameHost + 1})` : host.name,
         detail: [serviceLabel(host.services[serviceIndex]), account].filter(Boolean).join(' · '),
         request: { hostId: host.id, serviceIndex, credentialId: credential?.id, oneOff },
+      },
+    ])
+    setActiveTab(id)
+  }
+
+  /** Opens a VM's console from a KVM host's tab, with the same login. */
+  function openConsole(source: RemoteSession, vm: VirtualMachine) {
+    const id = `session-${nextSessionId++}`
+    // spice-html5 gives its canvases page-wide IDs, so one console is open at a time: it replaces the last.
+    setSessions((current) => [
+      ...current.filter((s) => s.protocol !== 'spice'),
+      {
+        id,
+        hostId: source.hostId,
+        protocol: 'spice',
+        title: vm.name,
+        detail: `Console · ${source.title}`,
+        request: { ...source.request, vm: { uuid: vm.uuid, name: vm.name } },
       },
     ])
     setActiveTab(id)
@@ -419,6 +442,16 @@ export function WorkspacePage() {
                 onShowHost={(id) => showHost(id)}
                 onEnded={() => closeSession(session.id)}
               />
+            ) : session.protocol === 'kvm' ? (
+              <VirtualMachinesView
+                key={session.id}
+                session={session}
+                active={activeTab === session.id}
+                onShowHost={(id) => showHost(id)}
+                onOpenConsole={(vm) => openConsole(session, vm)}
+              />
+            ) : session.protocol === 'spice' ? (
+              <SpiceConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'rdp' || session.protocol === 'vnc' ? (
               <DesktopSession
                 key={session.id}
