@@ -48,18 +48,17 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
 
             if (protocol == ServiceProtocol.Rpc)
             {
-                if (!OperatingSystem.IsWindows())
-                {
-                    return Problem(statusCode: StatusCodes.Status501NotImplemented, detail: "Scanning Windows hosts needs the NKeeper API to run on Windows (it uses WMI over DCOM).");
-                }
-
                 var windowsTarget = await resolver.ResolveAsync(request with { HostId = id }, user, ServiceProtocol.Rpc, 135, cancellationToken, request.Domain);
                 if (windowsTarget.Password is null)
                 {
                     throw new SessionException(SessionErrorCodes.MissingSecret, "This credential has no password.");
                 }
 
-                return new ScanResponse("ready", await WindowsInternalScan.RunAsync(windowsTarget, cancellationToken), null);
+                // System.Management on Windows; Impacket's DCOM client everywhere else.
+                var windowsFindings = OperatingSystem.IsWindows()
+                    ? await WindowsInternalScan.RunAsync(windowsTarget, cancellationToken)
+                    : await ImpacketWmiScan.RunAsync(windowsTarget, cancellationToken);
+                return new ScanResponse("ready", windowsFindings, null);
             }
 
             var target = await resolver

@@ -112,38 +112,14 @@ internal static class WindowsInternalScan
         return [.. searcher.Get().Cast<ManagementObject>()];
     }
 
-    /// <summary>The adapter that holds the address NKeeper reached, or the only enabled one.</summary>
-    private static (string? Ip, string? Mac) FindAddress(ManagementScope scope, string reachedAt, List<string> notes)
-    {
-        var adapters = Select(scope, "SELECT IPAddress, MACAddress FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled = TRUE")
-            .Select(a => (Ips: a["IPAddress"] as string[] ?? [], Mac: Text(a, "MACAddress")))
-            .ToList();
+    private static (string? Ip, string? Mac) FindAddress(ManagementScope scope, string reachedAt, List<string> notes) =>
+        WmiMapping.FindAddress(
+            [.. Select(scope, "SELECT IPAddress, MACAddress FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled = TRUE")
+                .Select(a => (Ips: a["IPAddress"] as string[] ?? [], Mac: Text(a, "MACAddress")))],
+            reachedAt,
+            notes);
 
-        var match = adapters.FirstOrDefault(a => a.Ips.Contains(reachedAt, StringComparer.OrdinalIgnoreCase));
-        if (match.Mac is null && adapters.Count == 1)
-        {
-            match = adapters[0];
-        }
-
-        if (match.Mac is null)
-        {
-            notes.Add("The host has several network adapters and the one NKeeper reached couldn't be told apart, so no MAC address was picked.");
-        }
-
-        var ip = System.Net.IPAddress.TryParse(reachedAt, out _) ? reachedAt : match.Ips.FirstOrDefault();
-        return (ip, match.Mac is not null && NetworkAddress.TryNormalizeMac(match.Mac, out var normalized) ? normalized : null);
-    }
-
-    private static string? Virtualization(ManagementObject? system) => (Text(system, "Manufacturer"), Text(system, "Model")) switch
-    {
-        (_, { } model) when model.Contains("Virtual Machine", StringComparison.OrdinalIgnoreCase) => "hyperv",
-        (_, { } model) when model.Contains("VMware", StringComparison.OrdinalIgnoreCase) => "vmware",
-        (_, { } model) when model.Contains("VirtualBox", StringComparison.OrdinalIgnoreCase) => "oracle",
-        ({ } maker, _) when maker.Contains("QEMU", StringComparison.OrdinalIgnoreCase) => "kvm",
-        ({ } maker, _) when maker.Contains("Xen", StringComparison.OrdinalIgnoreCase) => "xen",
-        _ => null,
-    };
-
+    private static string? Virtualization(ManagementObject? system) => WmiMapping.Virtualization(Text(system, "Manufacturer"), Text(system, "Model"));
     private static string? Text(ManagementBaseObject? item, string property) =>
         item?[property] is string { Length: > 0 } value ? value.Trim() : null;
 }

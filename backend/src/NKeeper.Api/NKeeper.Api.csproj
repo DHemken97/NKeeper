@@ -19,6 +19,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="Inventory\Scanning\wmi_scan.py" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\NKeeper.Infrastructure\NKeeper.Infrastructure.csproj" />
   </ItemGroup>
 
