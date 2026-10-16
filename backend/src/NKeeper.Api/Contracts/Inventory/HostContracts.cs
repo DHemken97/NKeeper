@@ -176,4 +176,5 @@ public sealed record HostResponse(
     IReadOnlyList<TrustedKeyResponse> TrustedKeys,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
-    uint Version);
+    uint Version,
+    bool CanManage);

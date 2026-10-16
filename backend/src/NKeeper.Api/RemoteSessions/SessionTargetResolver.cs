@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NKeeper.Api.Access;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Infrastructure.Persistence;
 
@@ -24,13 +25,15 @@ internal sealed record SessionTarget(
 }
 
 /// <summary>Turns a start message into a <see cref="SessionTarget"/>, enforcing that only inventory data is used.</summary>
-internal sealed class SessionTargetResolver(NKeeperDbContext db, CredentialProtector protector)
+internal sealed class SessionTargetResolver(HostAccess access, CredentialProtector protector)
 {
+    /// <param name="user">Only hosts this user can see can be connected to.</param>
     /// <param name="oneOffDomain">Domain typed for one-off credentials (RDP only).</param>
     public async Task<SessionTarget> ResolveAsync(
-        SessionStartMessage start, ServiceProtocol protocol, int defaultPort, CancellationToken cancellationToken, string? oneOffDomain = null)
+        SessionStartMessage start, RequestUser user, ServiceProtocol protocol, int defaultPort, CancellationToken cancellationToken, string? oneOffDomain = null)
     {
-        var host = await db.Hosts.AsNoTracking()
+        // A host the user has no access to is reported exactly like a missing one.
+        var host = await access.Visible(user).AsNoTracking()
             .Include(h => h.Services)
             .Include(h => h.Credentials)
             .Include(h => h.TrustedKeys)

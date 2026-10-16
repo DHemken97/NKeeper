@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
+using NKeeper.Api.Access;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.RemoteSessions;
 using NKeeper.Infrastructure.Inventory;
@@ -58,15 +59,16 @@ internal sealed partial class RdpSession(
 
     private static readonly HashSet<string> AllowedImageTypes = ["image/png", "image/jpeg", "image/webp"];
 
-    public async Task RunAsync(SessionSocket socket, Guid userId, CancellationToken cancellationToken)
+    public async Task RunAsync(SessionSocket socket, RequestUser user, CancellationToken cancellationToken)
     {
+        var userId = user.Id;
         var started = Stopwatch.StartNew();
         SessionTarget? target = null;
 
         try
         {
             var start = await socket.ReceiveStartAsync<RdpStartMessage>(cancellationToken);
-            target = await resolver.ResolveAsync(start, ServiceProtocol.Rdp, DefaultRdpPort, cancellationToken, start.Domain);
+            target = await resolver.ResolveAsync(start, user, ServiceProtocol.Rdp, DefaultRdpPort, cancellationToken, start.Domain);
             if (target.Password is null)
             {
                 throw new SessionException(SessionErrorCodes.MissingSecret, "Remote Desktop needs a password, and this credential has none.");

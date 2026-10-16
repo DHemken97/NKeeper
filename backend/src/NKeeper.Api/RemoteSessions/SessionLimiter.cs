@@ -2,29 +2,65 @@ using System.Collections.Concurrent;
 
 namespace NKeeper.Api.RemoteSessions;
 
-/// <summary>Caps concurrent remote sessions (SSH and RDP together) per user, in memory, per API instance.</summary>
+/// <summary>
+/// Tracks open remote sessions (SSH and RDP together) per user, in memory, per API instance:
+/// caps how many each user may hold, and lets administrators end them all at once (when an
+/// account is disabled, deleted or its password reset).
+/// </summary>
 public sealed class SessionLimiter
 {
     public const int MaxSessionsPerUser = 20;
 
-    private readonly ConcurrentDictionary<Guid, int> _sessions = new();
+    private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<Guid, CancellationTokenSource>> _sessions = new();
 
-    public bool TryAcquire(Guid userId)
+    /// <summary>Registers a session, or returns null when the user is at the limit.</summary>
+    /// <param name="terminated">Cancelled when <see cref="TerminateAll"/> is called for the user.</param>
+    public IDisposable? TryStart(Guid userId, out CancellationToken terminated)
     {
-        while (true)
+        var sessions = _sessions.GetOrAdd(userId, _ => new());
+        lock (sessions)
         {
-            var current = _sessions.GetOrAdd(userId, 0);
-            if (current >= MaxSessionsPerUser)
+            if (sessions.Count >= MaxSessionsPerUser)
             {
-                return false;
+                terminated = CancellationToken.None;
+                return null;
             }
 
-            if (_sessions.TryUpdate(userId, current + 1, current))
+            var id = Guid.NewGuid();
+            var source = new CancellationTokenSource();
+            sessions[id] = source;
+            terminated = source.Token;
+            return new Lease(() =>
             {
-                return true;
+                if (sessions.TryRemove(id, out var removed))
+                {
+                    removed.Dispose();
+                }
+            });
+        }
+    }
+
+    /// <summary>Ends every open session of the user.</summary>
+    public void TerminateAll(Guid userId)
+    {
+        if (_sessions.TryGetValue(userId, out var sessions))
+        {
+            foreach (var source in sessions.Values)
+            {
+                try
+                {
+                    source.Cancel();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Ended concurrently.
+                }
             }
         }
     }
 
-    public void Release(Guid userId) => _sessions.AddOrUpdate(userId, 0, (_, count) => Math.Max(0, count - 1));
+    private sealed class Lease(Action release) : IDisposable
+    {
+        public void Dispose() => release();
+    }
 }

@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.Contracts.Auth;
+using NKeeper.Api.Security;
 using NKeeper.Infrastructure.Identity;
 
 namespace NKeeper.Api.Controllers;
@@ -84,6 +85,7 @@ public sealed class AuthController(
 
     [HttpGet("me")]
     [Authorize]
+    [AllowWhilePasswordChangeRequired]
     [ProducesResponseType<CurrentUserResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<CurrentUserResponse>> Me()
@@ -103,6 +105,6 @@ public sealed class AuthController(
     private async Task<CurrentUserResponse> ToResponseAsync(ApplicationUser user)
     {
         var roles = await userManager.GetRolesAsync(user);
-        return new CurrentUserResponse(user.Id, user.UserName!, user.Email, [.. roles.Order(StringComparer.Ordinal)]);
+        return new CurrentUserResponse(user.Id, user.UserName!, user.Email, [.. roles.Order(StringComparer.Ordinal)], user.MustChangePassword);
     }
 }

@@ -1,10 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using NKeeper.Api.Access;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.Rdp;
 using NKeeper.Api.RemoteSessions;
-using NKeeper.Api.Security;
 using NKeeper.Api.Ssh;
 
 namespace NKeeper.Api.Controllers;
@@ -20,15 +20,15 @@ public sealed class RemoteSessionsController(SessionLimiter limiter, IOptions<Co
 {
     [HttpGet("api/ssh/session")]
     public Task<IActionResult> Ssh(CancellationToken cancellationToken) =>
-        RunAsync((socket, userId) => Session<SshTerminalSession>().RunAsync(socket, userId, cancellationToken), cancellationToken);
+        RunAsync((socket, user, token) => Session<SshTerminalSession>().RunAsync(socket, user, token), cancellationToken);
 
     [HttpGet("api/rdp/session")]
     public Task<IActionResult> Rdp(CancellationToken cancellationToken) =>
-        RunAsync((socket, userId) => Session<RdpSession>().RunAsync(socket, userId, cancellationToken), cancellationToken);
+        RunAsync((socket, user, token) => Session<RdpSession>().RunAsync(socket, user, token), cancellationToken);
 
     private T Session<T>() where T : notnull => HttpContext.RequestServices.GetRequiredService<T>();
 
-    private async Task<IActionResult> RunAsync(Func<SessionSocket, Guid, Task> run, CancellationToken cancellationToken)
+    private async Task<IActionResult> RunAsync(Func<SessionSocket, RequestUser, CancellationToken, Task> run, CancellationToken cancellationToken)
     {
         if (!HttpContext.WebSockets.IsWebSocketRequest)
         {
@@ -40,12 +40,14 @@ public sealed class RemoteSessionsController(SessionLimiter limiter, IOptions<Co
             return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "Remote sessions can only be opened from NKeeper itself.");
         }
 
-        var userId = User.GetUserId();
+        var user = RequestUser.From(User);
+        var userId = user.Id;
         using var webSocket = await HttpContext.WebSockets.AcceptWebSocketAsync();
         using var socket = new SessionSocket(webSocket);
 
         // Rejections happen after the upgrade: browsers hide HTTP errors from WebSocket clients.
-        if (!limiter.TryAcquire(userId))
+        using var lease = limiter.TryStart(userId, out var terminated);
+        if (lease is null)
         {
             await socket.SendErrorAndCloseAsync(
                 SessionErrorCodes.TooManySessions,
@@ -54,15 +56,9 @@ public sealed class RemoteSessionsController(SessionLimiter limiter, IOptions<Co
             return new EmptyResult();
         }
 
-        try
-        {
-            await run(socket, userId);
-        }
-        finally
-        {
-            limiter.Release(userId);
-        }
-
+        // Ends the session when the browser leaves or an administrator revokes the account.
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, terminated);
+        await run(socket, user, lifetime.Token);
         return new EmptyResult();
     }
 }

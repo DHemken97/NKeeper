@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using NKeeper.Infrastructure.Access;
 using NKeeper.Infrastructure.Identity;
 using NKeeper.Infrastructure.Inventory;
 
@@ -80,5 +81,22 @@ internal sealed class HostCredentialConfiguration : IEntityTypeConfiguration<Hos
         builder.Property(c => c.Domain).HasMaxLength(256);
         builder.Property(c => c.Notes).HasMaxLength(2000);
         builder.HasIndex(c => new { c.HostId, c.Position });
+    }
+}
+
+internal sealed class HostAccessGrantConfiguration : IEntityTypeConfiguration<HostAccessGrant>
+{
+    public void Configure(EntityTypeBuilder<HostAccessGrant> builder)
+    {
+        builder.ToTable("HostAccessGrants", t => t.HasCheckConstraint(
+            "CK_HostAccessGrants_Target",
+            "(\"HostId\" IS NOT NULL AND \"TagName\" IS NULL AND \"TagValue\" IS NULL) OR (\"HostId\" IS NULL AND \"TagName\" IS NOT NULL)"));
+        builder.Property(g => g.TagName).HasMaxLength(HostTag.NameMaxLength);
+        builder.Property(g => g.TagValue).HasMaxLength(HostTag.ValueMaxLength);
+        builder.Property(g => g.Level).HasConversion<string>().HasMaxLength(16);
+        builder.HasIndex(g => g.UserId);
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(g => g.UserId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<Host>().WithMany().HasForeignKey(g => g.HostId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(g => g.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
     }
 }

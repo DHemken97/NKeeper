@@ -54,6 +54,7 @@ public static class DependencyInjection
         services.AddSingleton<DatabaseTicketStore>();
         services.AddSingleton<IConfigureOptions<CookieAuthenticationOptions>, ConfigureSessionStore>();
         services.AddScoped<CredentialValidator>();
+        services.AddScoped<SessionRevoker>();
         services.AddScoped<DatabaseInitializer>();
         services.AddSingleton<CredentialProtector>();
 

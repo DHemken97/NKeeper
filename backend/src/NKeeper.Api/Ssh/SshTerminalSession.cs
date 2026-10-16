@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using NKeeper.Api.Access;
 using NKeeper.Api.RemoteSessions;
 using NKeeper.Infrastructure.Inventory;
 using Renci.SshNet;
@@ -34,8 +35,9 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
     private static readonly TimeSpan HostKeyDecisionTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan CloseHandshakeTimeout = TimeSpan.FromSeconds(5);
 
-    public async Task RunAsync(SessionSocket socket, Guid userId, CancellationToken cancellationToken)
+    public async Task RunAsync(SessionSocket socket, RequestUser user, CancellationToken cancellationToken)
     {
+        var userId = user.Id;
         var started = Stopwatch.StartNew();
         SessionTarget? target = null;
         var disposables = new List<IDisposable>();
@@ -43,7 +45,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
         try
         {
             var start = await socket.ReceiveStartAsync<SshStartMessage>(cancellationToken);
-            target = await resolver.ResolveAsync(start, ServiceProtocol.Ssh, DefaultSshPort, cancellationToken);
+            target = await resolver.ResolveAsync(start, user, ServiceProtocol.Ssh, DefaultSshPort, cancellationToken);
             if (target.Password is null && target.PrivateKey is null)
             {
                 throw new SessionException(SessionErrorCodes.MissingSecret, "This credential has no password or SSH key.");

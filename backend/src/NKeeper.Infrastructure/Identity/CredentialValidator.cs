@@ -36,6 +36,14 @@ public sealed class CredentialValidator(
             return null;
         }
 
+        if (user.IsDisabled)
+        {
+            // Same generic failure as a wrong password; still verify to keep timing comparable.
+            passwordHasher.VerifyHashedPassword(TimingDummyUser, TimingDummyHash.Value, password);
+            logger.LogInformation("Sign-in failed for user {UserId}: account disabled.", user.Id);
+            return null;
+        }
+
         var result = await signInManager.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
         if (result.Succeeded)
         {

@@ -9,4 +9,10 @@ namespace NKeeper.Infrastructure.Identity;
 public sealed class ApplicationUser : IdentityUser<Guid>
 {
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>Disabled accounts cannot sign in, and their sessions are revoked.</summary>
+    public bool IsDisabled { get; set; }
+
+    /// <summary>Set when an administrator assigns a password; the user must choose their own before doing anything else.</summary>
+    public bool MustChangePassword { get; set; }
 }
