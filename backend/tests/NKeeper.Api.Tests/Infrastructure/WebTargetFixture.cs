@@ -54,6 +54,12 @@ public sealed class WebTargetFixture : IAsyncLifetime
             return Results.Redirect($"{context.Request.Scheme}://{context.Request.Host}/home?welcome=1");
         });
         _app.MapGet("/home", () => "home page");
+        _app.MapGet("/framed", (HttpContext context) =>
+        {
+            context.Response.Headers.XFrameOptions = "DENY";
+            context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; frame-ancestors 'none'; img-src *";
+            return "no framing please";
+        });
         _app.MapPost("/upload", async (HttpRequest request) => $"received {(await new StreamReader(request.Body).ReadToEndAsync()).Length} chars");
         await _app.StartAsync();
 

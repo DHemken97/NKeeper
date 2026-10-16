@@ -64,14 +64,24 @@ function renderWorkspace(routesOverride: Parameters<typeof mockFetch>[0]) {
   return { fetchMock, user: userEvent.setup() }
 }
 
-async function connect(user: ReturnType<typeof userEvent.setup>, service: RegExp) {
+/** The session's frame, once it appears. */
+function sessionFrame() {
+  return waitFor(() => {
+    const frame = document.querySelector('iframe')
+    expect(frame).not.toBeNull()
+    return frame!
+  })
+}
+
+async function connect(user: ReturnType<typeof userEvent.setup>, service: RegExp, mode = 'Through NKeeper') {
   fireEvent.contextMenu(await screen.findByRole('button', { name: /router/ }))
   await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
-  await user.click(screen.getByRole('menuitem', { name: service }))
+  await user.hover(screen.getByRole('menuitem', { name: service }))
+  await user.click(screen.getByRole('menuitem', { name: new RegExp(`^${mode}`) }))
 }
 
 describe('web sessions', () => {
-  it('opens the host’s web interface on its own origin, served by NKeeper', async () => {
+  it('shows the host’s web interface inside the tab, served by NKeeper from its own origin', async () => {
     let body: unknown
     const { user } = renderWorkspace({
       'POST /api/web/sessions': (_url, init) => {
@@ -82,12 +92,22 @@ describe('web sessions', () => {
 
     await connect(user, /^HTTPS · Admin UI/)
 
-    await waitFor(() => expect(openSpy).toHaveBeenCalled())
+    const frame = await screen.findByTitle(/router — https:\/\/192\.168\.1\.1/)
     expect(body).toEqual({ hostId: 'h-router', serviceIndex: 0 })
-    expect(openSpy).toHaveBeenCalledWith('http://nkw-0123456789abcdef0123456789abcdef.web.localhost:3000/.nkeeper/launch?t=token', '_blank', 'noopener')
+    expect(frame).toHaveAttribute('src', 'http://nkw-0123456789abcdef0123456789abcdef.web.localhost:3000/.nkeeper/launch?t=token')
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-top-navigation')
+    expect(openSpy).not.toHaveBeenCalled()
     expect(screen.getByRole('tab', { name: /router.*HTTPS/, selected: true })).toBeInTheDocument()
-    expect(await screen.findByText('Opened in a new browser tab')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Open again' })).toHaveAttribute('target', '_blank')
+  })
+
+  it('opens the host directly in a new browser tab when asked, without NKeeper in between', async () => {
+    const { user, fetchMock } = renderWorkspace({})
+
+    await connect(user, /^HTTP:8080/, 'Directly in a new tab')
+
+    expect(openSpy).toHaveBeenCalledWith('http://192.168.1.1:8080/', '_blank', 'noopener,noreferrer')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/web/sessions'))).toBe(false)
+    expect(screen.queryByRole('tab', { name: /router/ })).not.toBeInTheDocument()
   })
 
   it('asks to trust a self-signed certificate, then retries with that fingerprint', async () => {
@@ -114,11 +134,11 @@ describe('web sessions', () => {
     expect(within(prompt).getByText('CN=router')).toBeInTheDocument()
     await user.click(within(prompt).getByRole('button', { name: 'Trust and connect' }))
 
-    await waitFor(() => expect(openSpy).toHaveBeenCalled())
+    expect(await sessionFrame()).toHaveAttribute('src', expect.stringContaining('nkw-ffffffffffffffffffffffffffffffff'))
     expect(bodies[1]).toEqual({ hostId: 'h-router', serviceIndex: 0, trustFingerprint: 'AA:BB' })
   })
 
-  it('ends the server-side session when its tab is closed', async () => {
+  it('“End session” ends it on the server and closes the tab, without opening anything', async () => {
     const closed = vi.fn(() => jsonResponse(204))
     const { user } = renderWorkspace({
       'POST /api/web/sessions': () => jsonResponse(200, ready('0123456789abcdef0123456789abcdef')),
@@ -126,10 +146,12 @@ describe('web sessions', () => {
     })
 
     await connect(user, /^HTTP:8080/)
-    await screen.findByText('Opened in a new browser tab')
-    await user.click(screen.getByRole('button', { name: 'Close router' }))
+    await sessionFrame()
+    await user.click(screen.getByRole('button', { name: 'End session' }))
 
-    await waitFor(() => expect(closed).toHaveBeenCalled())
+    await waitFor(() => expect(closed).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('tab', { name: /router/ })).not.toBeInTheDocument()
+    expect(openSpy).not.toHaveBeenCalled()
   })
 
   it('explains a changed certificate', async () => {
@@ -142,7 +164,6 @@ describe('web sessions', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('has changed since it was trusted')
     expect(screen.getByRole('button', { name: 'Show host details' })).toBeInTheDocument()
-    expect(openSpy).not.toHaveBeenCalled()
   })
 })
 

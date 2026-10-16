@@ -14,7 +14,7 @@ import { buildTree, decodeGroupKey, encodeGroupKey, sortHosts, tagNames, tagValu
 import { CredentialPromptDialog } from '../../terminal/components/CredentialPromptDialog'
 import type { RemoteSession } from '../../terminal/types'
 import { useResource } from '../hooks/useResource'
-import { connectMenuEntries, defaultConnection, hostMenuEntries, serviceLabel, WEB_PROTOCOLS, type HostMenuActions } from '../hostMenu'
+import { connectMenuEntries, defaultConnection, directWebUrl, hostMenuEntries, serviceLabel, WEB_PROTOCOLS, type HostMenuActions } from '../hostMenu'
 import { matchesSearch, parseSearch, tagSearchTerm } from '../search'
 import { formatAccount, primaryAddress, type Host, type HostCredential, type HostTag } from '../types'
 import { useAuth } from '../../auth/context'
@@ -141,6 +141,8 @@ export function WorkspacePage() {
     connect: (host, serviceIndex, credential) => openSession(host, serviceIndex, credential),
     connectWithPrompt: (host, serviceIndex) => setPrompt({ host, serviceIndex }),
     connectWeb: (host, serviceIndex) => openSession(host, serviceIndex),
+    // Called from the menu click itself, so the browser allows the new tab.
+    openDirect: (host, serviceIndex) => void window.open(directWebUrl(host, host.services[serviceIndex]), '_blank', 'noopener,noreferrer'),
     edit: (host) => showHost(host.id, true),
     copyAddress: (host) => void navigator.clipboard?.writeText(primaryAddress(host)),
   }
@@ -402,7 +404,13 @@ export function WorkspacePage() {
         >
           {sessions.map((session) => (
             session.protocol === 'web' ? (
-              <WebSession key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+              <WebSession
+                key={session.id}
+                session={session}
+                active={activeTab === session.id}
+                onShowHost={(id) => showHost(id)}
+                onEnded={() => closeSession(session.id)}
+              />
             ) : session.protocol === 'rdp' ? (
               <RdpSession
                 key={session.id}

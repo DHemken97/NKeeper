@@ -81,7 +81,7 @@ public sealed partial class WebProxyMiddleware(RequestDelegate next, WebSessionS
         }
 
         var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}";
-        var error = await forwarder.SendAsync(context, session.Target.GetLeftPart(UriPartial.Authority), session.Client, RequestConfig, new WebProxyTransformer(session.Target, proxyOrigin));
+        var error = await forwarder.SendAsync(context, session.Target.GetLeftPart(UriPartial.Authority), session.Client, RequestConfig, new WebProxyTransformer(session.Target, proxyOrigin, session.EmbedderOrigin));
         if (error != ForwarderError.None && !context.Response.HasStarted)
         {
             var failure = context.GetForwarderErrorFeature()?.Exception;
@@ -111,14 +111,19 @@ public sealed partial class WebProxyMiddleware(RequestDelegate next, WebSessionS
             return;
         }
 
-        context.Response.Cookies.Append(CookieName, session.Secret, new CookieOptions
+        // The session is shown in a frame inside NKeeper, a different site: the cookie must be
+        // SameSite=None (hence Secure; browsers accept that on https and on *.localhost) and
+        // Partitioned, so it lives only in NKeeper's frame and survives third-party cookie blocking.
+        var options = new CookieOptions
         {
             HttpOnly = true,
-            Secure = context.Request.IsHttps,
-            SameSite = SameSiteMode.Lax,
+            Secure = true,
+            SameSite = SameSiteMode.None,
             Path = "/",
             IsEssential = true,
-        });
+        };
+        options.Extensions.Add("Partitioned");
+        context.Response.Cookies.Append(CookieName, session.Secret, options);
         context.Response.Headers.CacheControl = "no-store";
         context.Response.Redirect("/");
     }
@@ -164,7 +169,7 @@ public sealed partial class WebProxyMiddleware(RequestDelegate next, WebSessionS
 /// and keeps the browser on the session origin (redirects and cookies are rewritten).
 /// NKeeper's own session cookie never reaches the target.
 /// </summary>
-internal sealed partial class WebProxyTransformer(Uri target, string proxyOrigin) : HttpTransformer
+internal sealed partial class WebProxyTransformer(Uri target, string proxyOrigin, string? embedderOrigin) : HttpTransformer
 {
     private readonly string _targetOrigin = target.GetLeftPart(UriPartial.Authority);
 
@@ -206,11 +211,23 @@ internal sealed partial class WebProxyTransformer(Uri target, string proxyOrigin
             headers.Location = proxyOrigin + location[_targetOrigin.Length..];
         }
 
-        // Cookies belong to the session origin: drop Domain attributes (which would point at the target's name).
+        // Cookies belong to the session origin, inside NKeeper's frame: drop Domain (it names the
+        // target) and make them usable in a cross-site frame (SameSite=None; Secure; Partitioned).
         if (headers.SetCookie.Count > 0)
         {
-            headers.SetCookie = new StringValues([.. headers.SetCookie.Select(cookie => DomainAttribute().Replace(cookie!, string.Empty))]);
+            headers.SetCookie = new StringValues([.. headers.SetCookie.Select(cookie => ForFrame(cookie!))]);
         }
+
+        // Only NKeeper may frame the session: replace the target's own framing rules.
+        headers.Remove("X-Frame-Options");
+        if (headers.ContentSecurityPolicy.Count > 0)
+        {
+            headers.ContentSecurityPolicy = new StringValues([.. headers.ContentSecurityPolicy
+                .Select(policy => FrameAncestors().Replace(policy!, string.Empty).Trim().Trim(';').Trim())
+                .Where(policy => policy.Length > 0)]);
+        }
+
+        headers.Append("Content-Security-Policy", $"frame-ancestors {embedderOrigin ?? "'self'"}");
 
         // Don't let the target pin HSTS or alternative services onto NKeeper's session host.
         headers.Remove("Strict-Transport-Security");
@@ -228,6 +245,16 @@ internal sealed partial class WebProxyTransformer(Uri target, string proxyOrigin
         }
     }
 
-    [GeneratedRegex(@";\s*domain=[^;]*", RegexOptions.IgnoreCase)]
-    private static partial Regex DomainAttribute();
+    private static string ForFrame(string cookie)
+    {
+        var rewritten = CrossSiteAttributes().Replace(cookie, string.Empty);
+        return rewritten + "; Secure; SameSite=None; Partitioned";
+    }
+
+    // Domain (names the target), and attributes re-added in a cross-site-frame-friendly form.
+    [GeneratedRegex(@";\s*(domain=[^;]*|samesite=[^;]*|secure|partitioned)(?=\s*(;|$))", RegexOptions.IgnoreCase)]
+    private static partial Regex CrossSiteAttributes();
+
+    [GeneratedRegex(@"(^|;)\s*frame-ancestors[^;]*", RegexOptions.IgnoreCase)]
+    private static partial Regex FrameAncestors();
 }

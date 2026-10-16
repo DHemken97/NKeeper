@@ -14,6 +14,8 @@ export interface HostMenuActions {
   connectWithPrompt: (host: Host, serviceIndex: number) => void
   /** Open a web (HTTP/HTTPS) session; NKeeper connects to the host on the browser's behalf. */
   connectWeb: (host: Host, serviceIndex: number) => void
+  /** Open the host's web interface in a new browser tab, loaded directly by this computer. */
+  openDirect: (host: Host, serviceIndex: number) => void
   edit: (host: Host) => void
   copyAddress: (host: Host) => void
 }
@@ -53,14 +55,25 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
 }
 
 /** One entry per service, each opening its credentials (also used by the Connect button). */
-export function connectMenuEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWeb'>): MenuEntry[] {
+export function connectMenuEntries(
+  host: Host,
+  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWeb' | 'openDirect'>,
+): MenuEntry[] {
   const services: MenuEntry[] = host.services.map((service, index): MenuEntry => {
     if (!CONNECTABLE.has(service.protocol)) {
       return { kind: 'item', label: serviceLabel(service), detail: 'Coming soon', disabled: true }
     }
 
     if (WEB_PROTOCOLS.has(service.protocol)) {
-      return { kind: 'item', label: serviceLabel(service), detail: servicePort(service), onSelect: () => actions.connectWeb(host, index) }
+      return {
+        kind: 'item',
+        label: serviceLabel(service),
+        detail: servicePort(service),
+        submenu: [
+          { kind: 'item', label: 'Through NKeeper', detail: 'Server connects', onSelect: () => actions.connectWeb(host, index) },
+          { kind: 'item', label: 'Directly in a new tab', detail: 'This computer connects', onSelect: () => actions.openDirect(host, index) },
+        ],
+      }
     }
 
     const credentials: MenuEntry[] = host.credentials.map((credential): MenuEntry => {
@@ -98,4 +111,13 @@ export function defaultConnection(host: Host): { serviceIndex: number; credentia
   }
   const protocol = host.services[serviceIndex].protocol
   return { serviceIndex, credential: host.credentials.find((c) => credentialProblem(c, protocol) === null) ?? null }
+}
+
+/** The host's own URL for a web service, as this computer would open it. */
+export function directWebUrl(host: Host, service: HostService): string {
+  const scheme = service.protocol === 'Https' ? 'https' : 'http'
+  const address = primaryAddress(host)
+  const hostPart = address.includes(':') ? `[${address}]` : address
+  const defaultPort = scheme === 'https' ? 443 : 80
+  return `${scheme}://${hostPart}${service.port && service.port !== defaultPort ? `:${service.port}` : ''}/`
 }

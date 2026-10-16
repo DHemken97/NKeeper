@@ -330,7 +330,7 @@ describe('host context menu', () => {
 
 describe('connectMenuEntries', () => {
   it('explains when a host has no services', () => {
-    const entries = connectMenuEntries({ ...linux01, services: [] }, { connect: vi.fn(), connectWithPrompt: vi.fn(), connectWeb: vi.fn() })
+    const entries = connectMenuEntries({ ...linux01, services: [] }, { connect: vi.fn(), connectWithPrompt: vi.fn(), connectWeb: vi.fn(), openDirect: vi.fn() })
     expect(entries).toEqual([{ kind: 'item', label: 'No services', detail: 'Edit the host to add one', disabled: true }])
   })
 })

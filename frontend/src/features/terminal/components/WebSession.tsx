@@ -10,6 +10,8 @@ interface WebSessionProps {
   session: RemoteSession
   active: boolean
   onShowHost: (hostId: string) => void
+  /** The user ended the session; the tab closes. */
+  onEnded: () => void
 }
 
 interface OpenResponse {
@@ -22,14 +24,14 @@ interface OpenResponse {
 }
 
 /**
- * A web (HTTP/HTTPS) session. NKeeper's server connects to the host's web interface and relays
- * it; the site opens in a new browser tab on an isolated origin. This tab shows the session's
- * state and ends the session when closed.
+ * A web (HTTP/HTTPS) session proxied by NKeeper's server and shown inside this tab. The page runs
+ * on its own origin in a sandboxed frame: it can't reach NKeeper, navigate NKeeper away, or be
+ * framed by anything but NKeeper.
  */
-export function WebSession({ session, active, onShowHost }: WebSessionProps) {
+export function WebSession({ session, active, onShowHost, onEnded }: WebSessionProps) {
   const [phase, setPhase] = useState<SessionPhase>({ kind: 'connecting' })
   const [url, setUrl] = useState<string | null>(null)
-  const [blocked, setBlocked] = useState(false)
+  const [frameKey, setFrameKey] = useState(0)
   const [attempt, setAttempt] = useState(0)
   const sessionIdRef = useRef<string | null>(null)
   const trustRef = useRef<string | undefined>(undefined)
@@ -79,22 +81,16 @@ export function WebSession({ session, active, onShowHost }: WebSessionProps) {
         }
 
         sessionIdRef.current = response.sessionId
-        const launch = origin + response.launchPath
-        setUrl(launch)
+        setUrl(origin + response.launchPath)
         setPhase({ kind: 'connected', target: target ?? origin })
-        // Usually allowed: the click that started this is recent. Otherwise the button below does it.
-        const opened = window.open(launch, '_blank', 'noopener')
-        setBlocked(opened === null && !document.hasFocus())
       } catch (error) {
-        if (cancelled) {
-          return
+        if (!cancelled) {
+          setPhase({
+            kind: 'ended',
+            code: error instanceof ApiError ? error.code : undefined,
+            message: error instanceof ApiError ? error.message : 'Couldn’t start the web session.',
+          })
         }
-        const code = error instanceof ApiError ? error.code : undefined
-        setPhase({
-          kind: 'ended',
-          code,
-          message: error instanceof ApiError ? error.message : 'Couldn’t start the web session.',
-        })
       }
     }
 
@@ -127,11 +123,7 @@ export function WebSession({ session, active, onShowHost }: WebSessionProps) {
     setAttempt((n) => n + 1)
   }
 
-  function restart() {
-    if (sessionIdRef.current) {
-      void api.delete(`/api/web/sessions/${sessionIdRef.current}`).catch(() => {})
-      sessionIdRef.current = null
-    }
+  function retry() {
     setUrl(null)
     setPhase({ kind: 'connecting' })
     setAttempt((n) => n + 1)
@@ -140,8 +132,18 @@ export function WebSession({ session, active, onShowHost }: WebSessionProps) {
   return (
     <div className={styles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} web session`}>
       <SessionStatusBar phase={phase}>
+        {phase.kind === 'connected' ? (
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setFrameKey((n) => n + 1)}>
+              Reload
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onEnded}>
+              End session
+            </Button>
+          </>
+        ) : null}
         {phase.kind === 'ended' ? (
-          <Button variant="secondary" size="sm" onClick={restart}>
+          <Button variant="secondary" size="sm" onClick={retry}>
             Try again
           </Button>
         ) : null}
@@ -151,26 +153,20 @@ export function WebSession({ session, active, onShowHost }: WebSessionProps) {
         {phase.kind === 'connecting' ? <OpeningCard /> : null}
         {phase.kind === 'hostKey' ? <TrustCard prompt={phase.prompt} target={phase.target} onDecide={decide} /> : null}
         {phase.kind === 'ended' ? (
-          <EndedCard message={phase.message} code={phase.code} canReconnect onReconnect={restart} onShowHost={() => onShowHost(session.hostId)} />
+          <EndedCard message={phase.message} code={phase.code} canReconnect onReconnect={retry} onShowHost={() => onShowHost(session.hostId)} />
         ) : null}
         {phase.kind === 'connected' && url ? (
-          <div className={styles.overlay}>
-            <div className={styles.card}>
-              <h3 className={styles.cardTitle}>{blocked ? 'Ready to open' : 'Opened in a new browser tab'}</h3>
-              <p>
-                NKeeper connects to <span className={styles.mono}>{phase.target}</span> for you, so this works even when your computer can’t reach the host.
-                The session stays open while this tab is open and ends after 30 minutes without activity.
-              </p>
-              <div className={styles.cardActions}>
-                <Button variant="secondary" size="sm" onClick={restart}>
-                  End session
-                </Button>
-                <a className={styles.linkButton} href={url} target="_blank" rel="noopener noreferrer">
-                  {blocked ? `Open ${session.title}` : 'Open again'}
-                </a>
-              </div>
-            </div>
-          </div>
+          <iframe
+            // Reload re-opens the page; the session cookie is already set, so the launch link redirects home.
+            key={frameKey}
+            className={styles.webFrame}
+            src={url}
+            title={`${session.title} — ${phase.target}`}
+            // No allow-top-navigation: the page can't navigate NKeeper away.
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"
+            allow="clipboard-read; clipboard-write; fullscreen"
+            referrerPolicy="no-referrer"
+          />
         ) : null}
       </div>
     </div>

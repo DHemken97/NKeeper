@@ -62,7 +62,30 @@ public sealed class WebSessionTests(PostgresServerFixture postgres, WebTargetFix
         Assert.Equal(new Uri(browser.BaseAddress!, "/home?welcome=1"), response.Headers.Location);
         var cookie = Assert.Single(response.Headers.GetValues("Set-Cookie"));
         Assert.DoesNotContain("Domain", cookie, StringComparison.OrdinalIgnoreCase);
+        // Usable inside NKeeper's frame (a different site).
+        Assert.EndsWith("; Secure; SameSite=None; Partitioned", cookie, StringComparison.Ordinal);
+        Assert.StartsWith("app_session=abc; Path=/; HttpOnly", cookie, StringComparison.Ordinal);
         Assert.False(response.Headers.Contains("Strict-Transport-Security"));
+    }
+
+    [Fact]
+    public async Task OnlyNKeeper_MayFrameTheSession()
+    {
+        var host = await CreateHostAsync();
+        var token = await _admin.GetAntiforgeryTokenAsync(Ct);
+        using var open = new HttpRequestMessage(HttpMethod.Post, "/api/web/sessions") { Content = JsonContent.Create(new { hostId = host.Id, serviceIndex = 0 }) };
+        open.Headers.Add(AuthClientExtensions.AntiforgeryHeader, token);
+        open.Headers.Add("Origin", "https://nkeeper.example.com");
+        var session = await (await _admin.SendAsync(open, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+        using var browser = await LaunchAsync(session);
+
+        var response = await browser.GetAsync("/framed", Ct);
+
+        Assert.False(response.Headers.Contains("X-Frame-Options"));
+        var policies = response.Headers.GetValues("Content-Security-Policy").ToList();
+        Assert.Contains("default-src 'self'; img-src *", policies);
+        Assert.Contains("frame-ancestors https://nkeeper.example.com", policies);
+        Assert.DoesNotContain(policies, p => p.Contains("'none'", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -207,7 +230,7 @@ public sealed class WebSessionTests(PostgresServerFixture postgres, WebTargetFix
     /// <summary>A browser on the session's own origin, like the new tab NKeeper opens.</summary>
     private HttpClient ProxyClient(string sessionId) => _factory.CreateClient(new WebApplicationFactoryClientOptions
     {
-        BaseAddress = new Uri($"http://nkw-{sessionId}.web.localhost/"),
+        BaseAddress = new Uri($"https://nkw-{sessionId}.web.localhost/"),
         AllowAutoRedirect = false,
         HandleCookies = true,
     });

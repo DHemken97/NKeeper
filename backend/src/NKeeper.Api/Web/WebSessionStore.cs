@@ -14,8 +14,9 @@ namespace NKeeper.Api.Web;
 /// </summary>
 public sealed class WebSession : IDisposable
 {
-    internal WebSession(Guid userId, Guid hostId, Uri target, string? pinnedFingerprint, DateTimeOffset now)
+    internal WebSession(Guid userId, Guid hostId, Uri target, string? pinnedFingerprint, string? embedderOrigin, DateTimeOffset now)
     {
+        EmbedderOrigin = embedderOrigin;
         Id = RandomId(16);
         Secret = Base64Url(32);
         LaunchToken = Base64Url(32);
@@ -63,6 +64,9 @@ public sealed class WebSession : IDisposable
     /// <summary>e.g. https://10.0.0.5:8443/</summary>
     public Uri Target { get; }
 
+    /// <summary>NKeeper's own origin, the only page allowed to show this session in a frame.</summary>
+    public string? EmbedderOrigin { get; }
+
     public HttpMessageInvoker Client { get; }
 
     public DateTimeOffset CreatedAtUtc { get; }
@@ -105,7 +109,7 @@ public sealed class WebSessionStore(IOptions<WebProxySettings> settings, TimePro
 
     private readonly ConcurrentDictionary<string, WebSession> _sessions = new(StringComparer.Ordinal);
 
-    public WebSession? TryCreate(Guid userId, Guid hostId, Uri target, string? pinnedFingerprint)
+    public WebSession? TryCreate(Guid userId, Guid hostId, Uri target, string? pinnedFingerprint, string? embedderOrigin)
     {
         RemoveExpired();
         if (_sessions.Values.Count(s => s.UserId == userId) >= MaxSessionsPerUser)
@@ -113,7 +117,7 @@ public sealed class WebSessionStore(IOptions<WebProxySettings> settings, TimePro
             return null;
         }
 
-        var session = new WebSession(userId, hostId, target, pinnedFingerprint, timeProvider.GetUtcNow());
+        var session = new WebSession(userId, hostId, target, pinnedFingerprint, embedderOrigin, timeProvider.GetUtcNow());
         _sessions[session.Id] = session;
         logger.LogInformation("Web session {SessionId} opened by user {UserId} for host {HostId} ({Target})", session.Id, userId, hostId, target);
         return session;

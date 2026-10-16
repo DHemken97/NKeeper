@@ -119,7 +119,12 @@ public sealed class WebSessionsController(HostAccess access, WebSessionStore ses
             }
         }
 
-        var session = sessions.TryCreate(user.Id, host.Id, target, pinned);
+        // The page asking is NKeeper itself (antiforgery and SameSite cookies ensure it), so its
+        // Origin is where the session may be shown in a frame.
+        var embedder = Uri.TryCreate(Request.Headers.Origin.ToString(), UriKind.Absolute, out var origin) && origin.Scheme is "http" or "https"
+            ? origin.GetLeftPart(UriPartial.Authority)
+            : null;
+        var session = sessions.TryCreate(user.Id, host.Id, target, pinned, embedder);
         if (session is null)
         {
             return CodedProblem(
