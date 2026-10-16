@@ -712,7 +712,7 @@ function Install-Iis {
 
     Write-Step "Installing the IIS site in $SiteDir"
     Import-Module WebAdministration
-    if (-not (Test-Path "IIS:\AppPools\$PoolName")) { New-WebAppPool -Name $PoolName | Out-Null }
+    if (Test-Path "IIS:\AppPools\$PoolName") { Stop-AppPool $PoolName } else { New-WebAppPool -Name $PoolName | Out-Null }
     $pool = "IIS:\AppPools\$PoolName"
     Set-ItemProperty $pool -Name managedRuntimeVersion -Value ''
     # Remote sessions live in the worker process: never stop or recycle it on a timer.
@@ -720,7 +720,6 @@ function Install-Iis {
     Set-ItemProperty $pool -Name processModel.idleTimeout -Value ([TimeSpan]::Zero)
     Set-ItemProperty $pool -Name processModel.loadUserProfile -Value $true
     Set-ItemProperty $pool -Name recycling.periodicRestart.time -Value ([TimeSpan]::Zero)
-    if ((Get-WebAppPoolState -Name $PoolName).Value -eq 'Started') { Stop-WebAppPool -Name $PoolName; Start-Sleep -Seconds 3 }
 
     New-Item -ItemType Directory -Force $SiteDir | Out-Null
     robocopy $site $SiteDir /MIR /NFL /NDL /NJH /NJS /NP /XF web.config | Out-Null
@@ -765,7 +764,8 @@ function Install-Iis {
 
     Install-RedirectSite (Get-FirstName $HostName)
 
-    Start-WebAppPool -Name $PoolName -ErrorAction SilentlyContinue
+    $started = Get-Date
+    Start-AppPool $PoolName
     Start-Website -Name $SiteName
 
     Write-Step 'Waiting for NKeeper to start'
@@ -775,6 +775,7 @@ function Install-Iis {
     $checkName = if ($LocalOnly -or $HostName -contains 'localhost') { 'localhost' } else { Get-FirstName $HostName }
     $readyUrl = (Get-Url 'localhost' $HttpsPort) + '/health/ready'
     if (-not (Wait-Url $readyUrl 180)) {
+        Show-StartupErrors $started
         Stop-Setup "NKeeper didn't start in time. Check the Application event log (source: IIS AspNetCore Module V2), or set stdoutLogEnabled=true in $webConfig."
     }
     Write-Ok "NKeeper is up ($checkName)."
@@ -793,6 +794,45 @@ function Install-Iis {
 }
 
 function Get-Site([string]$Name) { Get-Website | Where-Object { $_.Name -eq $Name } }
+
+# WAS briefly reports a pool it is (re)loading as unknown (0x800710D8), so pool calls are retried.
+function Invoke-PoolAction([string]$What, [scriptblock]$Action) {
+    for ($attempt = 1; ; $attempt++) {
+        try { & $Action; return }
+        catch { if ($attempt -ge 10) { Stop-Setup "$What failed: $($_.Exception.Message)" } }
+        Start-Sleep -Seconds 1
+    }
+}
+
+function Stop-AppPool([string]$Name) {
+    Invoke-PoolAction "Stopping the $Name app pool" {
+        if ((Get-WebAppPoolState -Name $Name).Value -ne 'Stopped') { Stop-WebAppPool -Name $Name }
+    }
+    # Stopping is asynchronous: wait for the worker process to exit so its files can be replaced.
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline) {
+        try { if ((Get-WebAppPoolState -Name $Name).Value -eq 'Stopped') { return } } catch { }
+        Start-Sleep -Seconds 1
+    }
+}
+
+function Start-AppPool([string]$Name) {
+    Invoke-PoolAction "Starting the $Name app pool" {
+        if ((Get-WebAppPoolState -Name $Name).Value -ne 'Started') { Start-WebAppPool -Name $Name }
+    }
+}
+
+# The ASP.NET Core Module logs why the app failed to start (including its console output).
+function Show-StartupErrors([datetime]$Since) {
+    try {
+        $events = Get-WinEvent -MaxEvents 3 -FilterHashtable @{
+            LogName = 'Application'; ProviderName = 'IIS AspNetCore Module V2', '.NET Runtime'; Level = 1, 2, 3; StartTime = $Since
+        }
+    } catch { return }
+    Write-Host ''
+    Write-Host 'Recent startup errors from the Application event log:' -ForegroundColor Yellow
+    foreach ($entry in $events) { Write-Host "--- $($entry.TimeCreated) $($entry.ProviderName)"; Write-Host $entry.Message }
+}
 
 # Plain HTTP: a tiny site that redirects to HTTPS (IIS's own HTTP Redirection).
 function Install-RedirectSite([string]$Name) {
@@ -901,5 +941,7 @@ try {
 } catch {
     Write-Host ''
     Write-Host "error: $($_.Exception.Message)" -ForegroundColor Red
+    # Setup's own errors explain themselves; for anything else, say where it happened.
+    if ($_.Exception.Message -notlike 'NKeeper setup:*') { Write-Host $_.InvocationInfo.PositionMessage }
     exit 1
 }
