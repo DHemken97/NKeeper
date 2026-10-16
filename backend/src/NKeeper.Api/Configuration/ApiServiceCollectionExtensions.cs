@@ -59,6 +59,7 @@ internal static class ApiServiceCollectionExtensions
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
         services.AddScoped<HostAccess>();
         services.AddScoped<HostManager>();
+        services.AddScoped<NKeeper.Api.Inventory.Import.HostImporter>();
         services.AddScoped<NKeeper.Api.Users.UserAdministration>();
         services.AddScoped<SessionTargetResolver>();
         services.AddScoped<TrustedKeyStore>();

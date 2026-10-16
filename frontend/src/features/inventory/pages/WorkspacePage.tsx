@@ -10,6 +10,7 @@ import { GroupByPicker } from '../components/GroupByPicker'
 import { HostDetails } from '../components/HostDetails'
 import { HostEditor } from '../components/HostEditor'
 import { HostTree } from '../components/HostTree'
+import { ImportHostsDialog } from '../components/ImportHostsDialog'
 import { buildTree, decodeGroupKey, encodeGroupKey, sortHosts, tagNames, tagValues, type GroupKey, type HostSort } from '../grouping'
 import { CredentialPromptDialog } from '../../terminal/components/CredentialPromptDialog'
 import type { VirtualMachine } from '../../terminal/kvm'
@@ -80,6 +81,7 @@ export function WorkspacePage() {
   const [activeTab, setActiveTab] = useState(DETAILS_TAB)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [prompt, setPrompt] = useState<{ host: Host; serviceIndex: number } | null>(null)
+  const [importing, setImporting] = useState(false)
 
   const allHosts = local.basedOn !== undefined && local.basedOn === resource.data ? local.hosts : resource.data
   const query = params.get('q') ?? ''
@@ -267,9 +269,14 @@ export function WorkspacePage() {
               </svg>
             </button>
             {admin ? (
-              <Button size="sm" onClick={() => showHost(NEW_HOST)}>
-                New host
-              </Button>
+              <>
+                <Button size="sm" variant="secondary" onClick={() => setImporting(true)}>
+                  Import
+                </Button>
+                <Button size="sm" onClick={() => showHost(NEW_HOST)}>
+                  New host
+                </Button>
+              </>
             ) : null}
           </div>
         </div>
@@ -509,6 +516,7 @@ export function WorkspacePage() {
           onCancel={() => setPrompt(null)}
         />
       ) : null}
+      {importing ? <ImportHostsDialog onClose={() => setImporting(false)} onImported={resource.reload} /> : null}
     </div>
   )
 }

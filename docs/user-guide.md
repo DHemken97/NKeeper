@@ -2,6 +2,7 @@
 
 - [The workspace](#the-workspace)
 - [Hosts](#hosts)
+- [Importing from mRemoteNG](#importing-from-mremoteng)
 - [Connecting](#connecting)
 - [SSH](#ssh)
 - [RDP](#rdp)
@@ -47,6 +48,26 @@ Administrators add hosts with **New host**. Anyone with *Manage* access can **Ed
 - **Cancel** creates nothing;
 - cloned credentials keep their stored passwords and keys, copied on the server without ever reaching your browser;
 - trusted host keys and certificates aren't copied, since the clone is a different machine.
+
+## Importing from mRemoteNG
+
+Administrators can bring in an mRemoteNG connection file with **Import** (next to **New host**): your `confCons.xml`, or an XML file from mRemoteNG's **File ▸ Export**.
+
+- **Master password:** enter it only if you set one in mRemoteNG. Files without one open on their own.
+- **Matching:** a connection matches the host with the same **name** (case doesn't matter).
+- **What to do** (any combination):
+  - **Add** creates hosts for connections that match no host.
+  - **Update** applies the file's address, description, MAC address, service, login and folder to matching hosts. Services, credentials and tags the file doesn't mention are kept.
+  - **Delete** removes hosts whose names aren't in the file. It's off by default.
+- **Preview first:** **Preview** shows what would be added, updated, deleted, left unchanged or skipped, and why. Nothing is saved until you choose **Import**, and changing an option asks for a new preview.
+- **How connections map:**
+  - each connection becomes a host with one service (its protocol and port) and, when it has a username or password, a credential;
+  - the folder path becomes a `folder` tag, e.g. `folder: Servers/SQL`, so you can group by it;
+  - values a connection inherits from its folders are resolved;
+  - connections with the same name and address merge into one host with several services;
+  - protocols NKeeper doesn't have (e.g. ICA, RAW) are stored as **Other** with the protocol as the label.
+- **Skipped:** connections without a valid hostname or IP address, a second connection with the same name but a different address, and names shared by several NKeeper hosts (it's unclear which one to update).
+- **Supported files:** mRemoteNG's current format (2.6) with its default AES-GCM encryption. Older files, or other encryption settings, are explained when you try them: re-save them in a current mRemoteNG.
 
 Changing a host's hostname or IP address forgets its trusted keys too, for the same reason.
 

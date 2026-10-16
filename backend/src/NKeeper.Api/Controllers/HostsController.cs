@@ -4,6 +4,7 @@ using NKeeper.Infrastructure.Identity;
 using NKeeper.Api.Access;
 using NKeeper.Api.Contracts.Inventory;
 using NKeeper.Api.Inventory;
+using NKeeper.Api.Inventory.Import;
 
 namespace NKeeper.Api.Controllers;
 
@@ -36,6 +37,19 @@ public sealed class HostsController(HostManager hosts) : ControllerBase
         var host = await hosts.CreateAsync(request, RequestUser.From(User), cancellationToken);
         return CreatedAtAction(nameof(Get), new { id = host.Id }, host);
     }
+
+    /// <summary>
+    /// Imports an mRemoteNG connection file: adds, updates and/or deletes hosts, matched by name.
+    /// Send <c>dryRun</c> first to see what would change. Administrators only.
+    /// </summary>
+    [HttpPost("import")]
+    [Authorize(Roles = SystemRoles.Administrator)]
+    [RequestSizeLimit(HostImportRequest.MaxContentLength * 2)]
+    [ProducesResponseType<HostImportResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public Task<HostImportResponse> Import(HostImportRequest request, [FromServices] HostImporter importer, CancellationToken cancellationToken) =>
+        importer.ImportAsync(request, RequestUser.From(User), cancellationToken);
 
     /// <summary>Replaces a host. Send the <c>version</c> you read; a stale version returns 409.</summary>
     [HttpPut("{id:guid}")]

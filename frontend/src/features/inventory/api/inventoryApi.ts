@@ -1,5 +1,5 @@
 import { api } from '../../../lib/api'
-import type { Host, HostInput } from '../types'
+import type { Host, HostImportInput, HostImportResult, HostInput } from '../types'
 
 export const hostsApi = {
   /** The whole inventory; searching, grouping and sorting happen client-side. */
@@ -9,4 +9,6 @@ export const hostsApi = {
   remove: (id: string) => api.delete(`/api/hosts/${id}`),
   /** Forget trusted SSH host keys and RDP certificates; the next connection asks again. */
   forgetTrustedKeys: (id: string) => api.delete(`/api/hosts/${id}/trusted-keys`),
+  /** Import an mRemoteNG connection file. Administrators only. */
+  importMRemoteNg: (input: HostImportInput) => api.post<HostImportResult>('/api/hosts/import', { body: input }),
 }

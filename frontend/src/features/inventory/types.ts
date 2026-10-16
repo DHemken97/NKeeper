@@ -143,3 +143,30 @@ export function formatTag(tag: HostTag): string {
 export function primaryAddress(host: Pick<Host, 'hostname' | 'ipAddress'>): string {
   return host.hostname ?? host.ipAddress ?? ''
 }
+
+/** Importing an mRemoteNG connection file (confCons.xml or an mRemoteNG XML export). */
+export interface HostImportInput {
+  /** The file's text. */
+  content: string
+  /** Only when one was set in mRemoteNG. */
+  masterPassword?: string
+  /** Add connections that match no host (by name). */
+  add: boolean
+  /** Update hosts that match a connection with its details. */
+  update: boolean
+  /** Delete hosts that match no connection in the file. */
+  delete: boolean
+  /** Report what would change without saving. */
+  dryRun: boolean
+}
+
+/** What an import did (or, for a dry run, would do), by host name. */
+export interface HostImportResult {
+  dryRun: boolean
+  added: string[]
+  updated: string[]
+  unchanged: string[]
+  deleted: string[]
+  skipped: { name: string; reason: string }[]
+  warnings: string[]
+}
