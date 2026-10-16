@@ -170,7 +170,7 @@ describe('host context menu', () => {
     const menu = screen.getByRole('menu', { name: 'Actions for linux01' })
     await user.hover(within(menu).getByRole('menuitem', { name: 'Connect' }))
     const services = screen.getByRole('menu', { name: 'Connect' })
-    expect(within(services).getByRole('menuitem', { name: /RDP.*Coming soon/ })).toHaveAttribute('aria-disabled', 'true')
+    expect(within(services).getByRole('menuitem', { name: /^RDP:3389/ })).not.toHaveAttribute('aria-disabled')
     await user.hover(within(services).getByRole('menuitem', { name: /^SSH:22/ }))
     const credentials = screen.getByRole('menu', { name: 'SSH' })
     expect(within(credentials).getByRole('menuitem', { name: /Placeholder.*No username/ })).toHaveAttribute('aria-disabled', 'true')

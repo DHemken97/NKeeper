@@ -25,7 +25,7 @@ const KEYSYM_DELETE = 0xffff
 const RESIZE_DEBOUNCE_MS = 250
 
 // @types/guacamole-common-js describes 1.5; these 1.6 runtime APIs are missing or marked abstract there.
-const TunnelBase = Guacamole.Tunnel as unknown as new () => InstanceType<typeof Guacamole.Tunnel>
+const TunnelBase = Guacamole.Tunnel as unknown as new () => InstanceType<typeof Guacamole.Tunnel> & { setState: (state: number) => void }
 const toInstruction = (elements: unknown[]) =>
   (Guacamole.Parser as unknown as { toInstruction: (elements: unknown[]) => string }).toInstruction(elements)
 

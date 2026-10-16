@@ -13,6 +13,7 @@ NKeeper is a free, open-source, web-based remote connection manager — a browse
 - [Creating the first administrator](#creating-the-first-administrator)
 - [Host inventory](#host-inventory)
 - [SSH sessions](#ssh-sessions)
+- [RDP sessions](#rdp-sessions)
 - [Database migrations](#database-migrations)
 - [Configuration reference](#configuration-reference)
 - [Testing](#testing)
@@ -209,6 +210,12 @@ Services other than SSH are listed but marked "Coming soon". Credentials without
 
 The API connects from wherever it runs: in Docker that is the backend container, so hosts must be reachable (and resolvable) from it. Idle sessions stay open: the API pings the browser every 30 seconds and nginx allows up to an hour of silence on `/api/ssh/`.
 
+## RDP sessions
+
+RDP services connect the same way (**Connect ▸ RDP ▸ credential**), through Apache Guacamole's `guacd` (the `guacd` Compose service, never published). Before connecting, the API reads the server's TLS certificate and asks you to trust its SHA-256 fingerprint on first use, then pins it in guacd; a changed certificate is refused (use **Forget trusted keys…** after an expected renewal). Each RDP service has a **Security** setting: Automatic (NLA when offered, otherwise TLS; the default), NLA only, or TLS only. Legacy RDP security without TLS is never used. RDP needs a credential with a password; the credential's domain is used as the Windows domain.
+
+In the session: keyboard input goes to the remote desktop while it has focus; **Ctrl+Alt+Del** and **Fullscreen** (which in Chromium also captures Win/Alt+Tab) are in the status bar; the text clipboard syncs both ways (reading your clipboard needs browser permission and a secure origin such as `localhost` or HTTPS); sound plays. File transfer, drives, printing, microphone and recording are off. The browser client is the official Apache Guacamole 1.6.0 release, vendored and verified (see `frontend/src/vendor/guacamole-common-js/README.md`).
+
 ## Database migrations
 
 Migrations live in `backend/src/NKeeper.Infrastructure/Migrations` and are committed. The schema is never created with `EnsureCreated()`. Run these from `backend/` after `dotnet tool restore`:
@@ -330,7 +337,7 @@ NKeeper must be served over HTTPS in production. The frontend container speaks p
 
 ## Known limitations
 
-- Only SSH sessions are implemented; RDP, VNC and the other services are listed as "Coming soon". Workspaces, permissions, an audit-event store, SignalR collaboration and mRemoteNG import are not implemented yet. The host inventory is shared by all signed-in users.
+- SSH and RDP sessions are implemented; VNC and the other services are listed as "Coming soon". RDP one-off logins have no domain field yet (use a saved credential for domain accounts). Workspaces, permissions, an audit-event store, SignalR collaboration and mRemoteNG import are not implemented yet. The host inventory is shared by all signed-in users.
 - Terminal sessions live in the API process: restarting the backend ends them, and the per-user session limit is per instance. SSH agent forwarding, port forwarding, jump hosts and SFTP are not supported yet.
 - No self-service password reset or user administration UI; the "Forgot password?" link shows a placeholder.
 - Data Protection keys are stored unencrypted in PostgreSQL (ASP.NET Core logs a warning about this), next to the credential secrets they encrypt. Protect them with a certificate or key vault (`ProtectKeysWith…`) before production use, and back them up: losing the keys makes stored passwords and SSH keys unrecoverable.
