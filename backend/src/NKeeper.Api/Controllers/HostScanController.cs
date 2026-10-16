@@ -41,8 +41,29 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
         var services = HttpContext.RequestServices;
         try
         {
-            var target = await services.GetRequiredService<SessionTargetResolver>()
-                .ResolveAsync(request with { HostId = id }, RequestUser.From(User), ServiceProtocol.Ssh, DefaultSshPort, cancellationToken);
+            var resolver = services.GetRequiredService<SessionTargetResolver>();
+            var user = RequestUser.From(User);
+            var protocol = (await access.Visible(user).AsNoTracking().Where(h => h.Id == id).Select(h => h.Services).FirstOrDefaultAsync(cancellationToken))
+                ?.OrderBy(s => s.Position).ElementAtOrDefault(request.ServiceIndex)?.Protocol;
+
+            if (protocol == ServiceProtocol.Rpc)
+            {
+                if (!OperatingSystem.IsWindows())
+                {
+                    return Problem(statusCode: StatusCodes.Status501NotImplemented, detail: "Scanning Windows hosts needs the NKeeper API to run on Windows (it uses WMI over DCOM).");
+                }
+
+                var windowsTarget = await resolver.ResolveAsync(request with { HostId = id }, user, ServiceProtocol.Rpc, 135, cancellationToken, request.Domain);
+                if (windowsTarget.Password is null)
+                {
+                    throw new SessionException(SessionErrorCodes.MissingSecret, "This credential has no password.");
+                }
+
+                return new ScanResponse("ready", await WindowsInternalScan.RunAsync(windowsTarget, cancellationToken), null);
+            }
+
+            var target = await resolver
+                .ResolveAsync(request with { HostId = id }, user, ServiceProtocol.Ssh, DefaultSshPort, cancellationToken);
             using var client = await SshCommandConnection.ConnectAsync(
                 target, request.TrustFingerprint, User.GetUserId(), services.GetRequiredService<TrustedKeyStore>(), cancellationToken);
             var findings = await InternalScan.RunAsync(client, cancellationToken);

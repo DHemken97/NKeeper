@@ -13,6 +13,10 @@ public sealed record InternalScanRequest : SessionStartMessage
 {
     [StringLength(128)]
     public string? TrustFingerprint { get; init; }
+
+    /// <summary>Windows (RPC) scans: the domain for a one-off login.</summary>
+    [StringLength(256)]
+    public string? Domain { get; init; }
 }
 
 /// <summary>A listening (internal scan) or open (external scan) TCP port, with a well-known name when there is one.</summary>

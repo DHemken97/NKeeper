@@ -77,7 +77,8 @@ export function ScanDialog({ host, kind, login, onClose, onApplied, canAddHosts 
   }
 
   const title = kind === 'internal' ? `Internal scan of ${host.name}` : `External scan of ${host.name}`
-  const sshPort = login ? (host.services[login.serviceIndex]?.port ?? PROTOCOL_INFO.Ssh.defaultPort ?? 22) : null
+  const scanService = login ? host.services[login.serviceIndex] : undefined
+  const sshPort = scanService?.protocol === 'Ssh' ? (scanService.port ?? PROTOCOL_INFO.Ssh.defaultPort ?? 22) : null
 
   if (phase.kind === 'results') {
     return (
@@ -96,7 +97,7 @@ export function ScanDialog({ host, kind, login, onClose, onApplied, canAddHosts 
   return (
     <Dialog
       title={title}
-      description={kind === 'internal' ? 'One SSH login that reads the host’s own settings.' : `From the NKeeper server to ${primaryAddress(host)}.`}
+      description={kind === 'internal' ? 'One login that reads the host’s own settings.' : `From the NKeeper server to ${primaryAddress(host)}.`}
       onClose={onClose}
       footer={
         <>

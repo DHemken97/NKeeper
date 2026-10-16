@@ -58,6 +58,7 @@ const VirtualMachinesView = lazy(() =>
 )
 const SpiceConsole = lazy(() => import('../../terminal/components/SpiceConsole').then((m) => ({ default: m.SpiceConsole })))
 const VncConsole = lazy(() => import('../../terminal/components/VncConsole').then((m) => ({ default: m.VncConsole })))
+const RpcSession = lazy(() => import('../../terminal/components/RpcSession').then((m) => ({ default: m.RpcSession })))
 const SORTS: { value: HostSort; label: string }[] = [
   { value: 'name', label: 'Name' },
   { value: 'address', label: 'Address' },
@@ -75,7 +76,7 @@ function sessionProtocol(protocol: ServiceProtocol): RemoteSession['protocol'] {
   if (WEB_PROTOCOLS.has(protocol)) {
     return 'web'
   }
-  return protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : 'ssh'
+  return protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : protocol === 'Rpc' ? 'rpc' : 'ssh'
 }
 
 /** Host ids in the order the tree shows them (skipping collapsed groups), each once. */
@@ -298,7 +299,7 @@ export function WorkspacePage() {
     clone: admin ? cloneHost : undefined,
     copyAddress: (host) => void navigator.clipboard?.writeText(primaryAddress(host)),
     scanInternal: (host, serviceIndex, credential) =>
-      credential && !credentialNeedsPassword(credential, 'Ssh')
+      credential && !credentialNeedsPassword(credential, host.services[serviceIndex].protocol)
         ? setScan({ host, kind: 'internal', login: { serviceIndex, credentialId: credential.id } })
         : setPrompt({ host, serviceIndex, account: credential, purpose: 'scan' }),
     scanExternal: (host) => setScan({ host, kind: 'external' }),
@@ -631,6 +632,8 @@ export function WorkspacePage() {
               <SpiceConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'vmvnc' ? (
               <VncConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'rpc' ? (
+              <RpcSession key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'rdp' || session.protocol === 'vnc' ? (
               <DesktopSession
                 key={session.id}
@@ -671,10 +674,10 @@ export function WorkspacePage() {
           initialUsername={prompt.account?.username ?? undefined}
           submitLabel={prompt.purpose === 'scan' ? 'Scan' : undefined}
           onConnect={(username, password) => {
+            const domain = prompt.account?.domain ?? undefined
             if (prompt.purpose === 'scan') {
-              setScan({ host: prompt.host, kind: 'internal', login: { serviceIndex: prompt.serviceIndex, username, password } })
+              setScan({ host: prompt.host, kind: 'internal', login: { serviceIndex: prompt.serviceIndex, username, password, ...(domain ? { domain } : {}) } })
             } else {
-              const domain = prompt.account?.domain ?? undefined
               openSession(prompt.host, prompt.serviceIndex, undefined, { username, password, ...(domain ? { domain } : {}) })
             }
             setPrompt(null)

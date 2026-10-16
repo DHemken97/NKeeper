@@ -66,6 +66,7 @@ internal static class ApiServiceCollectionExtensions
         services.AddScoped<TrustedKeyStore>();
         services.AddScoped<SshTerminalSession>();
         services.AddScoped<DesktopSession>();
+        services.AddScoped<NKeeper.Api.Rpc.RpcSession>();
         services.AddSingleton<SessionLimiter>();
         services.AddOptions<WebProxySettings>()
             .Bind(configuration.GetSection(WebProxySettings.SectionName))

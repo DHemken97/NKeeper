@@ -197,6 +197,9 @@ public enum ServiceProtocol
     WinRm,
     PowerShell,
 
+    /// <summary>Windows RPC (DCE/RPC over TCP), usually through the endpoint mapper on port 135.</summary>
+    Rpc,
+
     /// <summary>A KVM hypervisor managed with libvirt, reached over SSH: lists VMs and opens their SPICE consoles.</summary>
     Kvm,
     Other,

@@ -1,6 +1,6 @@
 /** Protocols NKeeper opens sessions for. */
 /** kvm: a hypervisor's VM list; spice and vmvnc: one VM's console (vnc is a VNC server reached through guacd). */
-export type SessionProtocol = 'ssh' | 'rdp' | 'vnc' | 'web' | 'kvm' | 'spice' | 'vmvnc'
+export type SessionProtocol = 'ssh' | 'rdp' | 'rpc' | 'vnc' | 'web' | 'kvm' | 'spice' | 'vmvnc'
 
 /** What the browser asks the server to connect to. Secrets for saved credentials stay on the server. */
 export interface SessionRequest {
