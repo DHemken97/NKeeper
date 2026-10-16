@@ -322,6 +322,25 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
         Assert.Equal(0, await db.HostCredentials.CountAsync(Ct));
     }
 
+    [Fact]
+    public async Task UnknownProtocolInTheDatabase_ReadsAsOther_InsteadOfBreakingTheHostList()
+    {
+        // As left by a newer or feature build that shares the database.
+        var host = await CreateHostAsync("future", ip: "10.0.0.9");
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NKeeperDbContext>();
+            await db.Database.ExecuteSqlAsync(
+                $"""INSERT INTO "HostServices" ("Id", "HostId", "Protocol", "Position") VALUES ({Guid.NewGuid()}, {host.Id}, 'TimeMachine', 0)""", Ct);
+        }
+
+        var response = await _client.GetAsync("/api/hosts", Ct);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var listed = (await ReadAsync<List<HostResponse>>(response)).Single(h => h.Id == host.Id);
+        Assert.Equal(ServiceProtocol.Other, Assert.Single(listed.Services).Protocol);
+    }
+
     private async Task<HostResponse> CreateHostAsync(
         string name,
         string? hostname = null,

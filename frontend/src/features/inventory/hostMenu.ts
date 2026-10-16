@@ -1,7 +1,7 @@
 import type { MenuEntry } from '../../components/ui/ContextMenu'
 import { formatAccount, PROTOCOL_INFO, primaryAddress, type Host, type HostCredential, type HostService, type ServiceProtocol } from './types'
 
-/** Protocols NKeeper can open sessions for today. */
+/** Protocols NKeeper can open sessions for. Other services (SSMS, Telnet, FTP…) are stored but not offered under Connect. */
 const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp', 'Rpc', 'Vnc', 'Http', 'Https', 'Kvm', 'Idrac'])
 
 /** Web services open the host's own web interface; they need no credential from NKeeper. */
@@ -73,14 +73,14 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
   ]
 }
 
-/** One entry per service, each opening its credentials (also used by the Connect button). */
+/** One entry per connectable service, each opening its credentials (also used by the Connect button). */
 export function connectMenuEntries(
   host: Host,
   actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWeb' | 'openDirect'>,
 ): MenuEntry[] {
-  const services: MenuEntry[] = host.services.map((service, index): MenuEntry => {
+  const services: MenuEntry[] = host.services.flatMap((service, index): MenuEntry | MenuEntry[] => {
     if (!CONNECTABLE.has(service.protocol)) {
-      return { kind: 'item', label: serviceLabel(service), detail: 'Coming soon', disabled: true }
+      return []
     }
 
     const web: MenuEntry[] = [
@@ -113,7 +113,9 @@ export function connectMenuEntries(
     return { kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions) }
   })
 
-  return services.length > 0 ? services : [{ kind: 'item', label: 'No services', detail: 'Edit the host to add one', disabled: true }]
+  return services.length > 0
+    ? services
+    : [{ kind: 'item', label: host.services.length > 0 ? 'No services to connect with' : 'No services', detail: 'Edit the host to add one', disabled: true }]
 }
 
 /** The host's credentials usable with a service (asking for a password when none is stored), then "Enter credentials…". */

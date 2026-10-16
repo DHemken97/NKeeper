@@ -76,7 +76,7 @@ scripts/setup.sh --yes --hostname nkeeper.corp.example.com,10.0.0.20 --admin-ema
 - **Firewall:** on Windows, the script adds a firewall rule for domain and private networks when run as administrator.
 
 **Native Linux:**
-- **Packages:** PostgreSQL, nginx and OpenSSL from the distribution. The script creates the `nkeeper` database and login, and allows password sign-in for it over loopback.
+- **Packages:** PostgreSQL, nginx, OpenSSL and Python 3 from the distribution. Impacket (for scanning Windows hosts) goes in its own Python environment in `/opt/impacket`; if it can't be downloaded, setup warns and only Windows scans are affected. The script creates the `nkeeper` database and login, and allows password sign-in for it over loopback.
 - **Build tools:** a private .NET 10 SDK and Node.js 22 in `/var/cache/nkeeper-build`. Your checkout isn't touched; the build runs on a copy.
 - **Application:** installed to `/opt/nkeeper` and run by the `nkeeper` systemd service as the `nkeeper` user, with sandboxing. It listens on `127.0.0.1:5080`, with settings and secrets in `/etc/nkeeper/nkeeper.env` (root only).
 - **Web server:** nginx config in `/etc/nginx/conf.d/nkeeper.conf` and `nkeeper-tls.conf`, with snippets in `/etc/nginx/snippets/nkeeper/` and certificates in `/etc/nginx/nkeeper-tls/`.

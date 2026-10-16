@@ -1,15 +1,18 @@
 # NKeeper
 
-NKeeper is a web-based remote connection manager: a browser-based alternative to mRemoteNG for a team. Keep an inventory of hosts with their services, credentials and tags. Then open SSH, RDP, VNC, web and KVM virtual-machine console sessions in browser tabs. The NKeeper server makes every connection, so passwords and keys never reach the browser.
+NKeeper is a web-based remote connection manager: a browser-based alternative to mRemoteNG for a team. Keep an inventory of hosts with their services, credentials and tags. Then open SSH, RDP, VNC, web, KVM virtual-machine console and Dell iDRAC console sessions in browser tabs. The NKeeper server makes every connection, so passwords and keys never reach the browser.
 
 ## Features
 
-- **Host inventory** with services (SSH, RDP, VNC, HTTP/HTTPS, KVM, …), credentials and Zabbix-style `name: value` tags. There are no folders: you **group by** any tag, e.g. site → role, and search by text or tags (`env:prod`). **Clone** a host to add similar ones quickly, or **import** your mRemoteNG connections (add, update and/or delete, with a preview first). **Scan** a host to fill in its MAC address, OS, services and users: internally over one SSH login, or externally over the network.
+- **Host inventory** with services (SSH, RDP, VNC, HTTP/HTTPS, KVM, iDRAC, …), credentials and Zabbix-style `name: value` tags. There are no folders: you **group by** any tag, e.g. site → role, and search by text or tags (`env:prod`). **Clone** a host to add similar ones quickly, or **import** your mRemoteNG connections (add, update and/or delete, with a preview first). **Scan** a host to fill in its MAC address, OS, services and users: internally over one SSH login, or externally over the network.
 - **Sessions in tabs**: right-click a host, then **Connect ▸ service ▸ credential**.
   - **SSH** terminal (xterm.js).
   - **RDP** and **VNC** desktops through Apache Guacamole's guacd, with clipboard sync, Ctrl+Alt+Del and full screen.
   - **Web interfaces** (routers, iDRAC/iLO, NAS…) are proxied by the server and shown in the tab, or can be opened directly in a new browser tab.
   - **KVM virtual machines**: lists a hypervisor's VMs over SSH (like virt-manager) and opens their **SPICE or VNC consoles** in the browser.
+  - **Dell iDRAC**: the HTML5 virtual console in a tab, the server's status and power buttons over Redfish, and RACADM over SSH.
+- **Windows scans** over RPC (WMI): hostname, model, Windows version, adapters, listening ports and local accounts.
+- **Reports**: an IP address map of every /24 subnet in use, downloadable as CSV.
 - **Trust on first use**: SSH host keys, RDP certificates and self-signed HTTPS certificates are confirmed once, then pinned. A changed key or certificate is refused.
 - **Users and access**: administrators and users. Users get access to tag-based groups of hosts or to single hosts, at *Use* or *Manage* level. Changes apply immediately.
 - **Secure by default**:
@@ -41,7 +44,7 @@ The script asks for the names people will use to reach the server and for the fi
 | Guide | Covers |
 | --- | --- |
 | [Installation](docs/installation.md) | Setup scripts, Docker Compose by hand, HTTPS and certificates, upgrades, running behind another proxy, uninstalling |
-| [User guide](docs/user-guide.md) | The workspace, hosts and tags, cloning, and connecting with SSH, RDP, VNC, web and KVM/SPICE |
+| [User guide](docs/user-guide.md) | The workspace, hosts and tags, cloning, scanning, connecting with SSH, RDP, VNC, web, KVM/SPICE and iDRAC, and reports |
 | [Administration](docs/administration.md) | The first administrator, users and access, backups and restores, logs, database migrations |
 | [Configuration](docs/configuration.md) | Every API setting and `.env` variable, and where native installs keep their files |
 | [Security](docs/security.md) | How NKeeper protects accounts, secrets, sessions and the network path |
@@ -65,7 +68,7 @@ The script asks for the names people will use to reach the server and for the fi
 NKeeper is young. It's usable and well tested, but it hasn't had an independent security review. Treat it accordingly before storing production credentials.
 
 - **Not yet automated:** backups (see [Administration](docs/administration.md#backups-and-restores) for the manual commands), an audit-event store, two-factor sign-in and mRemoteNG import.
-- **Services** other than SSH, RDP, VNC, HTTP(S) and KVM (e.g. SSMS, Telnet, SFTP, WinRM) are stored but show as "Coming soon".
+- **Services** other than SSH, RDP, RPC, VNC, HTTP(S), KVM and iDRAC (e.g. SSMS, Telnet, SFTP, WinRM) can be recorded, but can't be connected to yet and aren't offered under **Connect**.
 - **Sessions live in the API process.** Restarting it ends open sessions, and limits are per API instance. There's no SSH port forwarding, jump hosts or SFTP yet. RDP file transfer, drives, printing and microphone are off.
 - **KVM:** one SPICE console at a time (VNC consoles aren't limited). SPICE configured for TLS only isn't supported.
 - **Web sessions** from other machines need a wildcard DNS record. Links that hard-code a host's absolute address leave the session.

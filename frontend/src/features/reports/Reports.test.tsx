@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { describe, expect, it } from 'vitest'
@@ -92,14 +92,15 @@ describe('reports', () => {
   it('shows the IP address map: subnets across, addresses down, host names in the cells', async () => {
     renderAt('/reports')
 
-    const table = await screen.findByRole('table')
-    const headers = within(table).getAllByRole('columnheader').map((h) => h.textContent)
+    // Plain DOM queries: role queries over a 256-row table are slow enough to time out under load.
+    const table = (await screen.findByRole('table')) as HTMLTableElement
+    const headers = [...table.tHead!.rows[0].cells].map((h) => h.textContent)
     expect(headers).toEqual(['Address', '10.0.1.x1 used', '192.168.1.x2 used', '192.168.42.x1 used', '192.168.100.x1 used'])
     // .0 to .255
-    expect(within(table).getAllByRole('row')).toHaveLength(257)
-
-    const row = within(table).getByRole('row', { name: /^\.1\b/ })
-    expect(within(row).getAllByRole('cell').map((c) => c.textContent)).toEqual(['', 'router', 'lab-gw', 'deep'])
+    const rows = table.tBodies[0].rows
+    expect(rows).toHaveLength(256)
+    expect(rows[1].cells[0].textContent).toBe('.1')
+    expect([...rows[1].querySelectorAll('td')].map((c) => c.textContent)).toEqual(['', 'router', 'lab-gw', 'deep'])
     expect(screen.getByText(/2 hosts without an IPv4 address not shown/)).toBeInTheDocument()
   })
 
@@ -110,7 +111,7 @@ describe('reports', () => {
     expect(conflict).toHaveTextContent('nasold-printer')
 
     await person.click(screen.getByRole('checkbox', { name: 'Only used addresses' }))
-    expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(4)
+    expect((screen.getByRole('table') as HTMLTableElement).tBodies[0].rows).toHaveLength(3)
 
     await person.click(screen.getByRole('link', { name: 'esx01' }))
     expect(router.state.location.pathname).toBe('/')

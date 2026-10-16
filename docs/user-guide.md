@@ -9,6 +9,7 @@
 - [RDP](#rdp)
 - [VNC](#vnc)
 - [Web interfaces (HTTP/HTTPS)](#web-interfaces-httphttps)
+- [Windows RPC](#windows-rpc)
 - [KVM virtual machines (SPICE and VNC consoles)](#kvm-virtual-machines-spice-and-vnc-consoles)
 - [Dell iDRAC (virtual console, status and power, RACADM)](#dell-idrac-virtual-console-status-and-power-racadm)
 - [Trusting servers](#trusting-servers)
@@ -59,7 +60,7 @@ A host has:
 - whether it's a **virtual machine**, and if so, which host it **runs on** (its KVM or Proxmox node). The VM's details link to that host, and the host lists the VMs running on it. Deleting the host keeps its VMs and clears their link;
 - its own **tags**, **services** and **credentials**:
   - **Tags** are `name: value` pairs (the value is optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can have the same tag name twice with different values. Tags are what you group, search and grant access by; hosts don't live in folders.
-  - **Services** are the ways to connect: SSH, RDP, VNC, HTTP, HTTPS, KVM, iDRAC, and others stored for later (SSMS, Telnet, SFTP, FTP, WinRM, PowerShell, Other). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's.
+  - **Services** are the ways to connect: SSH, RDP, RPC, VNC, HTTP, HTTPS, KVM and iDRAC. Others (SSMS, Telnet, SFTP, FTP, WinRM, PowerShell, Other) can be recorded, e.g. from an mRemoteNG import, but NKeeper can't connect with them yet, so they don't appear under **Connect**. Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's.
   - **Credentials** have a username, domain, label, password, SSH private key and notes. Passwords and keys are **write-only**: once saved, NKeeper only shows that one is stored. Leave the field empty when editing to keep it, or choose to clear it.
 
 Administrators add hosts with **New host**. Anyone with *Manage* access can **Edit** or **Delete** a host.
@@ -101,7 +102,9 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - the TCP ports it listens on, except those that only listen on localhost;
   - the local accounts that can log in (a real shell; root and regular users).
 
-  **On the network, an internal scan is a single SSH login**, like an administrator's, so it suits places that don't allow scanning. The commands only read local state and contact no other machines. It needs Linux or another Unix with `sh`. Windows isn't supported yet.
+  **On the network, an internal scan is a single SSH login**, like an administrator's, so it suits places that don't allow scanning. The commands only read local state and contact no other machines. It needs Linux or another Unix with `sh`.
+
+  **Windows hosts** are scanned over an **RPC** service instead (**Tasks ▸ Scan ▸ Internal**, *Over RPC (WMI)*), with a Windows login and its domain. It makes read-only WMI queries: the computer name, manufacturer and model, the Windows version, network adapters, listening TCP ports and enabled local accounts. WMI uses RPC on port 135 plus Windows' dynamic RPC ports, so the firewall must allow those from the NKeeper server, and the account must be allowed remote WMI (an administrator is). On Linux, NKeeper uses Impacket for this: the Docker image and the Linux installer include it.
 - **External** (**Tasks ▸ Scan ▸ External**) is run by the NKeeper server against the host's saved address, after you confirm. It reads:
   - which common ports are open (SSH, RDP, VNC, web, file sharing, mail, directory and database ports);
   - the SSH banner, which often names the operating system;
@@ -187,6 +190,10 @@ A web session belongs to you and ends:
 **Reload** reloads the page inside the tab.
 
 If web sessions don't load from other computers, the server needs the wildcard DNS record and certificate described in [Installation](installation.md#dns-for-web-sessions). Links in a page that hard-code the host's absolute address (e.g. `https://10.0.0.5/…`) leave the session and connect directly; most web interfaces use relative links.
+
+## Windows RPC
+
+An **RPC** service (port 135, the endpoint mapper) is mainly for [scanning Windows hosts](#scanning-hosts). **Connect ▸ RPC** also opens a low-level tool for administrators who know DCE/RPC. NKeeper binds the interface and signs in with NTLM using the credential and its domain. You then send calls as an operation number and a request stub in hex, and see the response stub or the fault. Calls are authenticated but not signed or encrypted.
 
 ## KVM virtual machines (SPICE and VNC consoles)
 
