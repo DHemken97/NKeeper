@@ -8,7 +8,8 @@ NKeeper is a free, open-source, web-based remote connection manager — a browse
 
 - [Technology](#technology)
 - [Repository layout](#repository-layout)
-- [Quick start with Docker Compose](#quick-start-with-docker-compose)
+- [Installing NKeeper (setup scripts)](#installing-nkeeper-setup-scripts)
+- [Quick start with Docker Compose (by hand)](#quick-start-with-docker-compose-by-hand)
 - [Local development](#local-development)
 - [Creating the first administrator](#creating-the-first-administrator)
 - [Host inventory](#host-inventory)
@@ -71,7 +72,8 @@ frontend/
     features/terminal/           xterm.js SSH terminal (lazy-loaded) and the one-off credentials prompt
     lib/api.ts                   the single HTTP client
     styles/global.css            design tokens
-  nginx/                         nginx config used by the Docker image
+  nginx/                         nginx config: snippets shared by the Docker image and native Linux installs, HTTPS template and certificate script (nkeeper-tls.sh)
+scripts/                         setup.sh (Linux: Docker or native) and setup.ps1/setup.cmd (Windows: Docker Desktop or IIS)
 docker-compose.yml               full stack
 docker-compose.dev.yml           override: exposes PostgreSQL on 127.0.0.1 for host development
 .env.example                     every configurable variable, documented
@@ -79,7 +81,56 @@ docker-compose.dev.yml           override: exposes PostgreSQL on 127.0.0.1 for h
 
 The spec suggested a separate `NKeeper.Application` project. It was intentionally left out for now: the only business logic is credential validation, which is inseparable from ASP.NET Core Identity. Add an Application project when features with real domain logic (workspaces, permissions) arrive.
 
-## Quick start with Docker Compose
+## Installing NKeeper (setup scripts)
+
+On a new machine: get this repository, run one script, open the address it prints, and sign in. The script asks a few questions (or none with `--yes`/`-Yes`). Running it again later upgrades NKeeper and keeps your data and settings.
+
+| | Linux | Windows |
+| --- | --- | --- |
+| **Containers** (recommended) | `scripts/setup.sh` | double-click `scripts\setup.cmd`, or `powershell -ExecutionPolicy Bypass -File scripts\setup.ps1` |
+| **Native services** | `sudo scripts/setup.sh --mode native` | `scripts\setup.cmd -Mode Iis` (as administrator) |
+
+**What you get:** NKeeper on `https://<this machine's name>` (port 443; plain HTTP on port 80 redirects there), and a first administrator. A generated password is shown once at the end. The certificate comes from a private CA that NKeeper creates for this server. The script saves that CA as `nkeeper-ca.crt` in the repository folder. Install it as a trusted root on client machines to avoid browser warnings; web sessions need it too. To use your own certificate instead, pass `--cert FILE --key FILE` (Linux) or `-CertificateFile`/`-KeyFile` (Docker on Windows) or `-CertificateThumbprint` (IIS).
+
+**Containers.** The script needs Docker with Compose v2. On Linux it offers to install Docker (`get.docker.com`); on Windows it offers to install Docker Desktop with winget (after installing, start Docker Desktop and run the script again). The script:
+- writes `.env`, with a random database password and the first administrator;
+- builds and starts the stack;
+- removes the administrator's password from `.env` once the account exists.
+
+**Native, Linux** (Debian/Ubuntu with apt; RHEL/Rocky/Alma/Fedora with dnf):
+- **Packages:** installs PostgreSQL, nginx and OpenSSL from the distribution.
+- **Database:** creates the `nkeeper` database and its login.
+- **Build:** builds NKeeper with a private .NET SDK and Node.js in `/var/cache/nkeeper-build`.
+- **Install:** puts it in `/opt/nkeeper`, with settings and secrets in `/etc/nkeeper/nkeeper.env` (root only).
+- **Service:** runs the `nkeeper` systemd service as the `nkeeper` user, behind nginx (`/etc/nginx/conf.d/nkeeper*.conf`).
+- **Hardening:** handles SELinux and opens firewalld or ufw.
+
+**Native, Windows (IIS)**:
+- **Prerequisites:** enables IIS with WebSockets and installs, with winget where missing: the .NET 10 SDK, the ASP.NET Core Hosting Bundle, Node.js LTS and PostgreSQL 17. Use `-ConnectionString` to use an existing database instead.
+- **Site:** publishes NKeeper to `C:\inetpub\nkeeper`, as an IIS site with its own app pool. The app pool never idles or recycles, because open sessions live in it. The API serves the web frontend itself.
+- **HTTPS:** issues the certificate into `LocalMachine\My`, and adds an HTTP→HTTPS redirect site.
+- **Network:** opens Windows Firewall for domain and private networks.
+- **Saved state:** settings for re-runs go in `C:\ProgramData\NKeeper\state.json` (administrators only).
+
+**RDP and VNC need guacd**, which has no native Windows build and isn't packaged in a current version by Linux distributions. The native modes run it as a container on `127.0.0.1:4822`: Docker or Podman on Linux, Docker Desktop on Windows. Without one, everything except RDP and VNC works, and the script says so.
+
+Useful options (`--help` / `Get-Help scripts\setup.ps1 -Detailed` for all):
+
+| Linux | Windows | Purpose |
+| --- | --- | --- |
+| `--hostname a,b` | `-HostName a,b` | Names and IP addresses clients use (default: this machine's name and IP) |
+| `--local-only` | `-LocalOnly` | Only reachable from this machine |
+| `--https-port`, `--http-port` | `-HttpsPort`, `-HttpPort` | Ports (default 443 and 80) |
+| `--web-domain D` | `-WebDomain D` | Separate domain for web sessions |
+| `--admin-user/-email/-password` | `-AdminUser/-AdminEmail/-AdminPassword` | First administrator |
+| `--yes` | `-Yes` | No questions |
+| `--uninstall [--purge]` | `-Uninstall [-Purge]` | Remove NKeeper (`--purge` also deletes the database and certificates) |
+
+**Web sessions from other machines** need a wildcard DNS record, `*.web.<name>` (or `*.<web domain>`), pointing at the server; the certificate already covers it. Without one, everything else works.
+
+## Quick start with Docker Compose (by hand)
+
+The setup script does this for you; these are the manual steps.
 
 Requirements: Docker with Compose v2.
 
@@ -90,13 +141,13 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Open <http://localhost:8080>.
+Open <http://localhost:8080> (or `https://localhost:8443`, with a certificate from NKeeper's private CA).
 
 What happens:
 
 - **postgres** stores data in the named volume `nkeeper_postgres-data`. It has no published port.
 - **backend** waits for PostgreSQL to be healthy, applies migrations (`NKEEPER_MIGRATE_ON_STARTUP=true`) and serves the API on the internal network only.
-- **frontend** (nginx) serves the app on `127.0.0.1:8080` and proxies `/api/*` to `http://backend:8080`. The browser only ever talks to this one origin, so it never needs to resolve Docker service names.
+- **frontend** (nginx) serves the app on `127.0.0.1:8080` (HTTP) and on HTTPS (`NKEEPER_HTTPS_BIND`:`NKEEPER_HTTPS_PORT`, default `127.0.0.1:8443`, plus a redirect port), and proxies `/api/*` to `http://backend:8080`. The browser only ever talks to this one origin, so it never needs to resolve Docker service names. On first start it creates a private CA and a certificate for `NKEEPER_SERVER_NAMES` in the `nkeeper_tls` volume (`docker compose cp frontend:/etc/nginx/tls/ca.crt .` exports the CA). Copy your own `custom.crt` and `custom.key` into `/etc/nginx/tls` to use them instead.
 
 Useful commands:
 
@@ -348,7 +399,7 @@ Coverage: valid login (username and email), invalid login with identical generic
 - **Credential secrets** are encrypted before they reach the database and are never sent back to clients. SSH sessions decrypt them on the server only.
 - **SSH sessions** can only target inventory hosts, their SSH services and their own credentials (or one-off credentials sent in the first WebSocket message, never in the URL). Unknown host keys must be confirmed by the user, and changed keys are refused. Every session is logged with user, host, credential id and duration (never secrets). Each user can hold at most 20 concurrent sessions.
 - **WebSocket hijacking:** browsers attach cookies to cross-site WebSocket handshakes and CORS does not apply to them, so the API only accepts terminal handshakes whose `Origin` is NKeeper itself (or a configured `Cors:AllowedOrigins` entry).
-- **Content Security Policy** (set by nginx) allows scripts only from NKeeper itself. Styles additionally allow inline `<style>`, because xterm.js injects its styles at runtime.
+- **Content Security Policy** (set by nginx, or by the API itself when it serves the frontend under IIS) allows scripts only from NKeeper itself. Styles additionally allow inline `<style>`, because xterm.js injects its styles at runtime.
 - **Containers** run as non-root; PostgreSQL and the API publish no host ports; credentials are passed at runtime, never baked into images.
 - **Stable identifiers:** users are keyed by GUID. Future workspace permissions should reference `AspNetUsers.Id` and stay separate from authentication.
 
@@ -381,7 +432,7 @@ NKeeper must be served over HTTPS in production. The frontend container speaks p
 | SSH: "Couldn't connect … the name could not be resolved" / "host is unreachable" | The API (the backend container in Docker) makes the connection. The host must be resolvable and reachable from there, not just from your PC. |
 | SSH: "Host key changed" | The server presented a different key than the one trusted. Verify with the server's administrator; if expected, use **Forget trusted keys…** in the host details. |
 | SSH: "Authentication failed" with the right password | The server may only accept keys, or the account may be locked. Try the same login with `ssh` from the backend's network. |
-| Terminal tab says "Couldn't reach the NKeeper server" | The WebSocket was blocked. Behind your own reverse proxy, forward `Upgrade`/`Connection` headers and the original `Host` for `/api/ssh/` (see `frontend/nginx/default.conf`). |
+| Terminal tab says "Couldn't reach the NKeeper server" | The WebSocket was blocked. Behind your own reverse proxy, forward `Upgrade`/`Connection` headers and the original `Host` for `/api/ssh/` (see `frontend/nginx/snippets/app-locations.conf`). |
 
 ## Known limitations
 

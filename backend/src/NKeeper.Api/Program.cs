@@ -9,6 +9,7 @@ builder.Services.AddNKeeperInfrastructure(builder.Configuration);
 builder.Services.AddNKeeperApi(builder.Configuration);
 
 var app = builder.Build();
+var hostsFrontend = SpaHosting.IsDeployed(app.Environment);
 
 if (app.Services.GetRequiredService<IOptions<ForwardedHeadersSettings>>().Value.Enabled)
 {
@@ -23,6 +24,13 @@ app.UseMiddleware<NKeeper.Api.Web.WebProxyMiddleware>();
 // Stack traces are only shown by the developer exception page in Development.
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+
+// Without nginx in front (e.g. IIS), the API serves the frontend and its security headers itself.
+if (hostsFrontend)
+{
+    app.UseNKeeperSecurityHeaders();
+    app.UseNKeeperFrontendFiles();
+}
 
 app.UseCors(CorsSettings.PolicyName);
 app.UseAuthentication();
@@ -40,6 +48,10 @@ if (app.Environment.IsDevelopment())
 app.MapControllers();
 app.MapHealthChecks("/health/live", new() { Predicate = _ => false }).AllowAnonymous();
 app.MapHealthChecks("/health/ready", new() { Predicate = check => check.Tags.Contains("ready") }).AllowAnonymous();
+if (hostsFrontend)
+{
+    app.MapNKeeperFrontend();
+}
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
