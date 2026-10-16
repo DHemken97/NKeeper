@@ -23,7 +23,7 @@ NATIVE_TLS=/etc/nginx/nkeeper-tls
 API_PORT=5080
 
 mode="" names="" web_domain="" local_only=false https_port=443 http_port=80
-admin_user="" admin_email="" admin_password="" cert="" key=""
+admin_user="" admin_email="" admin_password="" admin_password_arg="" cert="" key=""
 assume_yes=false install_docker=false uninstall=false purge=false no_guacd=false
 https_port_set=false http_port_set=false
 
@@ -64,7 +64,7 @@ while [ $# -gt 0 ]; do
         --key) key=$2; shift ;;
         --admin-user) admin_user=$2; shift ;;
         --admin-email) admin_email=$2; shift ;;
-        --admin-password) admin_password=$2; shift ;;
+        --admin-password) admin_password=$2 admin_password_arg=$2; shift ;;
         --install-docker) install_docker=true ;;
         --no-guacd) no_guacd=true ;;
         -y|--yes) assume_yes=true ;;
@@ -224,15 +224,31 @@ choose_admin() {
     domain=$(first_name)
     [[ "$domain" == *.* ]] || domain="$domain.local"
     admin_email=${admin_email:-$(ask "Their email address" "admin@$domain")}
-    if [ -z "$admin_password" ] && interactive; then
-        read -r -s -p "Their password (12+ characters, upper and lower case and a digit; empty = generate): " admin_password </dev/tty || true
-        echo
+    local problem
+    while true; do
+        if [ -z "$admin_password" ] && interactive; then
+            read -r -s -p "Their password (12+ characters, upper and lower case and a digit; empty = generate): " admin_password </dev/tty || true
+            echo
+        fi
+        if [ -z "$admin_password" ]; then
+            admin_password=$(generate_password)
+            generated_password=true
+        fi
+        problem=$(password_problem "$admin_password")
+        [ -z "$problem" ] && return
+        # Ask again rather than stopping halfway through the install.
+        interactive && [ -z "$admin_password_arg" ] || die "$problem"
+        warn "$problem"
+        admin_password=""
+    done
+}
+
+password_problem() {
+    if ! valid_password "$1"; then
+        echo "The password needs 12+ characters with upper case, lower case and a digit."
+    elif [ "$mode" = native ] && [[ "$1" == *[\"\\\$\`]* ]]; then
+        echo "In native mode the password can't contain \" \\ \$ or \`."
     fi
-    if [ -z "$admin_password" ]; then
-        admin_password=$(generate_password)
-        generated_password=true
-    fi
-    valid_password "$admin_password" || die "The password needs 12+ characters with upper case, lower case and a digit."
 }
 
 generated_password=false
@@ -275,6 +291,8 @@ docker_install() {
         $fresh || die "A database already exists but .env has no POSTGRES_PASSWORD. Restore .env, or start over with --uninstall --purge."
         set_env "$env" POSTGRES_PASSWORD "$(random_text 48)"
     fi
+    # A run that failed before NKeeper started never created the administrator: ask again.
+    [ "$(get_env "$env" NKEEPER_BOOTSTRAP_ADMIN_ENABLED)" = true ] && fresh=true
     local bind=0.0.0.0
     $local_only && bind=127.0.0.1
     set_env "$env" NKEEPER_HTTPS_BIND "$bind"
@@ -492,12 +510,13 @@ native_config() {
     id nkeeper >/dev/null 2>&1 || useradd --system --home-dir "$NATIVE_PREFIX" --shell /usr/sbin/nologin nkeeper
     mkdir -p "$NATIVE_CONFIG"
     local env="$NATIVE_CONFIG/nkeeper.env" fresh=true
+    # NKEEPER_INSTALLED is only set once NKeeper has started (and created the administrator), so a
+    # run that stopped earlier asks for the administrator again.
     [ -n "$(get_env "$env" NKEEPER_INSTALLED)" ] && fresh=false
     touch "$env"
     chown root:root "$env"
     chmod 600 "$env"
 
-    set_env "$env" NKEEPER_INSTALLED 1
     set_env "$env" NKEEPER_DB_PASSWORD "$db_password"
     set_env "$env" ConnectionStrings__NKeeper "\"Host=127.0.0.1;Port=5432;Database=nkeeper;Username=nkeeper;Password=$db_password\""
     set_env "$env" ASPNETCORE_ENVIRONMENT Production
@@ -514,7 +533,6 @@ native_config() {
 
     if $fresh; then
         choose_admin
-        [[ "$admin_password" != *[\"\\\$\`]* ]] || die "In native mode the password can't contain \" \\ \$ or \`. Choose another (you can change it after signing in)."
         set_env "$env" BootstrapAdmin__Enabled true
         set_env "$env" BootstrapAdmin__AllowOutsideDevelopment true
         set_env "$env" BootstrapAdmin__UserName "\"$admin_user\""
@@ -686,6 +704,7 @@ native_install() {
         journalctl -u nkeeper -n 40 --no-pager >&2 || true
         die "NKeeper didn't start in time (log above). Check: journalctl -u nkeeper"
     fi
+    set_env "$NATIVE_CONFIG/nkeeper.env" NKEEPER_INSTALLED 1
     if $bootstrapped; then
         set_env "$NATIVE_CONFIG/nkeeper.env" BootstrapAdmin__Enabled false
         set_env "$NATIVE_CONFIG/nkeeper.env" BootstrapAdmin__Password '""'

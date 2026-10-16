@@ -278,16 +278,22 @@ function Resolve-Admin {
         if ($domain -notmatch '\.') { $domain = "$domain.local" }
         $script:AdminEmail = Read-Answer 'Their email address' "admin@$domain"
     }
-    if (-not $script:AdminPassword -and (Test-Interactive)) {
-        $secure = Read-Host 'Their password (12+ characters, upper and lower case and a digit; empty = generate)' -AsSecureString
-        $script:AdminPassword = (New-Object Net.NetworkCredential('', $secure)).Password
-    }
-    if (-not $script:AdminPassword) {
-        $script:AdminPassword = New-AdminPassword
-        $script:GeneratedPassword = $true
-    }
-    if (-not (Test-AdminPassword $script:AdminPassword)) {
-        Stop-Setup 'The password needs 12+ characters with upper case, lower case and a digit.'
+    $fromParameter = [bool]$script:AdminPassword
+    while ($true) {
+        if (-not $script:AdminPassword -and (Test-Interactive)) {
+            $secure = Read-Host 'Their password (12+ characters, upper and lower case and a digit; empty = generate)' -AsSecureString
+            $script:AdminPassword = (New-Object Net.NetworkCredential('', $secure)).Password
+        }
+        if (-not $script:AdminPassword) {
+            $script:AdminPassword = New-AdminPassword
+            $script:GeneratedPassword = $true
+        }
+        if (Test-AdminPassword $script:AdminPassword) { return }
+        $problem = 'The password needs 12+ characters with upper case, lower case and a digit.'
+        # Ask again rather than stopping halfway through the install.
+        if ($fromParameter -or -not (Test-Interactive)) { Stop-Setup $problem }
+        Write-Warn $problem
+        $script:AdminPassword = $null
     }
 }
 
