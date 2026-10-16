@@ -109,6 +109,29 @@ describe('workspace', () => {
     expect(hostNamesInTree()).toEqual(['fw01', 'laptop'])
   })
 
+  it('collapses and expands every group at once, nested ones included', async () => {
+    const { user } = renderAt('/?group=site&group=role')
+    await screen.findByRole('button', { name: /site:\s*DC-A/ })
+
+    await user.click(screen.getByRole('button', { name: 'Collapse all groups' }))
+    expect(hostNamesInTree()).toEqual([])
+    // Opening a site shows its role groups, still collapsed (these hosts have no role tag).
+    await user.click(screen.getByRole('button', { name: /site:\s*DC-A/ }))
+    expect(screen.getAllByRole('button', { name: /No role/ })[0]).toHaveAttribute('aria-expanded', 'false')
+    expect(hostNamesInTree()).toEqual([])
+
+    await user.click(screen.getByRole('button', { name: 'Collapse all groups' }))
+    await user.click(screen.getByRole('button', { name: 'Expand all groups' }))
+    expect(hostNamesInTree()).toContain('sql01')
+    expect(screen.queryByRole('button', { name: 'Expand all groups' })).not.toBeInTheDocument()
+  })
+
+  it('offers collapse all only when the tree is grouped', async () => {
+    renderAt('/')
+    await screen.findByRole('button', { name: /sql01/ })
+    expect(screen.queryByRole('button', { name: 'Collapse all groups' })).not.toBeInTheDocument()
+  })
+
   it('adds grouping levels with the group-by picker', async () => {
     const { user, router } = renderAt('/')
     await screen.findByRole('button', { name: /sql01/ })

@@ -104,6 +104,11 @@ function findGroup(nodes: TreeNode[], id: string): TreeGroup | undefined {
   return undefined
 }
 
+/** Every group's id, nested ones included. */
+function allGroupIds(nodes: TreeNode[]): string[] {
+  return nodes.flatMap((node) => (node.type === 'group' ? [node.id, ...allGroupIds(node.children)] : []))
+}
+
 /** Every host under a group, collapsed or not. */
 function groupHostIds(group: TreeGroup): string[] {
   return [...new Set(group.children.flatMap((child) => (child.type === 'host' ? [child.host.id] : groupHostIds(child))))]
@@ -156,6 +161,8 @@ export function WorkspacePage() {
   }, [allHosts, query, sort])
   const tree = useMemo(() => buildTree(visibleHosts, groupKeys, allHosts ?? []), [visibleHosts, groupKeys, allHosts])
   const knownTagNames = useMemo(() => tagNames(allHosts ?? []), [allHosts])
+  const groupIds = useMemo(() => allGroupIds(tree), [tree])
+  const anyExpanded = groupIds.some((id) => !collapsed.has(id))
   const selectedHost = selectedId && selectedId !== NEW_HOST ? allHosts?.find((h) => h.id === selectedId) : undefined
   const cloneId = selectedId === NEW_HOST ? params.get('clone') : null
   const cloneSource = cloneId ? allHosts?.find((h) => h.id === cloneId) : undefined
@@ -358,6 +365,26 @@ export function WorkspacePage() {
             ) : null}
           </h1>
           <div className={styles.sidebarActions}>
+            {groupIds.length > 0 ? (
+              <button
+                type="button"
+                className={styles.iconButton}
+                onClick={() => setCollapsed(anyExpanded ? new Set(groupIds) : new Set())}
+                aria-label={anyExpanded ? 'Collapse all groups' : 'Expand all groups'}
+                title={anyExpanded ? 'Collapse all' : 'Expand all'}
+              >
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                  <path
+                    d={anyExpanded ? 'M4.5 7 8 3.5 11.5 7M4.5 12.5 8 9l3.5 3.5' : 'M4.5 3.5 8 7l3.5-3.5M4.5 9 8 12.5 11.5 9'}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            ) : null}
             <button
               type="button"
               className={styles.iconButton}
