@@ -519,6 +519,8 @@ export function WorkspacePage() {
                 applyLocally((hosts) => hosts.map((h) => byId.get(h.id) ?? h))
               }}
               onClear={() => selectMany(new Set())}
+              canAddHosts={admin}
+              onScanned={(changed) => applyLocally((hosts) => [...hosts.filter((h) => h.id !== changed.id), changed])}
             />
           ) : editing && (selectedId === NEW_HOST || selectedHost) ? (
             <HostEditor

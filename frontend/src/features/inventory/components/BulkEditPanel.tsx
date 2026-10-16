@@ -3,6 +3,7 @@ import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
 import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
+import { BulkScanDialog } from './BulkScanDialog'
 import { hypervisorChoices } from '../hypervisors'
 import type { Host, HostTag } from '../types'
 import listStyles from './ListEditor.module.css'
@@ -18,6 +19,10 @@ interface BulkEditPanelProps {
   knownTagValues: (name: string) => string[]
   onApplied: (hosts: Host[]) => void
   onClear: () => void
+  /** A host a bulk scan changed or added. */
+  onScanned: (host: Host) => void
+  /** Administrators can add hosts for VMs a scan finds. */
+  canAddHosts: boolean
 }
 
 type TagAction = 'add' | 'set' | 'remove'
@@ -62,13 +67,24 @@ function impact(change: TagChange, hosts: Host[]): string | null {
  * add, set or remove tags, and set or clear the host they run on. Applied in one request; hosts the
  * user can't manage are left out.
  */
-export function BulkEditPanel({ selected, hiddenCount, allHosts, knownTagNames, knownTagValues, onApplied, onClear }: BulkEditPanelProps) {
+export function BulkEditPanel({
+  selected,
+  hiddenCount,
+  allHosts,
+  knownTagNames,
+  knownTagValues,
+  onApplied,
+  onClear,
+  onScanned,
+  canAddHosts,
+}: BulkEditPanelProps) {
   const id = useId()
   const [changes, setChanges] = useState<TagChange[]>([{ key: nextKey++, action: 'add', name: '', value: '' }])
   const [hypervisor, setHypervisor] = useState(KEEP)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  const [scanning, setScanning] = useState(false)
 
   const manageable = selected.filter((h) => h.canManage)
   const locked = selected.length - manageable.length
@@ -124,6 +140,9 @@ export function BulkEditPanel({ selected, hiddenCount, allHosts, knownTagNames, 
         <div className={styles.actions}>
           <Button variant="secondary" onClick={onClear}>
             Clear selection
+          </Button>
+          <Button variant="secondary" onClick={() => setScanning(true)} disabled={manageable.length === 0}>
+            Internal scan…
           </Button>
         </div>
       </header>
@@ -262,6 +281,8 @@ export function BulkEditPanel({ selected, hiddenCount, allHosts, knownTagNames, 
           {manageable.length === 1 ? 'Apply to 1 host' : `Apply to ${manageable.length} hosts`}
         </Button>
       </footer>
+
+      {scanning ? <BulkScanDialog hosts={manageable} canAddHosts={canAddHosts} onClose={() => setScanning(false)} onApplied={onScanned} /> : null}
     </form>
   )
 }
