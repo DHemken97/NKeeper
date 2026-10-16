@@ -76,6 +76,9 @@ const r750: Host = {
   hypervisorId: null,
   virtualMachineId: null,
   hypervisorSeenAtUtc: null,
+  cpuCores: null,
+  memoryMiB: null,
+  serialNumber: null,
   tags: [],
   services: [
     { protocol: 'Ssh', port: null, label: null },
@@ -100,6 +103,7 @@ const overview: IdracOverview = {
   biosVersion: '1.13.2',
   processorCount: 2,
   processorModel: 'Xeon Gold 6338',
+  logicalProcessorCount: 128,
   memoryGiB: 512,
   managerModel: '15G Monolithic',
   firmwareVersion: '7.00.00.171',
@@ -225,7 +229,7 @@ describe('iDRAC services', () => {
     expect(await screen.findByRole('heading', { name: 'Dell Inc. PowerEdge R750' })).toBeInTheDocument()
     expect(bodies[1]).toMatchObject({ hostId: 'h-r750', serviceIndex: 1, credentialId: 'c-root', trustFingerprint: 'AA:BB' })
     expect(screen.getByText('ABC1234')).toBeInTheDocument()
-    expect(screen.getByText('2 × Xeon Gold 6338')).toBeInTheDocument()
+    expect(screen.getByText('2 × Xeon Gold 6338 · 128 threads')).toBeInTheDocument()
     // Only the actions the server accepts, and only those that fit its power state.
     expect(screen.getByRole('button', { name: 'Power on' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Reset' })).toBeEnabled()
@@ -250,6 +254,27 @@ describe('iDRAC services', () => {
 
     await waitFor(() => expect(power).toEqual({ hostId: 'h-r750', serviceIndex: 1, credentialId: 'c-root', resetType: 'ForceOff' }))
     expect(await screen.findByText('Power off: sent to the server.')).toBeInTheDocument()
+  })
+
+  it('saves the service tag, threads and memory the iDRAC reports to the host', async () => {
+    let body: Record<string, unknown> | undefined
+    const { user } = renderWorkspace({
+      'POST /api/idrac/overview': () => jsonResponse(200, ready('https://10.0.10.20/')),
+      'PUT /api/hosts/h-r750': (_url, init) => {
+        body = JSON.parse(String(init.body))
+        return jsonResponse(200, { ...r750, serialNumber: 'ABC1234', cpuCores: 128, memoryMiB: 524288, version: 2 })
+      },
+    })
+
+    await connect(user, 'Status & power')
+    expect(await screen.findByText('Records the serial number ABC1234, 128 CPU cores, 512 GiB memory on r750.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save to host' }))
+
+    await waitFor(() => expect(body).toBeDefined())
+    expect(body).toMatchObject({ name: 'r750', serialNumber: 'ABC1234', cpuCores: 128, memoryMiB: 524288, version: 1 })
+    expect(await screen.findByText('Saved to the host.')).toBeInTheDocument()
+    // Nothing left to record.
+    expect(screen.queryByRole('button', { name: 'Save to host' })).not.toBeInTheDocument()
   })
 
   it('opens RACADM as an SSH session to the iDRAC service, from the menu or the status tab', async () => {

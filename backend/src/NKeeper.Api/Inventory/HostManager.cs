@@ -25,6 +25,9 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         h.HypervisorId,
         h.VirtualMachineId,
         h.HypervisorSeenAtUtc,
+        h.CpuCores,
+        h.MemoryMiB,
+        h.SerialNumber,
         h.Tags
             .OrderBy(t => t.Name.ToUpper()).ThenBy(t => t.Value.ToUpper())
             .Select(t => new HostTagResponse(t.Name, t.Value == "" ? null : t.Value))
@@ -156,6 +159,8 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             guest.IsVirtualMachine = true;
             guest.HypervisorId = link.HypervisorId;
             guest.VirtualMachineId = InventoryText.TrimToNull(link.VirtualMachineId) ?? guest.VirtualMachineId;
+            guest.CpuCores = link.CpuCores ?? guest.CpuCores;
+            guest.MemoryMiB = link.MemoryMiB ?? guest.MemoryMiB;
             guest.HypervisorSeenAtUtc = now;
             guest.UpdatedAtUtc = now;
             guest.UpdatedByUserId = user.Id;
@@ -227,6 +232,8 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
                 IsVirtualMachine = true,
                 HypervisorId = request.HypervisorId,
                 VirtualMachineId = InventoryText.TrimToNull(request.VirtualMachineId),
+                CpuCores = request.CpuCores,
+                MemoryMiB = request.MemoryMiB,
                 HypervisorSeenAtUtc = now,
                 CreatedAtUtc = now,
                 CreatedByUserId = user.Id,
@@ -445,6 +452,9 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         host.IpAddress = NetworkAddress.TryNormalizeIp(request.IpAddress ?? string.Empty, out var ip) ? ip : null;
         host.MacAddress = NetworkAddress.TryNormalizeMac(request.MacAddress ?? string.Empty, out var mac) ? mac : null;
         host.Description = InventoryText.TrimToNull(request.Description);
+        host.CpuCores = request.CpuCores;
+        host.MemoryMiB = request.MemoryMiB;
+        host.SerialNumber = InventoryText.TrimToNull(request.SerialNumber);
         ApplyVirtualMachine(host, request);
         host.UpdatedAtUtc = timeProvider.GetUtcNow();
         host.UpdatedByUserId = userId;

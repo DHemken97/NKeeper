@@ -5,7 +5,7 @@ import { Button } from '../../../components/ui/Button'
 import { ApiError } from '../../../lib/api'
 import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
-import { formatAccount, formatTag, PROTOCOL_INFO, RDP_SECURITY_INFO, type Host, type HostTag, type TrustedKey } from '../types'
+import { formatAccount, formatMemory, formatTag, PROTOCOL_INFO, RDP_SECURITY_INFO, type Host, type HostTag, type TrustedKey } from '../types'
 import { DeleteButton } from './DeleteButton'
 import styles from './HostPanel.module.css'
 
@@ -127,6 +127,25 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
             <dd className={styles.mono}>{host.ipAddress ?? <span className={styles.muted}>—</span>}</dd>
             <dt>MAC address</dt>
             <dd className={styles.mono}>{host.macAddress ?? <span className={styles.muted}>—</span>}</dd>
+            {host.cpuCores || host.memoryMiB ? (
+              <>
+                <dt>{host.isVirtualMachine ? 'Resources' : 'Hardware'}</dt>
+                <dd>
+                  {[
+                    host.cpuCores ? `${host.cpuCores} ${host.isVirtualMachine ? 'vCPU' : 'core'}${host.cpuCores === 1 ? '' : 's'}` : null,
+                    host.memoryMiB ? formatMemory(host.memoryMiB) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </dd>
+              </>
+            ) : null}
+            {host.serialNumber ? (
+              <>
+                <dt>Serial number</dt>
+                <dd className={styles.mono}>{host.serialNumber}</dd>
+              </>
+            ) : null}
             <dt>Updated</dt>
             <dd>
               <time dateTime={host.updatedAtUtc}>{dateTimeFormat.format(new Date(host.updatedAtUtc))}</time>

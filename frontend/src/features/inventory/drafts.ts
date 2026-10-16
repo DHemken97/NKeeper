@@ -49,6 +49,11 @@ export interface HostDraft {
   isVirtualMachine: boolean
   /** The host a VM runs on; empty for none. */
   hypervisorId: string
+  /** Kept as text so the fields can be empty while typing. */
+  cpuCores: string
+  /** In GiB; decimals allowed. */
+  memoryGiB: string
+  serialNumber: string
   tags: TagDraft[]
   services: ServiceDraft[]
   credentials: CredentialDraft[]
@@ -104,6 +109,9 @@ export function toHostDraft(host: Host | null): HostDraft {
     description: host?.description ?? '',
     isVirtualMachine: host?.isVirtualMachine ?? false,
     hypervisorId: host?.hypervisorId ?? '',
+    cpuCores: host?.cpuCores ? String(host.cpuCores) : '',
+    memoryGiB: host?.memoryMiB ? String(Math.round((host.memoryMiB / 1024) * 100) / 100) : '',
+    serialNumber: host?.serialNumber ?? '',
     tags: host?.tags.map((t) => newTagDraft(t.name, t.value)) ?? [],
     services: host?.services.map((s) => newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity, s.address)) ?? [],
     credentials: host?.credentials.map((c) => newCredentialDraft(c)) ?? [],
@@ -117,11 +125,19 @@ export function toCloneDraft(source: Host): HostDraft {
   return {
     ...draft,
     name: `${source.name} (copy)`,
+    // A serial number belongs to one machine.
+    serialNumber: '',
     credentials: source.credentials.map((c) => ({ ...newCredentialDraft(c), id: undefined, copyFrom: c.id })),
   }
 }
 
 const blankToNull = (value: string) => (value.trim() === '' ? null : value.trim())
+
+/** GiB as typed (e.g. "64" or "1.5") to whole MiB; unreadable text is sent as-is for the server to reject. */
+function memoryMiB(gib: string): number | null {
+  const text = gib.trim().replace(',', '.')
+  return text === '' ? null : Math.round(Number(text) * 1024)
+}
 
 export function toHostInput(draft: HostDraft, version?: number): HostInput {
   return {
@@ -132,6 +148,9 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
     description: blankToNull(draft.description),
     isVirtualMachine: draft.isVirtualMachine,
     hypervisorId: draft.isVirtualMachine && draft.hypervisorId ? draft.hypervisorId : null,
+    cpuCores: draft.cpuCores.trim() === '' ? null : Number(draft.cpuCores),
+    memoryMiB: memoryMiB(draft.memoryGiB),
+    serialNumber: blankToNull(draft.serialNumber),
     // Rows left completely empty are ignored rather than rejected.
     tags: draft.tags
       .filter((t) => t.name.trim() || t.value.trim())

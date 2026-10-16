@@ -204,3 +204,53 @@
     border-bottom: 1px solid var(--color-border);
   }
 }
+
+/* VM hosts & resources: each VM host, then its VMs indented beneath it. */
+.resources tbody th {
+  min-width: 14rem;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+.resources td {
+  font-variant-numeric: tabular-nums;
+}
+
+.hypervisorRow th,
+.hypervisorRow td {
+  background: var(--color-surface-raised);
+  font-weight: 600;
+}
+
+.guestRow th {
+  padding-left: var(--space-6);
+  font-weight: 400;
+}
+
+.sectionRow th {
+  position: static;
+  padding-block: var(--space-3) var(--space-1);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rowNote {
+  margin-left: var(--space-2);
+  color: var(--color-text-subtle);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.overcommitted {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

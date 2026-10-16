@@ -7,6 +7,8 @@ namespace NKeeper.Api.Idrac;
 /// <param name="ServiceTag">Dell's service tag (Redfish SKU).</param>
 /// <param name="PowerState">"On", "Off", "PoweringOn" or "PoweringOff".</param>
 /// <param name="Health">The rolled-up health: "OK", "Warning" or "Critical".</param>
+/// <param name="ProcessorCount">Processors (sockets).</param>
+/// <param name="LogicalProcessorCount">Threads across all processors, when the BMC reports it (Redfish 2020.4 or later).</param>
 /// <param name="PowerActions">The Redfish reset types the server accepts, e.g. "On", "GracefulShutdown", "ForceRestart".</param>
 /// <param name="Console">Whether NKeeper can open the HTML5 virtual console, and why not.</param>
 public sealed record IdracOverview(
@@ -20,6 +22,7 @@ public sealed record IdracOverview(
     string? BiosVersion,
     int? ProcessorCount,
     string? ProcessorModel,
+    int? LogicalProcessorCount,
     double? MemoryGiB,
     string? ManagerModel,
     string? FirmwareVersion,
@@ -62,6 +65,7 @@ internal static class IdracRedfish
             Redfish.String(system, "BiosVersion"),
             processors is { } count ? (int)count : null,
             Redfish.String(system, "ProcessorSummary", "Model"),
+            Redfish.Number(system, "ProcessorSummary", "LogicalProcessorCount") is { } threads ? (int)threads : null,
             Redfish.Number(system, "MemorySummary", "TotalSystemMemoryGiB"),
             Redfish.String(manager, "Model"),
             Redfish.String(manager, "FirmwareVersion"),

@@ -22,6 +22,9 @@ function makeHost(overrides: Partial<Host>): Host {
     hypervisorId: null,
     virtualMachineId: null,
     hypervisorSeenAtUtc: null,
+    cpuCores: null,
+    memoryMiB: null,
+    serialNumber: null,
     tags: [],
     services: [{ protocol: 'Ssh', port: null, label: null, rdpSecurity: null }],
     credentials: [{ id: 'c-root', label: null, username: 'root', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],
@@ -43,6 +46,9 @@ const app01 = makeHost({
   isVirtualMachine: true,
   hypervisorId: 'h-node2',
   hypervisorSeenAtUtc: '2026-10-15T08:00:00Z',
+  cpuCores: null,
+  memoryMiB: null,
+  serialNumber: null,
 })
 const printer = makeHost({ id: 'h-printer', name: 'printer', ipAddress: '10.0.0.90' })
 
@@ -77,6 +83,8 @@ const guest = (overrides: Partial<ScannedGuest>): ScannedGuest => ({
   hypervisorHostId: 'h-node1',
   hypervisorHostName: 'node1',
   linkProposed: false,
+  cpuCores: null,
+  memoryMiB: null,
   note: null,
   newHost: null,
   ...overrides,
@@ -89,11 +97,14 @@ const nodeScan: ScanFindings = {
   operatingSystem: null,
   ports: [],
   isKvmHost: true,
+  cpuCores: null,
+  memoryMiB: null,
+  serialNumber: null,
   users: [],
   notes: [],
   virtualization: null,
   guests: [
-    guest({ guestHostId: 'h-app01', guestHostName: 'app01', matchedBy: 'name', linkProposed: true, note: 'Moved from “node2”.' }),
+    guest({ guestHostId: 'h-app01', guestHostName: 'app01', matchedBy: 'name', linkProposed: true, note: 'Moved from “node2”.', cpuCores: 2, memoryMiB: 4096 }),
     guest({
       virtualMachineId: 'libvirt:2',
       name: 'scratch',
@@ -167,7 +178,7 @@ describe('virtual machines', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Internal scan of node1' })
     const link = await within(dialog).findByRole('checkbox', { name: 'app01 runs on node1' })
     expect(link).toBeChecked()
-    expect(within(dialog).getByText(/libvirt VM “app01” \(running\) · matched by its name · Moved from “node2”/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/libvirt VM “app01” \(running\) · matched by its name · 2 vCPUs, 4 GiB · Moved from “node2”/)).toBeInTheDocument()
     // Adding hosts starts unticked; a VM without an address is only listed.
     const add = within(dialog).getByRole('checkbox', { name: 'Add scratch' })
     expect(add).not.toBeChecked()
@@ -177,7 +188,10 @@ describe('virtual machines', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'Apply 2 changes' }))
 
-    await waitFor(() => expect(links).toEqual({ links: [{ guestId: 'h-app01', hypervisorId: 'h-node1', virtualMachineId: 'libvirt:1' }] }))
+    // What the hypervisor gives each VM is recorded with the link.
+    await waitFor(() =>
+      expect(links).toEqual({ links: [{ guestId: 'h-app01', hypervisorId: 'h-node1', virtualMachineId: 'libvirt:1', cpuCores: 2, memoryMiB: 4096 }] }),
+    )
     await waitFor(() =>
       expect(created).toEqual({
         hosts: [
@@ -189,6 +203,8 @@ describe('virtual machines', () => {
             description: 'Added from a scan of node1.',
             hypervisorId: 'h-node1',
             virtualMachineId: 'libvirt:2',
+            cpuCores: null,
+            memoryMiB: null,
           },
         ],
       }),

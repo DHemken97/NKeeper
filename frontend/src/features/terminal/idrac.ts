@@ -15,6 +15,8 @@ export interface IdracOverview {
   biosVersion: string | null
   processorCount: number | null
   processorModel: string | null
+  /** Threads across all processors, when the BMC reports it. */
+  logicalProcessorCount: number | null
   memoryGiB: number | null
   managerModel: string | null
   firmwareVersion: string | null
@@ -46,6 +48,15 @@ export const POWER_ACTIONS: { type: string; label: string; when: 'on' | 'off'; c
   { type: 'ForceOff', label: 'Power off', when: 'on', confirm: 'cuts the power immediately, without shutting down the operating system' },
   { type: 'PowerCycle', label: 'Power cycle', when: 'on', confirm: 'turns the power off and on again immediately' },
 ]
+
+/** What the iDRAC knows about the server's hardware, as host fields: the service tag (else serial), threads and memory. */
+export function idracHardware(overview: IdracOverview): { serialNumber: string | null; cpuCores: number | null; memoryMiB: number | null } {
+  return {
+    serialNumber: overview.serviceTag ?? overview.serialNumber,
+    cpuCores: overview.logicalProcessorCount,
+    memoryMiB: overview.memoryGiB ? Math.round(overview.memoryGiB * 1024) : null,
+  }
+}
 
 /** The body of iDRAC requests: which host, service and login, plus a certificate the user chose to trust. */
 export function idracRequestBody(request: SessionRequest, trustFingerprint?: string) {

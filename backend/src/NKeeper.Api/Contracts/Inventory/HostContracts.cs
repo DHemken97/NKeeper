@@ -121,6 +121,17 @@ public sealed record HostRequest : IValidatableObject
     /// <summary>For a virtual machine: the host it runs on (a KVM or Proxmox node). Ignored for other hosts.</summary>
     public Guid? HypervisorId { get; init; }
 
+    /// <summary>Logical processors, or a VM's vCPUs.</summary>
+    [Range(1, 100_000, ErrorMessage = "CPU cores must be between 1 and 100000.")]
+    public int? CpuCores { get; init; }
+
+    /// <summary>Memory in MiB.</summary>
+    [Range(1, int.MaxValue, ErrorMessage = "Enter the memory as a positive amount.")]
+    public int? MemoryMiB { get; init; }
+
+    [StringLength(128)]
+    public string? SerialNumber { get; init; }
+
     [MaxLength(50, ErrorMessage = "A host can have at most 50 tags.")]
     public HostTagRequest[] Tags { get; init; } = [];
 
@@ -195,6 +206,14 @@ public sealed record HypervisorLinkRequest
     /// <summary>The VM's identity on the hypervisor, e.g. libvirt:&lt;uuid&gt;; kept when omitted.</summary>
     [StringLength(128)]
     public string? VirtualMachineId { get; init; }
+
+    /// <summary>The vCPUs the hypervisor gives it; kept when omitted.</summary>
+    [Range(1, 100_000)]
+    public int? CpuCores { get; init; }
+
+    /// <summary>The memory the hypervisor gives it, in MiB; kept when omitted.</summary>
+    [Range(1, int.MaxValue)]
+    public int? MemoryMiB { get; init; }
 }
 
 public sealed record HypervisorLinksRequest
@@ -229,6 +248,8 @@ public sealed record TrustedKeyResponse(ServiceProtocol Protocol, int Port, stri
 /// <param name="HypervisorId">For a virtual machine: the host it runs on, when known.</param>
 /// <param name="VirtualMachineId">The VM's identity on its hypervisor, recorded by scans (e.g. libvirt:&lt;uuid&gt;).</param>
 /// <param name="HypervisorSeenAtUtc">When a scan last found the VM on that host; null when it was linked by hand.</param>
+/// <param name="CpuCores">Logical processors, or a VM's vCPUs.</param>
+/// <param name="MemoryMiB">Memory in MiB.</param>
 public sealed record HostResponse(
     Guid Id,
     string Name,
@@ -240,6 +261,9 @@ public sealed record HostResponse(
     Guid? HypervisorId,
     string? VirtualMachineId,
     DateTimeOffset? HypervisorSeenAtUtc,
+    int? CpuCores,
+    int? MemoryMiB,
+    string? SerialNumber,
     IReadOnlyList<HostTagResponse> Tags,
     IReadOnlyList<HostServiceResponse> Services,
     IReadOnlyList<HostCredentialResponse> Credentials,
@@ -324,6 +348,14 @@ public sealed record ScannedHostRequest
     /// <summary>Its identity on the hypervisor, e.g. libvirt:&lt;uuid&gt;.</summary>
     [StringLength(128)]
     public string? VirtualMachineId { get; init; }
+
+    /// <summary>The vCPUs the hypervisor gives it.</summary>
+    [Range(1, 100_000)]
+    public int? CpuCores { get; init; }
+
+    /// <summary>The memory the hypervisor gives it, in MiB.</summary>
+    [Range(1, int.MaxValue)]
+    public int? MemoryMiB { get; init; }
 }
 
 public sealed record ScannedHostsRequest

@@ -113,10 +113,10 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
         var user = RequestUser.From(User);
         var manageable = await access.ManageableAsync(user, cancellationToken);
         var hosts = await access.Visible(user).AsNoTracking()
-            .Select(h => new { h.Id, h.Name, h.Hostname, h.MacAddress, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId })
+            .Select(h => new { h.Id, h.Name, h.Hostname, h.MacAddress, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId, h.CpuCores, h.MemoryMiB })
             .ToListAsync(cancellationToken);
         return [.. hosts.Select(h => new GuestMatcher.Candidate(
-            h.Id, h.Name, h.Hostname, h.MacAddress, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId, manageable?.Contains(h.Id) ?? true))];
+            h.Id, h.Name, h.Hostname, h.MacAddress, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId, manageable?.Contains(h.Id) ?? true, h.CpuCores, h.MemoryMiB))];
     }
 
     /// <returns>Null when the user may manage the host; otherwise the response to send.</returns>

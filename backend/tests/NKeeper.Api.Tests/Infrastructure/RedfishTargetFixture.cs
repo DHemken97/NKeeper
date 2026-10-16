@@ -77,7 +77,7 @@ public sealed class RedfishTargetFixture : IAsyncLifetime
             ["PowerState"] = "On",
             ["BiosVersion"] = "1.13.2",
             ["Status"] = new { Health = "OK", HealthRollup = "Warning" },
-            ["ProcessorSummary"] = new { Count = 2, Model = "Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz" },
+            ["ProcessorSummary"] = new { Count = 2, LogicalProcessorCount = 128, Model = "Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz" },
             ["MemorySummary"] = new { TotalSystemMemoryGiB = 512 },
             ["Actions"] = new Dictionary<string, object>
             {

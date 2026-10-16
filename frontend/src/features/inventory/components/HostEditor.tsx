@@ -27,7 +27,20 @@ interface HostEditorProps {
   onCancel: () => void
 }
 
-const FIELDS = ['name', 'hostname', 'ipAddress', 'macAddress', 'description', 'hypervisorId', 'tags', 'services', 'credentials']
+const FIELDS = [
+  'name',
+  'hostname',
+  'ipAddress',
+  'macAddress',
+  'description',
+  'cpuCores',
+  'memoryMiB',
+  'serialNumber',
+  'hypervisorId',
+  'tags',
+  'services',
+  'credentials',
+]
 
 /** Create or edit a host in the details panel, including its tags, services and credentials. */
 export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHosts, onSaved, onCancel }: HostEditorProps) {
@@ -50,6 +63,13 @@ export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHo
     }
     if (!draft.hostname.trim() && !draft.ipAddress.trim()) {
       clientErrors.hostname = 'Enter a hostname or an IP address.'
+    }
+    if (draft.cpuCores.trim() && !/^\d+$/.test(draft.cpuCores.trim())) {
+      clientErrors.cpuCores = 'Enter a whole number of cores.'
+    }
+    const gib = Number(draft.memoryGiB.trim().replace(',', '.'))
+    if (draft.memoryGiB.trim() && !(gib > 0)) {
+      clientErrors.memoryMiB = 'Enter the memory in GiB, e.g. 64 or 0.5.'
     }
     draft.tags.forEach((tag, index) => {
       if (!tag.name.trim() && tag.value.trim()) {
@@ -147,6 +167,38 @@ export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHo
               autoComplete="off"
               spellCheck={false}
             />
+            <TextField
+              label={draft.isVirtualMachine ? 'vCPUs' : 'CPU cores'}
+              value={draft.cpuCores}
+              onChange={(e) => set('cpuCores', e.target.value)}
+              error={fieldErrors.cpuCores}
+              hint={draft.isVirtualMachine ? 'What the VM is given' : 'Logical processors (threads)'}
+              inputMode="numeric"
+              maxLength={6}
+              autoComplete="off"
+            />
+            <TextField
+              label="Memory (GiB)"
+              value={draft.memoryGiB}
+              onChange={(e) => set('memoryGiB', e.target.value)}
+              error={fieldErrors.memoryMiB}
+              hint={draft.isVirtualMachine ? 'What the VM is given' : 'Optional'}
+              inputMode="decimal"
+              maxLength={10}
+              autoComplete="off"
+            />
+            {!draft.isVirtualMachine ? (
+              <TextField
+                label="Serial number"
+                value={draft.serialNumber}
+                onChange={(e) => set('serialNumber', e.target.value)}
+                error={fieldErrors.serialNumber}
+                hint="Dell: the service tag"
+                maxLength={128}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            ) : null}
             <TextArea
               className={styles.full}
               label="Description"

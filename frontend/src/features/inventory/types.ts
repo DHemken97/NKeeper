@@ -99,6 +99,12 @@ export interface Host {
   virtualMachineId: string | null
   /** When a scan last found the VM on that host; null when it was linked by hand. */
   hypervisorSeenAtUtc: string | null
+  /** Logical processors, or a VM's vCPUs. */
+  cpuCores: number | null
+  /** Memory in MiB (a VM's: what it's given). */
+  memoryMiB: number | null
+  /** The hardware's serial number (a Dell service tag). */
+  serialNumber: string | null
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredential[]
@@ -136,6 +142,9 @@ export interface HostInput {
   description: string | null
   isVirtualMachine: boolean
   hypervisorId: string | null
+  cpuCores: number | null
+  memoryMiB: number | null
+  serialNumber: string | null
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredentialInput[]
@@ -148,6 +157,15 @@ export function formatAccount(credential: Pick<HostCredential, 'username' | 'dom
     return null
   }
   return credential.domain ? `${credential.domain}\\${credential.username}` : credential.username
+}
+
+/** Memory for people: "512 GiB", "1.5 GiB", "512 MiB". */
+export function formatMemory(mib: number): string {
+  if (mib < 1024) {
+    return `${mib} MiB`
+  }
+  const gib = mib / 1024
+  return `${Number.isInteger(gib) ? gib : gib.toFixed(gib < 10 ? 2 : 1).replace(/\.?0+$/, '')} GiB`
 }
 
 /** "env: production", or just "backup" for a tag without a value. */
@@ -220,8 +238,12 @@ export interface ScannedGuest {
   matchedBy: 'id' | 'mac' | 'name' | null
   hypervisorHostId: string | null
   hypervisorHostName: string | null
-  /** Linking the guest to that host would change something. */
+  /** Linking the guest to that host would change something (including what it's given). */
   linkProposed: boolean
+  /** The vCPUs the hypervisor gives it, when known. */
+  cpuCores: number | null
+  /** The memory the hypervisor gives it, in MiB, when known. */
+  memoryMiB: number | null
   note: string | null
   /** For a guest that isn't in NKeeper: the host that could be added for it (null without an address). */
   newHost: ProposedHost | null
@@ -240,6 +262,8 @@ export interface ProposedHost {
 export interface ScannedHostInput extends ProposedHost {
   hypervisorId: string
   virtualMachineId: string
+  cpuCores?: number | null
+  memoryMiB?: number | null
 }
 
 /** What a scan found. Nothing is saved until the user applies findings to the host. */
@@ -258,6 +282,12 @@ export interface ScanFindings {
   virtualization: string | null
   /** Internal scans of hypervisors: their VMs and containers. */
   guests: ScannedGuest[]
+  /** Internal scans: logical processors. */
+  cpuCores: number | null
+  /** Internal scans: memory in MiB. */
+  memoryMiB: number | null
+  /** Internal scans of physical hardware: the serial number. */
+  serialNumber: string | null
 }
 
 /** Where a VM runs, as a scan of its hypervisor found it. */
@@ -265,6 +295,9 @@ export interface HypervisorLink {
   guestId: string
   hypervisorId: string
   virtualMachineId?: string
+  /** What the hypervisor gives it; kept when omitted. */
+  cpuCores?: number | null
+  memoryMiB?: number | null
 }
 
 export interface ScanResponse {

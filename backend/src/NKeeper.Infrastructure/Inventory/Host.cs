@@ -23,6 +23,15 @@ public sealed class Host
 
     public string? Description { get; set; }
 
+    /// <summary>Logical processors (threads) a physical host has, or the vCPUs a virtual machine is given.</summary>
+    public int? CpuCores { get; set; }
+
+    /// <summary>Memory a physical host has, or a virtual machine is given, in MiB.</summary>
+    public int? MemoryMiB { get; set; }
+
+    /// <summary>The hardware's serial number (a Dell service tag); for physical hosts.</summary>
+    public string? SerialNumber { get; set; }
+
     /// <summary>A virtual machine (guest) rather than physical hardware.</summary>
     public bool IsVirtualMachine { get; set; }
 

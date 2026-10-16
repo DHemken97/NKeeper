@@ -664,6 +664,8 @@ export function WorkspacePage() {
                 active={activeTab === session.id}
                 onShowHost={(id) => showHost(id)}
                 onOpen={(mode) => openFromIdrac(session, mode)}
+                host={allHosts?.find((h) => h.id === session.hostId)}
+                onHostChanged={handleChanged}
               />
             ) : session.protocol === 'spice' ? (
               <SpiceConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />

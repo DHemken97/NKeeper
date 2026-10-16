@@ -7,6 +7,7 @@ import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../../inventory/api/inventoryApi'
 import { useResource } from '../../inventory/hooks/useResource'
 import type { Host } from '../../inventory/types'
+import { downloadCsv } from '../download'
 import { buildIpGrid, ipGridCsv, OCTETS } from '../ipGrid'
 import styles from './Reports.module.css'
 
@@ -21,16 +22,6 @@ export function IpAddressReport() {
   const grid = useMemo(() => buildIpGrid(hosts.data ?? []), [hosts.data])
   const octets = usedOnly ? OCTETS.filter((o) => grid.usedOctets.has(o)) : OCTETS
   const skipped = (hosts.data ?? []).filter((h) => !h.ipAddress || h.ipAddress.includes(':')).length
-
-  function download() {
-    const blob = new Blob([ipGridCsv(grid, octets)], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'nkeeper-ip-addresses.csv'
-    link.click()
-    URL.revokeObjectURL(url)
-  }
 
   if (hosts.error && !hosts.data) {
     return (
@@ -69,7 +60,7 @@ export function IpAddressReport() {
           <Button size="sm" variant="secondary" onClick={hosts.reload} disabled={hosts.loading}>
             Refresh
           </Button>
-          <Button size="sm" onClick={download} disabled={grid.subnets.length === 0}>
+          <Button size="sm" onClick={() => downloadCsv('nkeeper-ip-addresses.csv', ipGridCsv(grid, octets))} disabled={grid.subnets.length === 0}>
             Download CSV
           </Button>
         </div>

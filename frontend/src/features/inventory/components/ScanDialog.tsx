@@ -9,7 +9,7 @@ import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
 import { toHostDraft, toHostInput } from '../drafts'
 import { scanProposals, type ScanProposal } from '../scanProposals'
-import { PROTOCOL_INFO, primaryAddress, type Host, type InternalScanLogin, type ScanFindings, type ScannedGuest } from '../types'
+import { formatMemory, PROTOCOL_INFO, primaryAddress, type Host, type InternalScanLogin, type ScanFindings, type ScannedGuest } from '../types'
 import styles from './ScanDialog.module.css'
 
 interface ScanDialogProps {
@@ -213,14 +213,14 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
       const chosenGuests = links.filter((g) => chosenLinks.has(g.virtualMachineId))
       if (chosenGuests.length > 0) {
         const updated = await hostsApi.linkVirtualMachines(
-          chosenGuests.map((g) => ({ guestId: g.guestHostId!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId })),
+          chosenGuests.map((g) => ({ guestId: g.guestHostId!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId, cpuCores: g.cpuCores, memoryMiB: g.memoryMiB })),
         )
         updated.forEach(onApplied)
       }
       const newGuests = addable.filter((g) => chosenNew.has(g.virtualMachineId))
       if (newGuests.length > 0) {
         const created = await hostsApi.createFromScan(
-          newGuests.map((g) => ({ ...g.newHost!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId })),
+          newGuests.map((g) => ({ ...g.newHost!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId, cpuCores: g.cpuCores, memoryMiB: g.memoryMiB })),
         )
         created.forEach(onApplied)
       }
@@ -374,10 +374,20 @@ function guestDetail(guest: ScannedGuest): string {
   return [
     `${PLATFORMS[guest.platform]} “${guest.name}”${guest.state ? ` (${guest.state})` : ''}`,
     guest.matchedBy ? `matched by ${MATCHED_BY[guest.matchedBy]}` : null,
+    guestResources(guest),
     guest.note,
   ]
     .filter(Boolean)
     .join(' · ')
+}
+
+/** What the hypervisor gives a guest, e.g. "4 vCPUs, 8 GiB"; null when unknown. */
+function guestResources(guest: ScannedGuest): string | null {
+  const parts = [
+    guest.cpuCores ? `${guest.cpuCores} vCPU${guest.cpuCores === 1 ? '' : 's'}` : null,
+    guest.memoryMiB ? formatMemory(guest.memoryMiB) : null,
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(', ') : null
 }
 
 /** What a new host would get: its address, MAC address, and where it runs. */
@@ -387,6 +397,7 @@ function newHostDetail(guest: ScannedGuest): string {
     `${PLATFORMS[guest.platform]} on ${guest.hypervisorHostName}`,
     host.ipAddress ?? `hostname ${host.hostname}`,
     host.macAddress,
+    guestResources(guest),
   ]
     .filter(Boolean)
     .join(' · ')

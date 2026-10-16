@@ -61,7 +61,7 @@ internal static class WindowsInternalScan
         var notes = new List<string>();
         var cimv2 = Connect(target.Address, @"root\cimv2", options);
 
-        var system = Select(cimv2, "SELECT DNSHostName, Name, Manufacturer, Model FROM Win32_ComputerSystem").FirstOrDefault();
+        var system = Select(cimv2, "SELECT DNSHostName, Name, Manufacturer, Model, NumberOfLogicalProcessors, TotalPhysicalMemory FROM Win32_ComputerSystem").FirstOrDefault();
         var os = Select(cimv2, "SELECT Caption, Version FROM Win32_OperatingSystem").FirstOrDefault();
         var hostname = Text(system, "DNSHostName") ?? Text(system, "Name");
         var osName = os is null ? null : $"{Text(os, "Caption")} {Text(os, "Version")}".Trim();
@@ -95,7 +95,14 @@ internal static class WindowsInternalScan
             }
         }
 
-        return new ScanFindings(hostname, ip, mac, osName, [.. ports.Select(ScanPorts.Describe)], false, users, notes, Virtualization(system), []);
+        var virtualization = Virtualization(system);
+        var modules = Select(cimv2, "SELECT Capacity FROM Win32_PhysicalMemory").Select(m => m["Capacity"] is ulong capacity ? capacity : 0UL);
+        var bios = Select(cimv2, "SELECT SerialNumber FROM Win32_BIOS").FirstOrDefault();
+        return new ScanFindings(
+            hostname, ip, mac, osName, [.. ports.Select(ScanPorts.Describe)], false, users, notes, virtualization, [],
+            WmiMapping.Cpus(system?["NumberOfLogicalProcessors"] is uint cpus ? cpus : null),
+            WmiMapping.MemoryMiB(modules, system?["TotalPhysicalMemory"] is ulong total ? total : null),
+            WmiMapping.Serial(Text(bios, "SerialNumber"), virtualization));
     }
 
     private static ManagementScope Connect(string address, string path, ConnectionOptions options)

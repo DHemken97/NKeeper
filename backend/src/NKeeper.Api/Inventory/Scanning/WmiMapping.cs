@@ -33,6 +33,24 @@ internal static class WmiMapping
         return (ip, match.Mac is not null && NetworkAddress.TryNormalizeMac(match.Mac, out var normalized) ? normalized : null);
     }
 
+    /// <summary>
+    /// Installed memory: the memory modules' capacities added up (what the hardware has), else the
+    /// total Windows can use. Both are in bytes; the result is MiB.
+    /// </summary>
+    public static int? MemoryMiB(IEnumerable<ulong> moduleCapacities, ulong? totalPhysical)
+    {
+        var installed = moduleCapacities.Aggregate(0UL, (sum, capacity) => sum + capacity);
+        var bytes = installed > 0 ? installed : totalPhysical ?? 0;
+        var mib = bytes / (1024 * 1024);
+        return mib is > 0 and <= int.MaxValue ? (int)mib : null;
+    }
+
+    /// <summary>The logical processor count, when it's a positive number.</summary>
+    public static int? Cpus(long? count) => count is > 0 and <= int.MaxValue ? (int)count : null;
+
+    /// <summary>The BIOS serial number of physical hardware (a VM's is made up by its hypervisor).</summary>
+    public static string? Serial(string? serial, string? virtualization) => virtualization is null ? InternalScan.Serial(serial) : null;
+
     public static bool IsLoopback(string? address) => address is null || address.StartsWith("127.", StringComparison.Ordinal) || address == "::1";
 
     public static int? Rid(string? sid) => sid is not null && int.TryParse(sid[(sid.LastIndexOf('-') + 1)..], out var rid) ? rid : null;

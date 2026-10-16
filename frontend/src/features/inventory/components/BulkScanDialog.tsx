@@ -266,7 +266,7 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
     if (pickedLinks.length > 0) {
       try {
         const updated = await hostsApi.linkVirtualMachines(
-          pickedLinks.map((g) => ({ guestId: g.guestHostId!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId })),
+          pickedLinks.map((g) => ({ guestId: g.guestHostId!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId, cpuCores: g.cpuCores, memoryMiB: g.memoryMiB })),
         )
         updated.forEach(onApplied)
       } catch (error) {
@@ -277,7 +277,7 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
     if (pickedNew.length > 0) {
       try {
         const created = await hostsApi.createFromScan(
-          pickedNew.map((g) => ({ ...g.newHost!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId })),
+          pickedNew.map((g) => ({ ...g.newHost!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId, cpuCores: g.cpuCores, memoryMiB: g.memoryMiB })),
         )
         created.forEach(onApplied)
       } catch (error) {

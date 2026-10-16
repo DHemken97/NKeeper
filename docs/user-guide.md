@@ -57,6 +57,7 @@ A host has:
 - a **name**;
 - a **hostname and/or IP address**. When both are set, NKeeper connects to the IP address, and shows and copies it;
 - an optional **MAC address** and **description**;
+- its **hardware**: CPU cores (logical processors), memory and, for physical servers, the **serial number** (a Dell service tag). For a virtual machine, the CPU cores and memory are what its hypervisor gives it (vCPUs and allocated memory). Scans fill these in; you can also type them, with memory in GiB;
 - whether it's a **virtual machine**, and if so, which host it **runs on** (its KVM or Proxmox node). The VM's details link to that host, and the host lists the VMs running on it. Deleting the host keeps its VMs and clears their link;
 - its own **tags**, **services** and **credentials**:
   - **Tags** are `name: value` pairs (the value is optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can have the same tag name twice with different values. Tags are what you group, search and grant access by; hosts don't live in folders.
@@ -100,11 +101,12 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - the hostname and operating system;
   - the MAC address of the network interface NKeeper reached;
   - the TCP ports it listens on, except those that only listen on localhost;
-  - the local accounts that can log in (a real shell; root and regular users).
+  - the local accounts that can log in (a real shell; root and regular users);
+  - the CPU cores (`nproc`), installed memory (`lsmem`, else the kernel's total) and, on physical hardware, the serial number. Only root can read the serial number on most systems: scan as root, or as a user with passwordless sudo, to get it.
 
   **On the network, an internal scan is a single SSH login**, like an administrator's, so it suits places that don't allow scanning. The commands only read local state and contact no other machines. It needs Linux or another Unix with `sh`.
 
-  **Windows hosts** are scanned over an **RPC** service instead (**Tasks ▸ Scan ▸ Internal**, *Over RPC (WMI)*), with a Windows login and its domain. It makes read-only WMI queries: the computer name, manufacturer and model, the Windows version, network adapters, listening TCP ports and enabled local accounts. WMI uses RPC on port 135 plus Windows' dynamic RPC ports, so the firewall must allow those from the NKeeper server, and the account must be allowed remote WMI (an administrator is). On Linux, NKeeper uses Impacket for this: the Docker image and the Linux installer include it.
+  **Windows hosts** are scanned over an **RPC** service instead (**Tasks ▸ Scan ▸ Internal**, *Over RPC (WMI)*), with a Windows login and its domain. It makes read-only WMI queries: the computer name, manufacturer and model, the Windows version, network adapters, listening TCP ports, enabled local accounts, logical processors, installed memory (the memory modules added up) and the BIOS serial number. WMI uses RPC on port 135 plus Windows' dynamic RPC ports, so the firewall must allow those from the NKeeper server, and the account must be allowed remote WMI (an administrator is). On Linux, NKeeper uses Impacket for this: the Docker image and the Linux installer include it.
 - **External** (**Tasks ▸ Scan ▸ External**) is run by the NKeeper server against the host's saved address, after you confirm. It reads:
   - which common ports are open (SSH, RDP, VNC, web, file sharing, mail, directory and database ports);
   - the SSH banner, which often names the operating system;
@@ -118,11 +120,13 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - a service for each open port NKeeper has a service for. Other open ports are listed for information;
   - a **KVM** service when libvirt is installed (internal scans);
   - each local account as a **credential without a password**. Using it asks for the password; set the password in the host's editor to save it;
-  - **Virtual machine**, when the scan finds the host runs under a hypervisor (it asks `systemd-detect-virt`).
+  - **Virtual machine**, when the scan finds the host runs under a hypervisor (it asks `systemd-detect-virt`);
+  - the **CPU cores**, **memory** and **serial number** (internal scans). A VM's serial number is invented by its hypervisor, so it's never offered.
 - **Which VMs run where** (internal scans of hypervisors): scanning a node lists its VMs and containers and matches each to an NKeeper host. A match uses the VM identity recorded by an earlier scan, else a MAC address, else the name (or the hostname's first part). Each match is offered as a link: *app01 runs on node1*.
   - **KVM / libvirt:** the node's VMs, read with `virsh` (read-only if possible). VMs often move between nodes. A VM moves to the scanned node only if it's **running** there; one that is merely defined there (shared storage) stays linked where it runs. Scan each node to keep the links current.
   - **Proxmox:** the VM and container configurations are shared by the whole cluster, so scanning **any one node** links every VM in the cluster to the node it's on. Other nodes must be NKeeper hosts named like the Proxmox node (e.g. `pve2`, or `pve2.example.com`). Reading the configurations needs **root**; as another user the scan says which it couldn't read.
   - A link records when a scan saw the VM there (shown on the VM). A link you set by hand in the editor has no such time.
+  - **What each VM is given** is recorded with its link: its vCPUs and memory, from libvirt (`virsh dominfo`) or the Proxmox configuration (cores × sockets, and memory). A linked VM whose allocation changed is offered again, as *Updates its resources to …*. A Proxmox container without a core limit has no vCPU count.
   - **VMs that aren't in NKeeper yet** can be added from the same scan (administrators). Tick **Add …** for each one you want; they start unticked, and **Select all** ticks them all. Each new host gets:
     - the VM's name;
     - an IP address the scan found, or the VM's name as its hostname when that's a valid DNS name;
@@ -213,7 +217,7 @@ Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH cre
 Add an **iDRAC** service to the server's host, with the **iDRAC's IP address** (it has its own, separate from the server's). The port is the iDRAC's HTTPS port, 443 by default. Add the iDRAC login (e.g. `root`) as a credential with a password. Then **Connect ▸ iDRAC** offers:
 
 - **Virtual console:** the iDRAC's HTML5 console in a tab, like an RDP or VNC session. NKeeper asks the iDRAC over Redfish for one-time console credentials and relays the console page, so your browser never contacts the iDRAC and the iDRAC password stays on the server. **Reload** opens a fresh console. Double-clicking a host whose first service is an iDRAC opens its console.
-- **Status & power:** the server as Redfish reports it: model, service tag, power state, health, CPUs, memory, BIOS and iDRAC firmware. The **Power** buttons are the actions the server accepts: *Power on*, *Shut down* and *Restart* (through the operating system), *Reset* and *Power off* (immediate), *Power cycle*. Everything but *Power on* asks for confirmation. The tab also has buttons for the console, RACADM and the web interface.
+- **Status & power:** the server as Redfish reports it: model, service tag, power state, health, CPUs, memory, BIOS and iDRAC firmware. **Save to host** (with *Manage* access) records the service tag as the serial number, along with the CPU threads and memory, on the host. The **Power** buttons are the actions the server accepts: *Power on*, *Shut down* and *Restart* (through the operating system), *Reset* and *Power off* (immediate), *Power cycle*. Everything but *Power on* asks for confirmation. The tab also has buttons for the console, RACADM and the web interface.
 - **RACADM:** a terminal on the iDRAC's SSH command line (port 22 of the iDRAC's address), where `racadm` commands run.
 - **Web interface:** the iDRAC's own web pages, through NKeeper or directly, as for [web interfaces](#web-interfaces-httphttps).
 
@@ -234,6 +238,16 @@ NKeeper verifies whom it connects to, using **trust on first use**:
 ## Reports
 
 **Reports** in the top bar lists NKeeper's reports. Each one covers only the hosts you can see.
+
+**VM hosts & resources** shows how your hypervisors are used:
+- **Each VM host** has a row with its serial number, CPU cores and memory. It also shows what its VMs are given in total, as a share of the host: e.g. *24 (75%)* vCPUs and *96 GiB (75%)* memory.
+- **Its VMs** are listed beneath it, each with its vCPUs and memory and its share of the host.
+- **Overcommitted** values are shown in red: VMs given more than the host has (common for vCPUs, risky for memory).
+- **Unknown values:** a VM whose vCPUs or memory aren't known is counted as *+1 unknown* rather than guessed. Scan the hypervisor to record them.
+- **Other rows:** physical servers that run no VMs are listed after the VM hosts with their serial numbers, then VMs whose host isn't known.
+- **Download CSV** saves one row per host.
+
+The figures come from the hosts' hardware fields: scan the hypervisors (internal scan) to fill in each VM's allocation, and scan the hosts themselves, or use the iDRAC's **Save to host**, for their cores, memory and serial number.
 
 **IP address map** is a spreadsheet of your address space:
 - **Columns** are /24 subnets, one for each subnet that has at least one host (e.g. `10.0.1.x`, `192.168.1.x`, `192.168.42.x`), in numeric order. Each header shows how many of the subnet's addresses are used.

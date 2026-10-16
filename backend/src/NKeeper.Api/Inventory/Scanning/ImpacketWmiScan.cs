@@ -101,10 +101,28 @@ internal static class ImpacketWmiScan
             }
         }
 
-        return new ScanFindings(hostname, ip, mac, osName, [.. ports.Select(ScanPorts.Describe)], false, users, notes, WmiMapping.Virtualization(Text(system, "Manufacturer"), Text(system, "Model")), []);
+        var virtualization = WmiMapping.Virtualization(Text(system, "Manufacturer"), Text(system, "Model"));
+        var memory = WmiMapping.MemoryMiB(Rows(root, "memory").Select(m => Number(m, "Capacity")).OfType<ulong>(), Number(system, "TotalPhysicalMemory"));
+        return new ScanFindings(
+            hostname, ip, mac, osName, [.. ports.Select(ScanPorts.Describe)], false, users, notes, virtualization, [],
+            WmiMapping.Cpus((long?)Number(system, "NumberOfLogicalProcessors")),
+            memory,
+            WmiMapping.Serial(Text(Rows(root, "bios").FirstOrDefault(), "SerialNumber"), virtualization));
     }
 
-    private static JsonElement.ArrayEnumerator Rows(JsonElement root, string name) => root.GetProperty(name).EnumerateArray();
+    /// <summary>A WMI number: Impacket gives 64-bit values (uint64 in WMI) as strings, smaller ones as numbers.</summary>
+    private static ulong? Number(JsonElement item, string property) =>
+        item.ValueKind == JsonValueKind.Object && item.TryGetProperty(property, out var value)
+            ? value.ValueKind == JsonValueKind.Number && value.TryGetUInt64(out var number) ? number
+            : value.ValueKind == JsonValueKind.String && ulong.TryParse(value.GetString(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? parsed
+            : null
+            : null;
+
+    /// <summary>A query's rows; none when the helper didn't return that query (an older wmi_scan.py, or a failed optional query).</summary>
+    private static JsonElement.ArrayEnumerator Rows(JsonElement root, string name) =>
+        (root.TryGetProperty(name, out var rows) && rows.ValueKind == JsonValueKind.Array ? rows : EmptyArray).EnumerateArray();
+
+    private static readonly JsonElement EmptyArray = JsonDocument.Parse("[]").RootElement;
 
     private static string? Text(JsonElement item, string property) =>
         item.ValueKind == JsonValueKind.Object && item.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text ? text.Trim() : null;

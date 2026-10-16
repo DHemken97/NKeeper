@@ -11,7 +11,9 @@ from impacket.dcerpc.v5.dcomrt import DCOMConnection
 from impacket.dcerpc.v5.dtypes import NULL
 
 QUERIES = {
-    "system": ("root/cimv2", "SELECT DNSHostName, Name, Manufacturer, Model FROM Win32_ComputerSystem"),
+    "system": ("root/cimv2", "SELECT DNSHostName, Name, Manufacturer, Model, NumberOfLogicalProcessors, TotalPhysicalMemory FROM Win32_ComputerSystem"),
+    "bios": ("root/cimv2", "SELECT SerialNumber FROM Win32_BIOS"),
+    "memory": ("root/cimv2", "SELECT Capacity FROM Win32_PhysicalMemory"),
     "os": ("root/cimv2", "SELECT Caption, Version FROM Win32_OperatingSystem"),
     "adapters": ("root/cimv2", "SELECT IPAddress, MACAddress FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled = TRUE"),
     "users": ("root/cimv2", "SELECT Name, FullName, SID FROM Win32_UserAccount WHERE LocalAccount = TRUE AND Disabled = FALSE AND Lockout = FALSE"),
@@ -56,6 +58,8 @@ def main():
             except Exception as ex:
                 if key == "ports":
                     notes.append("The listening ports couldn't be read (this needs Windows 8 or Server 2012 or later).")
+                    output[key] = []
+                elif key in ("bios", "memory"):
                     output[key] = []
                 else:
                     raise

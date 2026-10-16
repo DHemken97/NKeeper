@@ -21,6 +21,9 @@ const router1: Host = {
   hypervisorId: null,
   virtualMachineId: null,
   hypervisorSeenAtUtc: null,
+  cpuCores: null,
+  memoryMiB: null,
+  serialNumber: null,
   tags: [],
   services: [
     { protocol: 'Https', port: null, label: 'Admin UI' },

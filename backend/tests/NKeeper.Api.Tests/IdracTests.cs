@@ -82,6 +82,7 @@ public sealed class IdracTests(PostgresServerFixture postgres, RedfishTargetFixt
         Assert.Equal("On", overview.GetProperty("powerState").GetString());
         Assert.Equal("Warning", overview.GetProperty("health").GetString());
         Assert.Equal(2, overview.GetProperty("processorCount").GetInt32());
+        Assert.Equal(128, overview.GetProperty("logicalProcessorCount").GetInt32());
         Assert.Equal(512, overview.GetProperty("memoryGiB").GetDouble());
         Assert.Equal("7.00.00.171", overview.GetProperty("firmwareVersion").GetString());
         Assert.Contains("ForceRestart", overview.GetProperty("powerActions").EnumerateArray().Select(a => a.GetString()));

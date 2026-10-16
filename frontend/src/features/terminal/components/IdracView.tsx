@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { Dialog } from '../../../components/ui/Dialog'
 import { api, ApiError } from '../../../lib/api'
+import { hostsApi } from '../../inventory/api/inventoryApi'
+import { toHostDraft, toHostInput } from '../../inventory/drafts'
 import type { IdracMode } from '../../inventory/hostMenu'
-import { idracRequestBody, POWER_ACTIONS, type IdracOverview, type IdracOverviewResponse } from '../idrac'
+import { formatMemory, type Host } from '../../inventory/types'
+import { idracHardware, idracRequestBody, POWER_ACTIONS, type IdracOverview, type IdracOverviewResponse } from '../idrac'
 import type { HostKeyMessage, RemoteSession, SessionPhase } from '../types'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
 import sessionStyles from './Session.module.css'
@@ -15,6 +18,9 @@ interface IdracViewProps {
   onShowHost: (hostId: string) => void
   /** Opens the iDRAC's console, RACADM or web interface in its own tab, with the same login. */
   onOpen: (mode: IdracMode | 'web') => void
+  /** The host as NKeeper has it, to save the hardware details to (when the user may manage it). */
+  host?: Host
+  onHostChanged?: (host: Host) => void
 }
 
 /**
@@ -22,13 +28,14 @@ interface IdracViewProps {
  * iDRAC's virtual console, RACADM and web interface. Power actions other than "Power on" are
  * confirmed first.
  */
-export function IdracView({ session, active, onShowHost, onOpen }: IdracViewProps) {
+export function IdracView({ session, active, onShowHost, onOpen, host, onHostChanged }: IdracViewProps) {
   const [phase, setPhase] = useState<SessionPhase>({ kind: 'connecting' })
   const [overview, setOverview] = useState<IdracOverview | null>(null)
   const [refreshing, setRefreshing] = useState(true)
   const [attempt, setAttempt] = useState(0)
   const [confirming, setConfirming] = useState<(typeof POWER_ACTIONS)[number] | null>(null)
   const [power, setPower] = useState<{ busy: boolean; message?: string; error?: string }>({ busy: false })
+  const [saving, setSaving] = useState<{ busy: boolean; message?: string; error?: string }>({ busy: false })
   const trustRef = useRef<string | undefined>(undefined)
   const targetRef = useRef<string | undefined>(undefined)
 
@@ -113,6 +120,35 @@ export function IdracView({ session, active, onShowHost, onOpen }: IdracViewProp
     }
   }
 
+  /** Saves the service tag, threads and memory to the host, as an ordinary edit. */
+  async function saveHardware(hardware: ReturnType<typeof idracHardware>) {
+    if (!host) {
+      return
+    }
+    setSaving({ busy: true })
+    try {
+      const saved = await hostsApi.update(host.id, {
+        ...toHostInput(toHostDraft(host), host.version),
+        serialNumber: hardware.serialNumber ?? host.serialNumber,
+        cpuCores: hardware.cpuCores ?? host.cpuCores,
+        memoryMiB: hardware.memoryMiB ?? host.memoryMiB,
+      })
+      onHostChanged?.(saved)
+      setSaving({ busy: false, message: 'Saved to the host.' })
+    } catch (error) {
+      setSaving({ busy: false, error: error instanceof ApiError ? error.message : 'Couldn’t save to the host.' })
+    }
+  }
+
+  const hardware = overview ? idracHardware(overview) : null
+  const hardwareChanges = hardware && host
+    ? [
+        hardware.serialNumber && hardware.serialNumber !== host.serialNumber ? `serial number ${hardware.serialNumber}` : null,
+        hardware.cpuCores && hardware.cpuCores !== host.cpuCores ? `${hardware.cpuCores} CPU cores` : null,
+        hardware.memoryMiB && hardware.memoryMiB !== host.memoryMiB ? `${formatMemory(hardware.memoryMiB)} memory` : null,
+      ].filter((change): change is string => change !== null)
+    : []
+
   const on = overview?.powerState?.toLowerCase().startsWith('on') ?? false
   const actions = overview ? POWER_ACTIONS.filter((a) => overview.powerActions.includes(a.type)) : []
 
@@ -152,12 +188,37 @@ export function IdracView({ session, active, onShowHost, onOpen }: IdracViewProp
                 <Fact label="Host name" value={overview.hostName} />
                 <Fact
                   label="Processors"
-                  value={overview.processorCount ? `${overview.processorCount} × ${overview.processorModel ?? 'CPU'}` : overview.processorModel}
+                  value={
+                    [
+                      overview.processorCount ? `${overview.processorCount} × ${overview.processorModel ?? 'CPU'}` : overview.processorModel,
+                      overview.logicalProcessorCount ? `${overview.logicalProcessorCount} threads` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || null
+                  }
                 />
                 <Fact label="Memory" value={overview.memoryGiB ? `${overview.memoryGiB} GiB` : null} />
                 <Fact label="BIOS" value={overview.biosVersion} />
                 <Fact label="iDRAC" value={[overview.managerModel, overview.firmwareVersion].filter(Boolean).join(' · ') || null} />
               </dl>
+              {host?.canManage && hardware && hardwareChanges.length > 0 ? (
+                <div className={styles.buttons}>
+                  <Button size="sm" variant="secondary" loading={saving.busy} onClick={() => void saveHardware(hardware)}>
+                    Save to host
+                  </Button>
+                  <span className={sessionStyles.hint}>Records the {hardwareChanges.join(', ')} on {host.name}.</span>
+                </div>
+              ) : null}
+              {saving.message ? (
+                <p className={sessionStyles.hint} role="status">
+                  {saving.message}
+                </p>
+              ) : null}
+              {saving.error ? (
+                <p className={styles.error} role="alert">
+                  {saving.error}
+                </p>
+              ) : null}
             </section>
 
             <section className={styles.section} aria-labelledby={`${session.id}-open`}>

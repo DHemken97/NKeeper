@@ -18,6 +18,7 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
         builder.Property(h => h.MacAddress).HasMaxLength(17);
         builder.Property(h => h.Description).HasMaxLength(4000);
         builder.Property(h => h.VirtualMachineId).HasMaxLength(128);
+        builder.Property(h => h.SerialNumber).HasMaxLength(128);
         builder.ToTable(t => t.HasCheckConstraint("CK_Hosts_Address", "\"Hostname\" IS NOT NULL OR \"IpAddress\" IS NOT NULL"));
 
         // A VM's hypervisor is another host; deleting the hypervisor keeps its VMs and clears the link.
