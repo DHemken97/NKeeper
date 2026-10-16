@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using NKeeper.Api.Web;
 
 namespace NKeeper.Api.RemoteSessions;
 
@@ -18,5 +19,15 @@ internal static class SessionProblemResults
         var problem = controller.ProblemDetailsFactory.CreateProblemDetails(controller.HttpContext, status, detail: ex.Message);
         problem.Extensions["code"] = ex.Code;
         return new ObjectResult(problem) { StatusCode = status };
+    }
+
+    /// <summary>A changed HTTPS certificate: 409 with both fingerprints, so the user can compare them.</summary>
+    public static ObjectResult CertificateChanged(this ControllerBase controller, CertificateChangedException ex)
+    {
+        var result = controller.SessionFailure(new SessionException(SessionErrorCodes.HostKeyChanged, ex.Message));
+        var problem = (ProblemDetails)result.Value!;
+        problem.Extensions["fingerprint"] = ex.Fingerprint;
+        problem.Extensions["trustedFingerprint"] = ex.TrustedFingerprint;
+        return result;
     }
 }

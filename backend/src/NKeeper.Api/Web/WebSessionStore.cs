@@ -14,9 +14,12 @@ namespace NKeeper.Api.Web;
 /// </summary>
 public sealed class WebSession : IDisposable
 {
-    internal WebSession(Guid userId, Guid hostId, Uri target, string? pinnedFingerprint, string? embedderOrigin, DateTimeOffset now)
+    private string? _startPath;
+
+    internal WebSession(Guid userId, Guid hostId, Uri target, string? pinnedFingerprint, string? embedderOrigin, string startPath, DateTimeOffset now)
     {
         EmbedderOrigin = embedderOrigin;
+        _startPath = startPath;
         Id = RandomId(16);
         Secret = Base64Url(32);
         LaunchToken = Base64Url(32);
@@ -90,6 +93,12 @@ public sealed class WebSession : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Where the launch link lands: the start path the session was opened with (e.g. an iDRAC console
+    /// login with one-time credentials), only the first time; "/" after that.
+    /// </summary>
+    internal string TakeStartPath() => Interlocked.Exchange(ref _startPath, null) ?? "/";
+
     internal bool HasSecret(string? value) =>
         value is not null && CryptographicOperations.FixedTimeEquals(System.Text.Encoding.ASCII.GetBytes(value), System.Text.Encoding.ASCII.GetBytes(Secret));
 
@@ -109,7 +118,8 @@ public sealed class WebSessionStore(IOptions<WebProxySettings> settings, TimePro
 
     private readonly ConcurrentDictionary<string, WebSession> _sessions = new(StringComparer.Ordinal);
 
-    public WebSession? TryCreate(Guid userId, Guid hostId, Uri target, string? pinnedFingerprint, string? embedderOrigin)
+    /// <param name="startPath">The path (and query) the launch link opens on the target.</param>
+    public WebSession? TryCreate(Guid userId, Guid hostId, Uri target, string? pinnedFingerprint, string? embedderOrigin, string startPath = "/")
     {
         RemoveExpired();
         if (_sessions.Values.Count(s => s.UserId == userId) >= MaxSessionsPerUser)
@@ -117,7 +127,7 @@ public sealed class WebSessionStore(IOptions<WebProxySettings> settings, TimePro
             return null;
         }
 
-        var session = new WebSession(userId, hostId, target, pinnedFingerprint, embedderOrigin, timeProvider.GetUtcNow());
+        var session = new WebSession(userId, hostId, target, pinnedFingerprint, embedderOrigin, startPath, timeProvider.GetUtcNow());
         _sessions[session.Id] = session;
         logger.LogInformation("Web session {SessionId} opened by user {UserId} for host {HostId} ({Target})", session.Id, userId, hostId, target);
         return session;

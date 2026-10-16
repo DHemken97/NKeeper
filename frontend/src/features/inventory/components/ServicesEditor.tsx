@@ -35,7 +35,9 @@ export function ServicesEditor({ value, onChange, errors }: ServicesEditorProps)
   return (
     <fieldset className={styles.fieldset}>
       <legend className={styles.legend}>Services</legend>
-      <p className={styles.hint}>How you connect to this host. Leave the port empty to use the default.</p>
+      <p className={styles.hint}>
+        How you connect to this host. Leave the port empty to use the default. An iDRAC has its own address; its port is the HTTPS (Redfish) port.
+      </p>
 
       {value.length === 0 ? <p className={styles.empty}>No services yet.</p> : null}
 
@@ -119,6 +121,22 @@ export function ServicesEditor({ value, onChange, errors }: ServicesEditorProps)
                       </option>
                     ))}
                   </select>
+                </label>
+              ) : null}
+              {service.protocol === 'Idrac' ? (
+                <label className={styles.option}>
+                  <span>iDRAC address</span>
+                  <input
+                    className={styles.input}
+                    value={service.address}
+                    onChange={(event) => update(service.key, { address: event.target.value })}
+                    placeholder="e.g. 10.0.10.21"
+                    maxLength={253}
+                    required
+                    spellCheck={false}
+                    aria-label={`iDRAC address for ${position}`}
+                    aria-invalid={errors[`services[${index}].address`] ? true : undefined}
+                  />
                 </label>
               ) : null}
               {rowError ? <p className={styles.error}>{rowError}</p> : null}

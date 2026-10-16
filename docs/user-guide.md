@@ -10,6 +10,7 @@
 - [VNC](#vnc)
 - [Web interfaces (HTTP/HTTPS)](#web-interfaces-httphttps)
 - [KVM virtual machines (SPICE and VNC consoles)](#kvm-virtual-machines-spice-and-vnc-consoles)
+- [Dell iDRAC (virtual console, status and power, RACADM)](#dell-idrac-virtual-console-status-and-power-racadm)
 - [Trusting servers](#trusting-servers)
 - [Your account](#your-account)
 
@@ -57,7 +58,7 @@ A host has:
 - whether it's a **virtual machine**, and if so, which host it **runs on** (its KVM or Proxmox node). The VM's details link to that host, and the host lists the VMs running on it. Deleting the host keeps its VMs and clears their link;
 - its own **tags**, **services** and **credentials**:
   - **Tags** are `name: value` pairs (the value is optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can have the same tag name twice with different values. Tags are what you group, search and grant access by; hosts don't live in folders.
-  - **Services** are the ways to connect: SSH, RDP, VNC, HTTP, HTTPS, KVM, and others stored for later (SSMS, Telnet, SFTP, FTP, WinRM, PowerShell, Other). Each has an optional port and label. The first one is the default.
+  - **Services** are the ways to connect: SSH, RDP, VNC, HTTP, HTTPS, KVM, iDRAC, and others stored for later (SSMS, Telnet, SFTP, FTP, WinRM, PowerShell, Other). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's.
   - **Credentials** have a username, domain, label, password, SSH private key and notes. Passwords and keys are **write-only**: once saved, NKeeper only shows that one is stored. Leave the field empty when editing to keep it, or choose to clear it.
 
 Administrators add hosts with **New host**. Anyone with *Manage* access can **Edit** or **Delete** a host.
@@ -198,6 +199,22 @@ Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH cre
 - **One SPICE console at a time:** opening another SPICE console replaces the first. VNC consoles have no such limit.
 - **On the hypervisor:** the SSH user must be able to use `qemu:///system` (usually by being in the `libvirt` group), and sshd must allow TCP forwarding (the OpenSSH default).
 - **Not supported:** SPICE configured for TLS only, and displays that listen on a Unix socket instead of a port. When a VM has both a SPICE and a VNC display, NKeeper opens the one libvirt lists first.
+
+## Dell iDRAC (virtual console, status and power, RACADM)
+
+Add an **iDRAC** service to the server's host, with the **iDRAC's IP address** (it has its own, separate from the server's). The port is the iDRAC's HTTPS port, 443 by default. Add the iDRAC login (e.g. `root`) as a credential with a password. Then **Connect ▸ iDRAC** offers:
+
+- **Virtual console:** the iDRAC's HTML5 console in a tab, like an RDP or VNC session. NKeeper asks the iDRAC over Redfish for one-time console credentials and relays the console page, so your browser never contacts the iDRAC and the iDRAC password stays on the server. **Reload** opens a fresh console. Double-clicking a host whose first service is an iDRAC opens its console.
+- **Status & power:** the server as Redfish reports it: model, service tag, power state, health, CPUs, memory, BIOS and iDRAC firmware. The **Power** buttons are the actions the server accepts: *Power on*, *Shut down* and *Restart* (through the operating system), *Reset* and *Power off* (immediate), *Power cycle*. Everything but *Power on* asks for confirmation. The tab also has buttons for the console, RACADM and the web interface.
+- **RACADM:** a terminal on the iDRAC's SSH command line (port 22 of the iDRAC's address), where `racadm` commands run.
+- **Web interface:** the iDRAC's own web pages, through NKeeper or directly, as for [web interfaces](#web-interfaces-httphttps).
+
+Requirements and limits:
+- **The console** needs iDRAC9 with firmware 4.x or later, a license that includes the virtual console (Enterprise or Datacenter), the virtual console enabled, and its **plug-in type set to HTML5 or eHTML5** (iDRAC Settings ▸ Services ▸ Virtual Console). When one is missing, *Status & power* says which, and the console explains why it can't open. For older iDRACs, open the web interface and launch the console from there.
+- **Web sessions** must work on your server (see [Installation](installation.md#dns-for-web-sessions)), since the console is one.
+- **Status and power** use standard Redfish, so they also work with other Redfish BMCs (e.g. HPE iLO 5 or later). The virtual console and RACADM are Dell-specific.
+- **The iDRAC account** decides what's allowed: power control needs an account with that privilege on the iDRAC.
+- **Certificates:** the iDRAC's self-signed certificate is shown for you to trust once, and covers Redfish, the console and the web interface. Its SSH host key (for RACADM) is trusted separately. Both are kept apart from the server's own keys, and are forgotten when the iDRAC's address changes.
 
 ## Trusting servers
 

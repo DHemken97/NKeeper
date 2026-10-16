@@ -447,6 +447,10 @@ namespace NKeeper.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Address")
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)");
+
                     b.Property<Guid>("HostId")
                         .HasColumnType("uuid");
 

@@ -2,17 +2,26 @@ import type { MenuEntry } from '../../components/ui/ContextMenu'
 import { formatAccount, PROTOCOL_INFO, primaryAddress, type Host, type HostCredential, type HostService, type ServiceProtocol } from './types'
 
 /** Protocols NKeeper can open sessions for today. */
-const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp', 'Vnc', 'Http', 'Https', 'Kvm'])
+const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp', 'Vnc', 'Http', 'Https', 'Kvm', 'Idrac'])
 
 /** Web services open the host's own web interface; they need no credential from NKeeper. */
 export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https'])
 
+/** What an iDRAC service opens: its HTML5 virtual console, the server's status and power, or RACADM (its SSH command line). */
+export type IdracMode = 'console' | 'overview' | 'racadm'
+
+export const IDRAC_MODES: Record<IdracMode, { label: string; detail: string }> = {
+  console: { label: 'Virtual console', detail: 'HTML5' },
+  overview: { label: 'Status & power', detail: 'Redfish' },
+  racadm: { label: 'RACADM', detail: 'SSH' },
+}
+
 export interface HostMenuActions {
-  /** Open a session with a saved credential. */
-  connect: (host: Host, serviceIndex: number, credential: HostCredential) => void
+  /** Open a session with a saved credential. `mode` says what an iDRAC service opens. */
+  connect: (host: Host, serviceIndex: number, credential: HostCredential, mode?: IdracMode) => void
   /** Ask for a username and password, then open a session. A credential without a secret prefills its account. */
-  connectWithPrompt: (host: Host, serviceIndex: number, account?: HostCredential) => void
-  /** Open a web (HTTP/HTTPS) session; NKeeper connects to the host on the browser's behalf. */
+  connectWithPrompt: (host: Host, serviceIndex: number, account?: HostCredential, mode?: IdracMode) => void
+  /** Open a web (HTTP/HTTPS) session, or an iDRAC's web interface; NKeeper connects to the host on the browser's behalf. */
   connectWeb: (host: Host, serviceIndex: number) => void
   /** Open the host's web interface in a new browser tab, loaded directly by this computer. */
   openDirect: (host: Host, serviceIndex: number) => void
@@ -35,6 +44,11 @@ function servicePort(service: HostService): string {
   return `:${service.port ?? PROTOCOL_INFO[service.protocol].defaultPort ?? ''}`
 }
 
+/** An iDRAC is shown at its own address. */
+function serviceDetail(service: HostService): string {
+  return service.protocol === 'Idrac' && service.address ? service.address : servicePort(service)
+}
+
 /** Why a credential cannot be used with a protocol at all, or null when it can. */
 export function credentialProblem(credential: HostCredential, protocol: ServiceProtocol): string | null {
   // VNC servers usually ask for a password only.
@@ -43,7 +57,7 @@ export function credentialProblem(credential: HostCredential, protocol: ServiceP
 
 /** A usable credential without a stored secret: connecting asks for the password (e.g. users found by a scan). */
 export function credentialNeedsPassword(credential: HostCredential, protocol: ServiceProtocol): boolean {
-  return protocol === 'Vnc' || protocol === 'Rdp' ? !credential.hasPassword : !credential.hasPassword && !credential.hasPrivateKey
+  return protocol === 'Vnc' || protocol === 'Rdp' || protocol === 'Idrac' ? !credential.hasPassword : !credential.hasPassword && !credential.hasPrivateKey
 }
 
 /** The host's right-click menu: Connect ▸ service ▸ credential, then host actions. */
@@ -69,41 +83,61 @@ export function connectMenuEntries(
       return { kind: 'item', label: serviceLabel(service), detail: 'Coming soon', disabled: true }
     }
 
+    const web: MenuEntry[] = [
+      { kind: 'item', label: 'Through NKeeper', detail: 'Server connects', onSelect: () => actions.connectWeb(host, index) },
+      { kind: 'item', label: 'Directly in a new tab', detail: 'This computer connects', onSelect: () => actions.openDirect(host, index) },
+    ]
+
     if (WEB_PROTOCOLS.has(service.protocol)) {
+      return { kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: web }
+    }
+
+    if (service.protocol === 'Idrac') {
       return {
         kind: 'item',
         label: serviceLabel(service),
-        detail: servicePort(service),
+        detail: serviceDetail(service),
         submenu: [
-          { kind: 'item', label: 'Through NKeeper', detail: 'Server connects', onSelect: () => actions.connectWeb(host, index) },
-          { kind: 'item', label: 'Directly in a new tab', detail: 'This computer connects', onSelect: () => actions.openDirect(host, index) },
+          ...(Object.keys(IDRAC_MODES) as IdracMode[]).map((mode): MenuEntry => ({
+            kind: 'item',
+            label: IDRAC_MODES[mode].label,
+            detail: IDRAC_MODES[mode].detail,
+            submenu: loginEntries(host, index, actions, mode),
+          })),
+          { kind: 'separator' },
+          { kind: 'item', label: 'Web interface', submenu: web },
         ],
       }
     }
 
-    const credentials: MenuEntry[] = host.credentials.map((credential): MenuEntry => {
-      const problem = credentialProblem(credential, service.protocol)
-      const asks = credentialNeedsPassword(credential, service.protocol)
-      return {
-        ...credentialEntry(credential, problem ?? (asks ? 'Asks for password' : undefined)),
-        disabled: problem !== null,
-        onSelect: () => (asks ? actions.connectWithPrompt(host, index, credential) : actions.connect(host, index, credential)),
-      }
-    })
-
-    return {
-      kind: 'item',
-      label: serviceLabel(service),
-      detail: servicePort(service),
-      submenu: [
-        ...credentials,
-        ...(credentials.length > 0 ? [{ kind: 'separator' } as const] : []),
-        { kind: 'item', label: 'Enter credentials…', onSelect: () => actions.connectWithPrompt(host, index) },
-      ],
-    }
+    return { kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions) }
   })
 
   return services.length > 0 ? services : [{ kind: 'item', label: 'No services', detail: 'Edit the host to add one', disabled: true }]
+}
+
+/** The host's credentials usable with a service (asking for a password when none is stored), then "Enter credentials…". */
+function loginEntries(
+  host: Host,
+  index: number,
+  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt'>,
+  mode?: IdracMode,
+): MenuEntry[] {
+  const protocol = host.services[index].protocol
+  const credentials = host.credentials.map((credential): MenuEntry => {
+    const problem = credentialProblem(credential, protocol)
+    const asks = credentialNeedsPassword(credential, protocol)
+    return {
+      ...credentialEntry(credential, problem ?? (asks ? 'Asks for password' : undefined)),
+      disabled: problem !== null,
+      onSelect: () => (asks ? actions.connectWithPrompt(host, index, credential, mode) : actions.connect(host, index, credential, mode)),
+    }
+  })
+  return [
+    ...credentials,
+    ...(credentials.length > 0 ? [{ kind: 'separator' } as const] : []),
+    { kind: 'item', label: 'Enter credentials…', onSelect: () => actions.connectWithPrompt(host, index, undefined, mode) },
+  ]
 }
 
 /** A credential as a menu item: its label or account, with `detail` (or the account, or "SSH key") beside it. */
@@ -165,8 +199,9 @@ export function defaultConnection(host: Host): { serviceIndex: number; credentia
 
 /** The host's own URL for a web service, as this computer would open it. */
 export function directWebUrl(host: Host, service: HostService): string {
-  const scheme = service.protocol === 'Https' ? 'https' : 'http'
-  const address = primaryAddress(host)
+  // An iDRAC's web interface is HTTPS at its own address.
+  const scheme = service.protocol === 'Http' ? 'http' : 'https'
+  const address = service.address ?? primaryAddress(host)
   const hostPart = address.includes(':') ? `[${address}]` : address
   const defaultPort = scheme === 'https' ? 443 : 80
   return `${scheme}://${hostPart}${service.port && service.port !== defaultPort ? `:${service.port}` : ''}/`

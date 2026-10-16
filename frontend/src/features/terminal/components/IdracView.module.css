@@ -1,0 +1,74 @@
+/* iDRAC: the server's status, what to open, and its power buttons. */
+.panel {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-6);
+  overflow: auto;
+  padding: var(--space-4);
+}
+
+.section {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 48rem;
+}
+
+.heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  font-size: 0.875rem;
+}
+
+.state .health {
+  font-weight: 550;
+}
+
+.healthOK {
+  color: #86efac;
+}
+
+.healthWarning {
+  color: #fcd34d;
+}
+
+.healthCritical {
+  color: var(--color-danger);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.facts dt {
+  color: var(--color-text-muted);
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.8125rem;
+}

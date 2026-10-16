@@ -32,7 +32,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         h.Services
             .OrderBy(s => s.Position)
             .Select(s => new HostServiceResponse(
-                s.Protocol, s.Port, s.Label, s.Protocol == ServiceProtocol.Rdp ? s.RdpSecurity ?? RdpSecurityMode.Auto : null))
+                s.Protocol, s.Port, s.Label, s.Protocol == ServiceProtocol.Rdp ? s.RdpSecurity ?? RdpSecurityMode.Auto : null, s.Address))
             .ToList(),
         h.Credentials
             .OrderBy(c => c.Position)
@@ -113,6 +113,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         db.Entry(host).Property(h => h.Version).OriginalValue = version;
         await CheckHypervisorAsync(id, request.IsVirtualMachine ? request.HypervisorId : null, user, cancellationToken);
         var previousAddress = (host.Hostname, host.IpAddress);
+        var previousIdracAddresses = IdracAddresses(host);
         Apply(host, request, userId, await LoadCopySourcesAsync(request, user, cancellationToken));
         await db.SaveChangesAsync(cancellationToken);
 
@@ -120,6 +121,11 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         if ((host.Hostname, host.IpAddress) != previousAddress)
         {
             await db.HostTrustedKeys.Where(k => k.HostId == id).ExecuteDeleteAsync(cancellationToken);
+        }
+        else if (!IdracAddresses(host).SetEquals(previousIdracAddresses))
+        {
+            // The iDRAC has its own address, and identities trusted for it are kept under its protocol.
+            await db.HostTrustedKeys.Where(k => k.HostId == id && k.Protocol == ServiceProtocol.Idrac).ExecuteDeleteAsync(cancellationToken);
         }
 
         // Editing tags can move a host out of the user's own grants; then it is simply no longer visible.
@@ -448,6 +454,9 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         ApplyCredentials(host, request.Credentials, copySources);
     }
 
+    private static HashSet<string> IdracAddresses(Host host) =>
+        [.. host.Services.Where(s => s.Protocol == ServiceProtocol.Idrac && s.Address is not null).Select(s => s.Address!)];
+
     /// <summary>Only virtual machines have a hypervisor. A link chosen by hand has no "seen by a scan" time.</summary>
     private static void ApplyVirtualMachine(Host host, HostRequest request)
     {
@@ -475,7 +484,15 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             Label = InventoryText.TrimToNull(s.Label),
             Position = index,
             RdpSecurity = s.Protocol == ServiceProtocol.Rdp && s.RdpSecurity is not RdpSecurityMode.Auto ? s.RdpSecurity : null,
+            Address = s.Protocol == ServiceProtocol.Idrac ? NormalizeAddress(s.Address) : null,
         }));
+    }
+
+    /// <summary>An IP address in canonical form, or a trimmed hostname.</summary>
+    private static string? NormalizeAddress(string? address)
+    {
+        var trimmed = InventoryText.TrimToNull(address);
+        return trimmed is not null && NetworkAddress.TryNormalizeIp(trimmed, out var ip) ? ip : trimmed;
     }
 
     /// <summary>Replaces the tags, dropping case-insensitive duplicates and keeping the first spelling.</summary>

@@ -87,6 +87,12 @@ public sealed class HostService
 
     /// <summary>RDP only: how the connection is secured. Null means <see cref="RdpSecurityMode.Auto"/>.</summary>
     public RdpSecurityMode? RdpSecurity { get; set; }
+
+    /// <summary>
+    /// Where the service listens when that isn't the host's own address: an iDRAC has its own
+    /// management IP. Required for <see cref="ServiceProtocol.Idrac"/>; null for other services.
+    /// </summary>
+    public string? Address { get; set; }
 }
 
 /// <summary>
@@ -164,7 +170,11 @@ public sealed class HostTrustedKey
 
     public Guid HostId { get; set; }
 
-    /// <summary><see cref="ServiceProtocol.Ssh"/> or <see cref="ServiceProtocol.Rdp"/>.</summary>
+    /// <summary>
+    /// The protocol the identity was trusted for: <see cref="ServiceProtocol.Ssh"/>, <see cref="ServiceProtocol.Rdp"/>,
+    /// <see cref="ServiceProtocol.Https"/>, or <see cref="ServiceProtocol.Idrac"/> for the iDRAC's own address
+    /// (its HTTPS certificate and, for RACADM, its SSH host key).
+    /// </summary>
     public ServiceProtocol Protocol { get; set; }
 
     public int Port { get; set; }
@@ -199,5 +209,11 @@ public enum ServiceProtocol
 
     /// <summary>A KVM hypervisor managed with libvirt, reached over SSH: lists VMs and opens their SPICE consoles.</summary>
     Kvm,
+
+    /// <summary>
+    /// A Dell iDRAC at its own management address: Redfish (over HTTPS) for status and power, the
+    /// HTML5 virtual console, and RACADM over SSH.
+    /// </summary>
+    Idrac,
     Other,
 }

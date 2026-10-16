@@ -89,7 +89,7 @@ internal static class SshCommandConnection
         {
             if (newlyTrusted is { } trusted)
             {
-                await trustedKeys.TrustAsync(target, ServiceProtocol.Ssh, trusted.Algorithm, trusted.Fingerprint, userId);
+                await trustedKeys.TrustAsync(target, target.KeyProtocol, trusted.Algorithm, trusted.Fingerprint, userId);
             }
         }
     }

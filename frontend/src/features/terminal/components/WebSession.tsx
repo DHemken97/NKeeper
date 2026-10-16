@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { api, ApiError } from '../../../lib/api'
+import { idracRequestBody } from '../idrac'
 import type { HostKeyMessage, RemoteSession, SessionPhase } from '../types'
 import { sessionOrigin } from '../webSessionOrigin'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
@@ -26,7 +27,8 @@ interface OpenResponse {
 /**
  * A web (HTTP/HTTPS) session proxied by NKeeper's server and shown inside this tab. The page runs
  * on its own origin in a sandboxed frame: it can't reach NKeeper, navigate NKeeper away, or be
- * framed by anything but NKeeper.
+ * framed by anything but NKeeper. An iDRAC's virtual console (`idracconsole`) is such a session,
+ * opened on the console page with one-time console credentials the server gets from the iDRAC.
  */
 export function WebSession({ session, active, onShowHost, onEnded }: WebSessionProps) {
   const [phase, setPhase] = useState<SessionPhase>({ kind: 'connecting' })
@@ -36,15 +38,18 @@ export function WebSession({ session, active, onShowHost, onEnded }: WebSessionP
   const sessionIdRef = useRef<string | null>(null)
   const trustRef = useRef<string | undefined>(undefined)
 
+  const idracConsole = session.protocol === 'idracconsole'
+
   useEffect(() => {
     let cancelled = false
     const { hostId, serviceIndex } = session.request
 
     async function open() {
       try {
-        const response = await api.post<OpenResponse>('/api/web/sessions', {
-          body: { hostId, serviceIndex, trustFingerprint: trustRef.current },
-        })
+        const response = await api.post<OpenResponse>(
+          idracConsole ? '/api/idrac/console' : '/api/web/sessions',
+          { body: idracConsole ? idracRequestBody(session.request, trustRef.current) : { hostId, serviceIndex, trustFingerprint: trustRef.current } },
+        )
         if (cancelled) {
           if (response.sessionId) {
             void api.delete(`/api/web/sessions/${response.sessionId}`).catch(() => {})
@@ -88,7 +93,7 @@ export function WebSession({ session, active, onShowHost, onEnded }: WebSessionP
           setPhase({
             kind: 'ended',
             code: error instanceof ApiError ? error.code : undefined,
-            message: error instanceof ApiError ? error.message : 'Couldn’t start the web session.',
+            message: error instanceof ApiError ? error.message : idracConsole ? 'Couldn’t open the virtual console.' : 'Couldn’t start the web session.',
           })
         }
       }
@@ -98,7 +103,7 @@ export function WebSession({ session, active, onShowHost, onEnded }: WebSessionP
     return () => {
       cancelled = true
     }
-  }, [session.request, attempt])
+  }, [session.request, idracConsole, attempt])
 
   // Closing the tab (or NKeeper) ends the session on the server.
   useEffect(
@@ -129,12 +134,22 @@ export function WebSession({ session, active, onShowHost, onEnded }: WebSessionP
     setAttempt((n) => n + 1)
   }
 
+  /** Ends the current session on the server and opens a new one. */
+  function reopen() {
+    if (sessionIdRef.current) {
+      void api.delete(`/api/web/sessions/${sessionIdRef.current}`).catch(() => {})
+      sessionIdRef.current = null
+    }
+    retry()
+  }
+
   return (
-    <div className={styles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} web session`}>
+    <div className={styles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} ${idracConsole ? 'virtual console' : 'web session'}`}>
       <SessionStatusBar phase={phase}>
         {phase.kind === 'connected' ? (
           <>
-            <Button variant="ghost" size="sm" onClick={() => setFrameKey((n) => n + 1)}>
+            {/* The console's one-time credentials are used up: reloading asks the iDRAC for new ones. */}
+            <Button variant="ghost" size="sm" onClick={idracConsole ? reopen : () => setFrameKey((n) => n + 1)}>
               Reload
             </Button>
             <Button variant="ghost" size="sm" onClick={onEnded}>

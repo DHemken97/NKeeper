@@ -35,9 +35,11 @@ import {
   defaultConnection,
   directWebUrl,
   hostMenuEntries,
+  IDRAC_MODES,
   serviceLabel,
   WEB_PROTOCOLS,
   type HostMenuActions,
+  type IdracMode,
 } from '../hostMenu'
 import { matchesSearch, parseSearch, tagSearchTerm } from '../search'
 import { formatAccount, primaryAddress, type Host, type HostCredential, type HostTag, type InternalScanLogin, type ServiceProtocol } from '../types'
@@ -58,6 +60,7 @@ const VirtualMachinesView = lazy(() =>
 )
 const SpiceConsole = lazy(() => import('../../terminal/components/SpiceConsole').then((m) => ({ default: m.SpiceConsole })))
 const VncConsole = lazy(() => import('../../terminal/components/VncConsole').then((m) => ({ default: m.VncConsole })))
+const IdracView = lazy(() => import('../../terminal/components/IdracView').then((m) => ({ default: m.IdracView })))
 const SORTS: { value: HostSort; label: string }[] = [
   { value: 'name', label: 'Name' },
   { value: 'address', label: 'Address' },
@@ -70,10 +73,17 @@ interface LocalChanges {
   hosts: Host[]
 }
 
-/** Which session view a service opens in. */
-function sessionProtocol(protocol: ServiceProtocol): RemoteSession['protocol'] {
-  if (WEB_PROTOCOLS.has(protocol)) {
+/** What a session on a service opens: for an iDRAC, one of its modes or its web interface. */
+type OpenMode = IdracMode | 'web'
+
+/** Which session view a service opens in. An iDRAC opens its console unless asked for something else. */
+function sessionProtocol(protocol: ServiceProtocol, mode?: OpenMode): RemoteSession['protocol'] {
+  if (WEB_PROTOCOLS.has(protocol) || mode === 'web') {
     return 'web'
+  }
+  if (protocol === 'Idrac') {
+    // RACADM is the iDRAC's SSH command line.
+    return mode === 'overview' ? 'idrac' : mode === 'racadm' ? 'ssh' : 'idracconsole'
   }
   return protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : 'ssh'
 }
@@ -139,7 +149,13 @@ export function WorkspacePage() {
   const [activeTab, setActiveTab] = useState(DETAILS_TAB)
   const [menu, setMenu] = useState<MenuState | null>(null)
   /** Asking for a login: to connect, or for an internal scan. `account` prefills a credential without a secret. */
-  const [prompt, setPrompt] = useState<{ host: Host; serviceIndex: number; account?: HostCredential; purpose: 'connect' | 'scan' } | null>(null)
+  const [prompt, setPrompt] = useState<{
+    host: Host
+    serviceIndex: number
+    account?: HostCredential
+    purpose: 'connect' | 'scan'
+    mode?: IdracMode
+  } | null>(null)
   const [scan, setScan] = useState<{ host: Host; kind: 'internal' | 'external'; login?: InternalScanLogin } | null>(null)
   const [importing, setImporting] = useState(false)
   /** Hosts selected together for bulk changes; two or more replace the details with the bulk panel. */
@@ -242,18 +258,21 @@ export function WorkspacePage() {
     serviceIndex: number,
     credential?: HostCredential,
     oneOff?: { username: string; password: string; domain?: string },
+    mode?: OpenMode,
   ) {
     const id = `session-${nextSessionId++}`
     const account = credential ? (formatAccount(credential) ?? credential.label) : oneOff?.username
     const sameHost = sessions.filter((s) => s.hostId === host.id).length
+    const service = host.services[serviceIndex]
+    const modeLabel = service.protocol !== 'Idrac' ? null : mode === 'web' ? 'Web interface' : IDRAC_MODES[mode ?? 'console'].label
     setSessions((current) => [
       ...current,
       {
         id,
         hostId: host.id,
-        protocol: sessionProtocol(host.services[serviceIndex].protocol),
+        protocol: sessionProtocol(service.protocol, mode),
         title: sameHost > 0 ? `${host.name} (${sameHost + 1})` : host.name,
-        detail: [serviceLabel(host.services[serviceIndex]), account].filter(Boolean).join(' · '),
+        detail: [serviceLabel(service), modeLabel, account].filter(Boolean).join(' · '),
         request: { hostId: host.id, serviceIndex, credentialId: credential?.id, oneOff },
       },
     ])
@@ -279,6 +298,16 @@ export function WorkspacePage() {
     setActiveTab(id)
   }
 
+  /** Opens an iDRAC's console, RACADM or web interface from its status tab, with the same login. */
+  function openFromIdrac(source: RemoteSession, mode: OpenMode) {
+    const host = allHosts?.find((h) => h.id === source.hostId)
+    if (!host) {
+      return
+    }
+    const credential = host.credentials.find((c) => c.id === source.request.credentialId)
+    openSession(host, source.request.serviceIndex, credential, source.request.oneOff, mode)
+  }
+
   function closeSession(id: string) {
     const index = sessions.findIndex((s) => s.id === id)
     const remaining = sessions.filter((s) => s.id !== id)
@@ -289,9 +318,9 @@ export function WorkspacePage() {
   }
 
   const menuActions: HostMenuActions = {
-    connect: (host, serviceIndex, credential) => openSession(host, serviceIndex, credential),
-    connectWithPrompt: (host, serviceIndex, account) => setPrompt({ host, serviceIndex, account, purpose: 'connect' }),
-    connectWeb: (host, serviceIndex) => openSession(host, serviceIndex),
+    connect: (host, serviceIndex, credential, mode) => openSession(host, serviceIndex, credential, undefined, mode),
+    connectWithPrompt: (host, serviceIndex, account, mode) => setPrompt({ host, serviceIndex, account, purpose: 'connect', mode }),
+    connectWeb: (host, serviceIndex) => openSession(host, serviceIndex, undefined, undefined, 'web'),
     // Called from the menu click itself, so the browser allows the new tab.
     openDirect: (host, serviceIndex) => void window.open(directWebUrl(host, host.services[serviceIndex]), '_blank', 'noopener,noreferrer'),
     edit: (host) => showHost(host.id, true),
@@ -611,7 +640,7 @@ export function WorkspacePage() {
           }
         >
           {sessions.map((session) => (
-            session.protocol === 'web' ? (
+            session.protocol === 'web' || session.protocol === 'idracconsole' ? (
               <WebSession
                 key={session.id}
                 session={session}
@@ -626,6 +655,14 @@ export function WorkspacePage() {
                 active={activeTab === session.id}
                 onShowHost={(id) => showHost(id)}
                 onOpenConsole={(vm) => openConsole(session, vm)}
+              />
+            ) : session.protocol === 'idrac' ? (
+              <IdracView
+                key={session.id}
+                session={session}
+                active={activeTab === session.id}
+                onShowHost={(id) => showHost(id)}
+                onOpen={(mode) => openFromIdrac(session, mode)}
               />
             ) : session.protocol === 'spice' ? (
               <SpiceConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
@@ -675,7 +712,7 @@ export function WorkspacePage() {
               setScan({ host: prompt.host, kind: 'internal', login: { serviceIndex: prompt.serviceIndex, username, password } })
             } else {
               const domain = prompt.account?.domain ?? undefined
-              openSession(prompt.host, prompt.serviceIndex, undefined, { username, password, ...(domain ? { domain } : {}) })
+              openSession(prompt.host, prompt.serviceIndex, undefined, { username, password, ...(domain ? { domain } : {}) }, prompt.mode)
             }
             setPrompt(null)
           }}

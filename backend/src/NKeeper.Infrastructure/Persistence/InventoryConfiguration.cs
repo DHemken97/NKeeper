@@ -45,6 +45,7 @@ internal sealed class HostServiceConfiguration : IEntityTypeConfiguration<HostSe
         builder.Property(s => s.Protocol).HasConversion<string>().HasMaxLength(32);
         builder.Property(s => s.Label).HasMaxLength(100);
         builder.Property(s => s.RdpSecurity).HasConversion<string>().HasMaxLength(16);
+        builder.Property(s => s.Address).HasMaxLength(253);
         builder.HasIndex(s => new { s.HostId, s.Position });
         builder.HasIndex(s => s.Protocol);
     }
