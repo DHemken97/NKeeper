@@ -16,7 +16,7 @@ import type { RemoteSession } from '../../terminal/types'
 import { useResource } from '../hooks/useResource'
 import { connectMenuEntries, defaultConnection, directWebUrl, hostMenuEntries, serviceLabel, WEB_PROTOCOLS, type HostMenuActions } from '../hostMenu'
 import { matchesSearch, parseSearch, tagSearchTerm } from '../search'
-import { formatAccount, primaryAddress, type Host, type HostCredential, type HostTag } from '../types'
+import { formatAccount, primaryAddress, type Host, type HostCredential, type HostTag, type ServiceProtocol } from '../types'
 import { useAuth } from '../../auth/context'
 import { isAdministrator } from '../../auth/types'
 import styles from './WorkspacePage.module.css'
@@ -28,7 +28,7 @@ let nextSessionId = 1
 // xterm.js is large; load it on the first connection rather than with the page.
 const SshTerminal = lazy(() => import('../../terminal/components/SshTerminal').then((m) => ({ default: m.SshTerminal })))
 const WebSession = lazy(() => import('../../terminal/components/WebSession').then((m) => ({ default: m.WebSession })))
-const RdpSession = lazy(() => import('../../terminal/components/RdpSession').then((m) => ({ default: m.RdpSession })))
+const DesktopSession = lazy(() => import('../../terminal/components/DesktopSession').then((m) => ({ default: m.DesktopSession })))
 const SORTS: { value: HostSort; label: string }[] = [
   { value: 'name', label: 'Name' },
   { value: 'address', label: 'Address' },
@@ -39,6 +39,14 @@ const SORTS: { value: HostSort; label: string }[] = [
 interface LocalChanges {
   basedOn: Host[] | undefined
   hosts: Host[]
+}
+
+/** Which session view a service opens in. */
+function sessionProtocol(protocol: ServiceProtocol): RemoteSession['protocol'] {
+  if (WEB_PROTOCOLS.has(protocol)) {
+    return 'web'
+  }
+  return protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : 'ssh'
 }
 
 interface MenuState {
@@ -119,7 +127,7 @@ export function WorkspacePage() {
       {
         id,
         hostId: host.id,
-        protocol: WEB_PROTOCOLS.has(host.services[serviceIndex].protocol) ? 'web' : host.services[serviceIndex].protocol === 'Rdp' ? 'rdp' : 'ssh',
+        protocol: sessionProtocol(host.services[serviceIndex].protocol),
         title: sameHost > 0 ? `${host.name} (${sameHost + 1})` : host.name,
         detail: [serviceLabel(host.services[serviceIndex]), account].filter(Boolean).join(' · '),
         request: { hostId: host.id, serviceIndex, credentialId: credential?.id, oneOff },
@@ -411,8 +419,8 @@ export function WorkspacePage() {
                 onShowHost={(id) => showHost(id)}
                 onEnded={() => closeSession(session.id)}
               />
-            ) : session.protocol === 'rdp' ? (
-              <RdpSession
+            ) : session.protocol === 'rdp' || session.protocol === 'vnc' ? (
+              <DesktopSession
                 key={session.id}
                 session={session}
                 active={activeTab === session.id}
@@ -445,6 +453,7 @@ export function WorkspacePage() {
       {prompt ? (
         <CredentialPromptDialog
           target={`${prompt.host.name} · ${serviceLabel(prompt.host.services[prompt.serviceIndex])}`}
+          usernameOptional={prompt.host.services[prompt.serviceIndex].protocol === 'Vnc'}
           onConnect={(username, password) => {
             openSession(prompt.host, prompt.serviceIndex, undefined, { username, password })
             setPrompt(null)

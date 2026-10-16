@@ -8,19 +8,21 @@ import styles from './CredentialPromptDialog.module.css'
 interface CredentialPromptDialogProps {
   /** e.g. "sql01 · SSH :22" */
   target: string
+  /** VNC servers usually ask for a password only. */
+  usernameOptional?: boolean
   onConnect: (username: string, password: string) => void
   onCancel: () => void
 }
 
 /** Asks for a one-off username and password. Nothing is saved to the host. */
-export function CredentialPromptDialog({ target, onConnect, onCancel }: CredentialPromptDialogProps) {
+export function CredentialPromptDialog({ target, usernameOptional = false, onConnect, onCancel }: CredentialPromptDialogProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!username.trim()) {
+    if (!username.trim() && !usernameOptional) {
       setError('Enter a username.')
       return
     }
@@ -45,7 +47,7 @@ export function CredentialPromptDialog({ target, onConnect, onCancel }: Credenti
     >
       <form id="credential-prompt" className={styles.form} onSubmit={handleSubmit} noValidate>
         <TextField
-          label="Username"
+          label={usernameOptional ? 'Username (optional)' : 'Username'}
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           error={error ?? undefined}

@@ -1,4 +1,4 @@
-namespace NKeeper.Api.Rdp;
+namespace NKeeper.Api.Desktop;
 
 /// <summary>
 /// Decides which browser instructions reach guacd: input, display and text clipboard only.
@@ -6,7 +6,7 @@ namespace NKeeper.Api.Rdp;
 /// (blob/end) is accepted solely for clipboard streams the browser opened, up to a size cap.
 /// One instance per session (it tracks open clipboard streams).
 /// </summary>
-internal sealed class RdpInstructionFilter
+internal sealed class GuacamoleInstructionFilter
 {
     public const int MaxClipboardChars = 1024 * 1024;
 

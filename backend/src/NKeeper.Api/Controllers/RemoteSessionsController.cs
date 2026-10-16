@@ -3,7 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using NKeeper.Api.Access;
 using NKeeper.Api.Configuration;
-using NKeeper.Api.Rdp;
+using NKeeper.Api.Desktop;
+using NKeeper.Infrastructure.Inventory;
 using NKeeper.Api.RemoteSessions;
 using NKeeper.Api.Ssh;
 
@@ -24,7 +25,11 @@ public sealed class RemoteSessionsController(SessionLimiter limiter, IOptions<Co
 
     [HttpGet("api/rdp/session")]
     public Task<IActionResult> Rdp(CancellationToken cancellationToken) =>
-        RunAsync((socket, user, token) => Session<RdpSession>().RunAsync(socket, user, token), cancellationToken);
+        RunAsync((socket, user, token) => Session<DesktopSession>().RunAsync(socket, user, ServiceProtocol.Rdp, token), cancellationToken);
+
+    [HttpGet("api/vnc/session")]
+    public Task<IActionResult> Vnc(CancellationToken cancellationToken) =>
+        RunAsync((socket, user, token) => Session<DesktopSession>().RunAsync(socket, user, ServiceProtocol.Vnc, token), cancellationToken);
 
     private T Session<T>() where T : notnull => HttpContext.RequestServices.GetRequiredService<T>();
 

@@ -14,6 +14,7 @@ NKeeper is a free, open-source, web-based remote connection manager — a browse
 - [Host inventory](#host-inventory)
 - [SSH sessions](#ssh-sessions)
 - [RDP sessions](#rdp-sessions)
+- [VNC sessions](#vnc-sessions)
 - [Web sessions (HTTP/HTTPS)](#web-sessions-httphttps)
 - [Users and access](#users-and-access)
 - [Database migrations](#database-migrations)
@@ -218,11 +219,20 @@ RDP services connect the same way (**Connect ▸ RDP ▸ credential**), through 
 
 In the session: keyboard input goes to the remote desktop while it has focus; **Ctrl+Alt+Del** and **Fullscreen** (which in Chromium also captures Win/Alt+Tab) are in the status bar; the text clipboard syncs both ways (reading your clipboard needs browser permission and a secure origin such as `localhost` or HTTPS); sound plays. File transfer, drives, printing, microphone and recording are off. The browser client is the official Apache Guacamole 1.6.0 release, vendored and verified (see `frontend/src/vendor/guacamole-common-js/README.md`).
 
+## VNC sessions
+
+VNC services connect like RDP (**Connect ▸ VNC ▸ credential**), through the same guacd gateway. Most VNC servers only ask for a password, so a VNC credential needs a password and the username is optional (the one-off prompt marks it optional too). The desktop scales to the tab, the text clipboard syncs, and Ctrl+Alt+Del and Fullscreen are in the status bar.
+
+VNC has no certificate to verify, so there is no trust prompt — and plain VNC doesn't encrypt: your browser's connection to NKeeper is protected, but the hop from NKeeper to the host is not. The session's status bar says so ("Unencrypted to host"). Prefer VNC on trusted networks, or tunnel it.
+
 ## Web sessions (HTTP/HTTPS)
 
-**Connect ▸ HTTP/HTTPS** opens a host's web interface (a router, iDRAC/iLO, a NAS, Proxmox, …) **through NKeeper**: the NKeeper server makes every request to the host and relays the answers, so it works even when your computer can't reach the host — exactly like the SSH and RDP sessions.
+**Connect ▸ HTTP/HTTPS** offers two ways to open a host's web interface (a router, iDRAC/iLO, a NAS, Proxmox, …):
 
-- The site opens in a **new browser tab** on its own address, e.g. `http://nkw-<id>.web.localhost:8080`. Each session gets its own origin so the proxied web app can never run script with your NKeeper session. Browsers send `*.localhost` to your own machine, so this works out of the box locally.
+- **Through NKeeper** — the NKeeper server makes every request to the host and relays the answers, so it works even when your computer can't reach the host, exactly like SSH and RDP. The site appears **inside its NKeeper tab**, in a sandboxed frame served from its own address (e.g. `http://nkw-<id>.web.localhost:8080`), so the proxied web app can never run script with your NKeeper session or navigate NKeeper away. Browsers send `*.localhost` to your own machine, so this works out of the box locally. Cookies are made `SameSite=None; Secure; Partitioned` so they work inside the frame, and the site's own framing rules are replaced by "only NKeeper may frame this".
+- **Directly in a new tab** — your browser opens the host's own URL; NKeeper isn't involved.
+
+Double-click uses **Through NKeeper**.
 - **HTTPS certificates** that are publicly valid are accepted; self-signed ones are shown for trust on first use and then pinned, and a changed certificate is refused (as with SSH and RDP).
 - The host sees requests as if browsed directly (its own `Host`, `Origin` and `Referer`); redirects and cookies are kept on the session origin. NKeeper's own cookies never reach the host, and NKeeper's API is never served on session origins.
 - A session belongs to the user who opened it (a one-time link sets a session cookie in that browser). It ends when its NKeeper tab is closed, after 30 minutes without activity or 12 hours in total (`WebProxy__IdleTimeout`, `WebProxy__MaxLifetime`), and immediately when the user is disabled or loses access to the host.
@@ -364,7 +374,7 @@ NKeeper must be served over HTTPS in production. The frontend container speaks p
 
 ## Known limitations
 
-- SSH, RDP and web (HTTP/HTTPS) sessions are implemented; VNC and the other services are listed as "Coming soon". RDP one-off logins have no domain field yet (use a saved credential for domain accounts). Workspaces, user groups (teams), an audit-event store, SignalR collaboration and mRemoteNG import are not implemented yet. 
+- SSH, RDP, VNC and web (HTTP/HTTPS) sessions are implemented; the other services are listed as "Coming soon". RDP one-off logins have no domain field yet (use a saved credential for domain accounts). Workspaces, user groups (teams), an audit-event store, SignalR collaboration and mRemoteNG import are not implemented yet. 
 - Terminal sessions live in the API process: restarting the backend ends them, and the per-user session limit is per instance. SSH agent forwarding, port forwarding, jump hosts and SFTP are not supported yet.
 - No self-service "forgot password" (an administrator resets it); the link shows a placeholder.
 - Data Protection keys are stored unencrypted in PostgreSQL (ASP.NET Core logs a warning about this), next to the credential secrets they encrypt. Protect them with a certificate or key vault (`ProtectKeysWith…`) before production use, and back them up: losing the keys makes stored passwords and SSH keys unrecoverable.

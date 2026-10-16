@@ -1,5 +1,5 @@
 /** Protocols NKeeper opens sessions for. */
-export type SessionProtocol = 'ssh' | 'rdp' | 'web'
+export type SessionProtocol = 'ssh' | 'rdp' | 'vnc' | 'web'
 
 /** What the browser asks the server to connect to. Secrets for saved credentials stay on the server. */
 export interface SessionRequest {

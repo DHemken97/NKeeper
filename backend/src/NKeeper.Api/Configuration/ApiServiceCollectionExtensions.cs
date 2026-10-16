@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 using NKeeper.Api.Access;
 using NKeeper.Api.Inventory;
 using NKeeper.Api.Security;
-using NKeeper.Api.Rdp;
+using NKeeper.Api.Desktop;
 using NKeeper.Api.RemoteSessions;
 using NKeeper.Api.Ssh;
 
@@ -63,7 +63,7 @@ internal static class ApiServiceCollectionExtensions
         services.AddScoped<SessionTargetResolver>();
         services.AddScoped<TrustedKeyStore>();
         services.AddScoped<SshTerminalSession>();
-        services.AddScoped<RdpSession>();
+        services.AddScoped<DesktopSession>();
         services.AddSingleton<SessionLimiter>();
         services.AddOptions<WebProxySettings>()
             .Bind(configuration.GetSection(WebProxySettings.SectionName))

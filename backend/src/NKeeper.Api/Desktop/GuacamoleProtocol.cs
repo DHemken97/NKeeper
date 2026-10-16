@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace NKeeper.Api.Rdp;
+namespace NKeeper.Api.Desktop;
 
 /// <summary>One Guacamole protocol instruction, e.g. <c>4.size,4.1024,3.768;</c>.</summary>
 internal sealed record GuacamoleInstruction(string Opcode, IReadOnlyList<string> Args, string Raw)

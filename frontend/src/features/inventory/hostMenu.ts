@@ -2,7 +2,7 @@ import type { MenuEntry } from '../../components/ui/ContextMenu'
 import { formatAccount, PROTOCOL_INFO, primaryAddress, type Host, type HostCredential, type HostService, type ServiceProtocol } from './types'
 
 /** Protocols NKeeper can open sessions for today. */
-const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp', 'Http', 'Https'])
+const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp', 'Vnc', 'Http', 'Https'])
 
 /** Web services open the host's own web interface; they need no credential from NKeeper. */
 export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https'])
@@ -31,6 +31,10 @@ function servicePort(service: HostService): string {
 
 /** Why a credential cannot be used with a protocol, or null when it can. */
 export function credentialProblem(credential: HostCredential, protocol: ServiceProtocol): string | null {
+  // VNC servers usually ask for a password only.
+  if (protocol === 'Vnc') {
+    return credential.hasPassword ? null : 'No password'
+  }
   if (!credential.username) {
     return 'No username'
   }

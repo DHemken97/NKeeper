@@ -3,16 +3,10 @@ using System.Net.Sockets;
 using System.Text;
 using NKeeper.Api.RemoteSessions;
 
-namespace NKeeper.Api.Rdp;
+namespace NKeeper.Api.Desktop;
 
-/// <summary>Everything guacd needs to open one RDP connection.</summary>
-internal sealed record RdpConnectionParameters(
-    string Hostname,
-    int Port,
-    string Username,
-    string? Domain,
-    string Password,
-    RdpServerIdentity Identity,
+/// <summary>What the browser can display, sent to guacd during the handshake.</summary>
+internal sealed record GuacdClientInfo(
     int Width,
     int Height,
     int Dpi,
@@ -56,39 +50,39 @@ internal sealed class GuacdConnection : IAsyncDisposable
             client.Dispose();
             throw new SessionException(
                 SessionErrorCodes.GatewayUnavailable,
-                "NKeeper's Remote Desktop gateway (guacd) isn't reachable. Check that the guacd container is running.");
+                "NKeeper's remote desktop gateway (guacd) isn't reachable. Check that the guacd container is running.");
         }
     }
 
     /// <summary>
-    /// Selects RDP, sends the client's capabilities and the connection parameters, and waits
-    /// for "ready", which is returned so it can be relayed to the browser's Guacamole client.
-    /// The RDP connection itself completes afterwards; failures arrive as "error" instructions.
+    /// Selects the protocol ("rdp", "vnc"), sends the client's capabilities and the connection
+    /// parameters, and waits for "ready", which is returned so it can be relayed to the browser's
+    /// Guacamole client. The remote connection itself completes afterwards; failures arrive as
+    /// "error" instructions. Parameters not in <paramref name="values"/> are left empty (off).
     /// </summary>
-    public async Task<GuacamoleInstruction> HandshakeAsync(RdpConnectionParameters parameters, CancellationToken cancellationToken)
+    public async Task<GuacamoleInstruction> HandshakeAsync(
+        string protocol, GuacdClientInfo client, IReadOnlyDictionary<string, string> values, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(HandshakeTimeout);
 
-        await WriteAsync(GuacamoleInstruction.Encode("select", "rdp"), timeout.Token);
+        await WriteAsync(GuacamoleInstruction.Encode("select", protocol), timeout.Token);
         var args = await ReadInstructionAsync(timeout.Token);
         if (args is not { Opcode: "args" })
         {
-            throw new SessionException(SessionErrorCodes.GatewayUnavailable, "The Remote Desktop gateway (guacd) didn't respond as expected.");
+            throw new SessionException(SessionErrorCodes.GatewayUnavailable, "The remote desktop gateway (guacd) didn't respond as expected.");
         }
 
-        var dpi = parameters.Dpi.ToString(CultureInfo.InvariantCulture);
         var handshake = new StringBuilder()
-            .Append(GuacamoleInstruction.Encode("size", Invariant(parameters.Width), Invariant(parameters.Height), dpi))
-            .Append(GuacamoleInstruction.Encode("audio", parameters.AudioMimetypes))
+            .Append(GuacamoleInstruction.Encode("size", Invariant(client.Width), Invariant(client.Height), Invariant(client.Dpi)))
+            .Append(GuacamoleInstruction.Encode("audio", client.AudioMimetypes))
             .Append(GuacamoleInstruction.Encode("video"))
-            .Append(GuacamoleInstruction.Encode("image", parameters.ImageMimetypes));
-        if (parameters.Timezone is not null)
+            .Append(GuacamoleInstruction.Encode("image", client.ImageMimetypes));
+        if (client.Timezone is not null)
         {
-            handshake.Append(GuacamoleInstruction.Encode("timezone", parameters.Timezone));
+            handshake.Append(GuacamoleInstruction.Encode("timezone", client.Timezone));
         }
 
-        var values = ConnectionValues(parameters);
         handshake.Append(GuacamoleInstruction.Encode("connect", args.Args.Select(name => name.StartsWith("VERSION_", StringComparison.Ordinal)
             ? name
             : values.GetValueOrDefault(name, string.Empty))));
@@ -99,38 +93,13 @@ internal sealed class GuacdConnection : IAsyncDisposable
         {
             throw new SessionException(
                 SessionErrorCodes.ConnectionFailed,
-                reply is { Opcode: "error", Args.Count: > 0 } ? $"The connection failed: {reply.Args[0]}" : "The Remote Desktop gateway (guacd) refused the connection.");
+                reply is { Opcode: "error", Args.Count: > 0 } ? $"The connection failed: {reply.Args[0]}" : "The remote desktop gateway (guacd) refused the connection.");
         }
 
         return reply;
     }
 
-    /// <summary>
-    /// guacd's RDP parameters. Everything not listed is left empty (off): no drive, printer,
-    /// SFTP, microphone, recording, gateway or Wake-on-LAN, and certificates are never ignored.
-    /// </summary>
-    private static Dictionary<string, string> ConnectionValues(RdpConnectionParameters p) => new()
-    {
-        ["hostname"] = p.Hostname,
-        ["port"] = Invariant(p.Port),
-        ["username"] = p.Username,
-        ["domain"] = p.Domain ?? string.Empty,
-        ["password"] = p.Password,
-        ["security"] = p.Identity.GuacdSecurity,
-        // Pin the certificate the user verified; FreeRDP refuses any other.
-        ["cert-fingerprints"] = p.Identity.PinnedFingerprint,
-        ["width"] = Invariant(p.Width),
-        ["height"] = Invariant(p.Height),
-        ["dpi"] = Invariant(p.Dpi),
-        ["resize-method"] = "display-update",
-        ["client-name"] = "NKeeper",
-        ["enable-font-smoothing"] = "true",
-        ["disable-download"] = "true",
-        ["disable-upload"] = "true",
-        ["timezone"] = p.Timezone ?? string.Empty,
-    };
-
-    private static string Invariant(int value) => value.ToString(CultureInfo.InvariantCulture);
+    internal static string Invariant(int value) => value.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>The next instruction, or null when guacd closed the connection.</summary>
     public async Task<GuacamoleInstruction?> ReadInstructionAsync(CancellationToken cancellationToken)

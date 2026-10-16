@@ -6,7 +6,7 @@ using System.Security.Cryptography.X509Certificates;
 using NKeeper.Api.RemoteSessions;
 using NKeeper.Infrastructure.Inventory;
 
-namespace NKeeper.Api.Rdp;
+namespace NKeeper.Api.Desktop;
 
 /// <summary>The server's TLS certificate and the security it agreed to.</summary>
 internal sealed record RdpServerIdentity(string GuacdSecurity, string Fingerprint, string Subject, DateTimeOffset NotAfter)

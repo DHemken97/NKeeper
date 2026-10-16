@@ -45,7 +45,7 @@ public sealed class TerminalClient : IAsyncDisposable
             request.Headers.Cookie = cookies.GetCookieHeader(new Uri("http://localhost/"));
             request.Headers.Origin = origin;
         };
-        return new TerminalClient(await client.ConnectAsync(new Uri($"ws://localhost/api/{protocol}/session"), cancellationToken), protocol == "rdp");
+        return new TerminalClient(await client.ConnectAsync(new Uri($"ws://localhost/api/{protocol}/session"), cancellationToken), protocol is "rdp" or "vnc");
     }
 
     public Task SendJsonAsync(object message, CancellationToken cancellationToken) =>

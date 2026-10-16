@@ -1,4 +1,4 @@
-using NKeeper.Api.Rdp;
+using NKeeper.Api.Desktop;
 
 namespace NKeeper.Api.Tests;
 
@@ -64,7 +64,7 @@ public sealed class GuacamoleProtocolTests
     }
 }
 
-public sealed class RdpInstructionFilterTests
+public sealed class GuacamoleInstructionFilterTests
 {
     private static GuacamoleInstruction Parse(string raw)
     {
@@ -81,7 +81,7 @@ public sealed class RdpInstructionFilterTests
     [InlineData("4.sync,8.12345678;")]
     [InlineData("10.disconnect;")]
     public void InputAndDisplayInstructions_PassThrough(string raw) =>
-        Assert.True(new RdpInstructionFilter().IsAllowed(Parse(raw)));
+        Assert.True(new GuacamoleInstructionFilter().IsAllowed(Parse(raw)));
 
     [Theory]
     [InlineData("4.file,1.1,24.application/octet-stream,8.evil.exe;")]
@@ -92,12 +92,12 @@ public sealed class RdpInstructionFilterTests
     [InlineData("7.connect,4.host;")]
     [InlineData("3.put,1.1,1.2,10.text/plain,4.name;")]
     public void FileAudioAndHandshakeInstructions_AreDropped(string raw) =>
-        Assert.False(new RdpInstructionFilter().IsAllowed(Parse(raw)));
+        Assert.False(new GuacamoleInstructionFilter().IsAllowed(Parse(raw)));
 
     [Fact]
     public void ClipboardStreams_OnlyTextAndOnlyForOpenedStreams()
     {
-        var filter = new RdpInstructionFilter();
+        var filter = new GuacamoleInstructionFilter();
 
         Assert.False(filter.IsAllowed(Parse("4.blob,1.7,4.aGk=;")));
         Assert.False(filter.IsAllowed(Parse("9.clipboard,1.7,9.image/png;")));
@@ -110,7 +110,7 @@ public sealed class RdpInstructionFilterTests
     [Fact]
     public void ClipboardStreams_AreCapped()
     {
-        var filter = new RdpInstructionFilter();
+        var filter = new GuacamoleInstructionFilter();
         var chunk = new string('A', 600_000);
         Assert.True(filter.IsAllowed(Parse("9.clipboard,1.1,10.text/plain;")));
 

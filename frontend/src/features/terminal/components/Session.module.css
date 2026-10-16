@@ -118,6 +118,16 @@
   background: #fff;
 }
 
+.notice {
+  padding: 0 var(--space-2);
+  color: #f5b84b;
+  border: 1px solid rgb(245 184 75 / 0.4);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  cursor: help;
+}
+
 .mono {
   font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
   font-size: 0.875em;

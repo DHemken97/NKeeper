@@ -9,12 +9,12 @@ using NKeeper.Api.Configuration;
 using NKeeper.Api.RemoteSessions;
 using NKeeper.Infrastructure.Inventory;
 
-namespace NKeeper.Api.Rdp;
+namespace NKeeper.Api.Desktop;
 
-/// <summary>The first message of an RDP session.</summary>
-public sealed record RdpStartMessage : SessionStartMessage
+/// <summary>The first message of a remote desktop (RDP or VNC) session.</summary>
+public sealed record DesktopStartMessage : SessionStartMessage
 {
-    /// <summary>Domain for one-off credentials (saved credentials carry their own).</summary>
+    /// <summary>RDP: domain for one-off credentials (saved credentials carry their own).</summary>
     [StringLength(256)]
     public string? Domain { get; init; }
 
@@ -41,69 +41,64 @@ public sealed record RdpStartMessage : SessionStartMessage
 }
 
 /// <summary>
-/// Bridges one browser WebSocket to one RDP desktop through guacd. NKeeper verifies the
-/// server's certificate (trust on first use), pins it in guacd, performs the Guacamole
-/// handshake itself, and then relays instructions, letting only input, display and text
-/// clipboard instructions through from the browser.
+/// Bridges one browser WebSocket to one remote desktop (RDP or VNC) through guacd. NKeeper performs
+/// the Guacamole handshake itself, then relays instructions, letting only input, display and text
+/// clipboard instructions through from the browser. For RDP, the server's certificate is verified
+/// (trust on first use) and pinned in guacd. VNC has no certificate to verify.
 /// </summary>
-internal sealed partial class RdpSession(
+internal sealed partial class DesktopSession(
     SessionTargetResolver resolver,
     TrustedKeyStore trustedKeys,
     IOptions<GuacdSettings> guacd,
-    ILogger<RdpSession> logger)
+    ILogger<DesktopSession> logger)
 {
     public const string CertificateAlgorithm = "x509";
-    private const int DefaultRdpPort = 3389;
     private const int MaxClientInstructionLength = 64 * 1024;
     private static readonly TimeSpan CloseHandshakeTimeout = TimeSpan.FromSeconds(5);
-
     private static readonly HashSet<string> AllowedImageTypes = ["image/png", "image/jpeg", "image/webp"];
 
-    public async Task RunAsync(SessionSocket socket, RequestUser user, CancellationToken cancellationToken)
+    public async Task RunAsync(SessionSocket socket, RequestUser user, ServiceProtocol protocol, CancellationToken cancellationToken)
     {
-        var userId = user.Id;
+        var name = protocol == ServiceProtocol.Rdp ? "RDP" : "VNC";
         var started = Stopwatch.StartNew();
         SessionTarget? target = null;
 
         try
         {
-            var start = await socket.ReceiveStartAsync<RdpStartMessage>(cancellationToken);
-            target = await resolver.ResolveAsync(start, user, ServiceProtocol.Rdp, DefaultRdpPort, cancellationToken, start.Domain);
-            if (target.Password is null)
+            var start = await socket.ReceiveStartAsync<DesktopStartMessage>(cancellationToken);
+            target = protocol == ServiceProtocol.Rdp
+                ? await resolver.ResolveAsync(start, user, protocol, 3389, cancellationToken, start.Domain)
+                // VNC servers usually ask for a password only.
+                : await resolver.ResolveAsync(start, user, protocol, 5900, cancellationToken, requireUsername: false);
+            if (protocol == ServiceProtocol.Rdp && target.Password is null)
             {
                 throw new SessionException(SessionErrorCodes.MissingSecret, "Remote Desktop needs a password, and this credential has none.");
             }
 
             logger.LogInformation(
-                "RDP session requested by user {UserId} for host {HostId} ({Address}:{Port}) using {CredentialSource}",
-                userId, target.HostId, target.Address, target.Port, target.CredentialSource);
+                "{Protocol} session requested by user {UserId} for host {HostId} ({Address}:{Port}) using {CredentialSource}",
+                name, user.Id, target.HostId, target.Address, target.Port, target.CredentialSource);
             await socket.SendJsonAsync(new { type = "status", status = "connecting", target = target.Display }, cancellationToken);
 
-            var identity = await RdpCertificateProbe.ProbeAsync(target.Address, target.Port, target.Service.RdpSecurity ?? RdpSecurityMode.Auto, cancellationToken);
-            await VerifyCertificateAsync(socket, target, identity, userId, cancellationToken);
+            var values = protocol == ServiceProtocol.Rdp
+                ? RdpValues(target, await VerifyCertificateAsync(socket, target, user.Id, cancellationToken), start)
+                : VncValues(target);
 
             await using var connection = await GuacdConnection.OpenAsync(guacd.Value.Host, guacd.Value.Port, cancellationToken);
-            var ready = await connection.HandshakeAsync(
-                new RdpConnectionParameters(
-                    target.Address,
-                    target.Port,
-                    target.Username,
-                    target.Domain,
-                    target.Password,
-                    identity,
-                    start.Width,
-                    start.Height,
-                    start.Dpi,
-                    start.Audio.Where(IsAudioMimetype).Distinct().ToList(),
-                    start.Image.Where(AllowedImageTypes.Contains).Distinct().DefaultIfEmpty("image/png").ToList(),
-                    start.Timezone is { } tz && TimezonePattern().IsMatch(tz) ? tz : null),
-                cancellationToken);
+            var client = new GuacdClientInfo(
+                start.Width,
+                start.Height,
+                start.Dpi,
+                start.Audio.Where(IsAudioMimetype).Distinct().ToList(),
+                start.Image.Where(AllowedImageTypes.Contains).Distinct().DefaultIfEmpty("image/png").ToList(),
+                start.Timezone is { } tz && TimezonePattern().IsMatch(tz) ? tz : null);
+            var ready = await connection.HandshakeAsync(protocol == ServiceProtocol.Rdp ? "rdp" : "vnc", client, values, cancellationToken);
 
             await socket.SendJsonAsync(new { type = "connected", target = target.Display }, cancellationToken);
             await socket.SendAsync(Encoding.UTF8.GetBytes(ready.Raw), WebSocketMessageType.Text, cancellationToken);
-            logger.LogInformation("RDP session connected for user {UserId} to host {HostId}", userId, target.HostId);
+            logger.LogInformation("{Protocol} session connected for user {UserId} to host {HostId}", name, user.Id, target.HostId);
 
-            await RelayAsync(socket, connection, target, cancellationToken);
+            await RelayAsync(socket, connection, target, name, cancellationToken);
         }
         catch (SessionException ex)
         {
@@ -111,17 +106,58 @@ internal sealed partial class RdpSession(
         }
         catch (Exception ex) when (ex is OperationCanceledException or WebSocketException)
         {
-            // The browser went away or the request was aborted.
+            // The browser went away, the request was aborted, or an administrator ended the session.
         }
         finally
         {
-            logger.LogInformation("RDP session ended for user {UserId} (host {HostId}) after {Duration}", userId, target?.HostId, started.Elapsed);
+            logger.LogInformation("{Protocol} session ended for user {UserId} (host {HostId}) after {Duration}", name, user.Id, target?.HostId, started.Elapsed);
         }
     }
 
-    /// <summary>Trust on first use for the server's TLS certificate, mirroring SSH host keys.</summary>
-    private async Task VerifyCertificateAsync(SessionSocket socket, SessionTarget target, RdpServerIdentity identity, Guid userId, CancellationToken cancellationToken)
+    /// <summary>
+    /// guacd's RDP parameters. Everything not listed stays off: no drive, printer, SFTP,
+    /// microphone, recording, gateway or Wake-on-LAN, and certificates are never ignored.
+    /// </summary>
+    private static Dictionary<string, string> RdpValues(SessionTarget target, RdpServerIdentity identity, DesktopStartMessage start) => new()
     {
+        ["hostname"] = target.Address,
+        ["port"] = GuacdConnection.Invariant(target.Port),
+        ["username"] = target.Username,
+        ["domain"] = target.Domain ?? string.Empty,
+        ["password"] = target.Password!,
+        ["security"] = identity.GuacdSecurity,
+        // Pin the certificate the user verified; FreeRDP refuses any other.
+        ["cert-fingerprints"] = identity.PinnedFingerprint,
+        ["width"] = GuacdConnection.Invariant(start.Width),
+        ["height"] = GuacdConnection.Invariant(start.Height),
+        ["dpi"] = GuacdConnection.Invariant(start.Dpi),
+        ["resize-method"] = "display-update",
+        ["client-name"] = "NKeeper",
+        ["enable-font-smoothing"] = "true",
+        ["disable-download"] = "true",
+        ["disable-upload"] = "true",
+        ["timezone"] = start.Timezone is { } tz && TimezonePattern().IsMatch(tz) ? tz : string.Empty,
+    };
+
+    /// <summary>
+    /// guacd's VNC parameters. Everything not listed stays off: no SFTP, audio (PulseAudio),
+    /// repeater, reverse connection, recording or Wake-on-LAN.
+    /// </summary>
+    private static Dictionary<string, string> VncValues(SessionTarget target) => new()
+    {
+        ["hostname"] = target.Address,
+        ["port"] = GuacdConnection.Invariant(target.Port),
+        ["username"] = target.Username,
+        ["password"] = target.Password ?? string.Empty,
+        // The pointer is drawn by the browser: smoother than waiting for the server to repaint it.
+        ["cursor"] = "local",
+        ["color-depth"] = "24",
+    };
+
+    /// <summary>Trust on first use for the RDP server's TLS certificate, mirroring SSH host keys.</summary>
+    private async Task<RdpServerIdentity> VerifyCertificateAsync(SessionSocket socket, SessionTarget target, Guid userId, CancellationToken cancellationToken)
+    {
+        var identity = await RdpCertificateProbe.ProbeAsync(target.Address, target.Port, target.Service.RdpSecurity ?? RdpSecurityMode.Auto, cancellationToken);
         var known = target.KnownKeys.FirstOrDefault(k => k.Algorithm == CertificateAlgorithm);
         var prompt = new
         {
@@ -138,7 +174,7 @@ internal sealed partial class RdpSession(
         {
             if (string.Equals(known.Fingerprint, identity.Fingerprint, StringComparison.OrdinalIgnoreCase))
             {
-                return;
+                return identity;
             }
 
             trustedKeys.LogChanged(target, ServiceProtocol.Rdp, known.Fingerprint, identity.Fingerprint);
@@ -155,12 +191,13 @@ internal sealed partial class RdpSession(
         }
 
         await trustedKeys.TrustAsync(target, ServiceProtocol.Rdp, CertificateAlgorithm, identity.Fingerprint, userId);
+        return identity;
     }
 
-    private async Task RelayAsync(SessionSocket socket, GuacdConnection connection, SessionTarget target, CancellationToken cancellationToken)
+    private async Task RelayAsync(SessionSocket socket, GuacdConnection connection, SessionTarget target, string name, CancellationToken cancellationToken)
     {
         using var inputCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var output = RelayFromGuacdAsync(socket, connection, target, cancellationToken);
+        var output = RelayFromGuacdAsync(socket, connection, target, name, cancellationToken);
         var input = RelayFromBrowserAsync(socket, connection, target, inputCancellation.Token);
 
         if (await Task.WhenAny(output, input) == output)
@@ -180,7 +217,7 @@ internal sealed partial class RdpSession(
         await Task.WhenAll(output, input).ContinueWith(_ => { }, TaskScheduler.Default);
     }
 
-    private async Task RelayFromGuacdAsync(SessionSocket socket, GuacdConnection connection, SessionTarget target, CancellationToken cancellationToken)
+    private async Task RelayFromGuacdAsync(SessionSocket socket, GuacdConnection connection, SessionTarget target, string name, CancellationToken cancellationToken)
     {
         var batch = new StringBuilder();
         try
@@ -193,8 +230,8 @@ internal sealed partial class RdpSession(
                     if (instruction.Opcode == "error")
                     {
                         logger.LogInformation(
-                            "RDP session to host {HostId} reported: {Message} (status {Status})",
-                            target.HostId, instruction.Args.ElementAtOrDefault(0), instruction.Args.ElementAtOrDefault(1));
+                            "{Protocol} session to host {HostId} reported: {Message} (status {Status})",
+                            name, target.HostId, instruction.Args.ElementAtOrDefault(0), instruction.Args.ElementAtOrDefault(1));
                     }
 
                     batch.Append(instruction.Raw);
@@ -211,7 +248,7 @@ internal sealed partial class RdpSession(
 
     private async Task RelayFromBrowserAsync(SessionSocket socket, GuacdConnection connection, SessionTarget target, CancellationToken cancellationToken)
     {
-        var filter = new RdpInstructionFilter();
+        var filter = new GuacamoleInstructionFilter();
         while (socket.State == WebSocketState.Open)
         {
             var (type, data) = await socket.ReceiveAsync(cancellationToken);
@@ -238,7 +275,7 @@ internal sealed partial class RdpSession(
                     }
                     else
                     {
-                        logger.LogWarning("Dropped RDP instruction {Opcode} from the browser for host {HostId}", instruction.Opcode, target.HostId);
+                        logger.LogWarning("Dropped instruction {Opcode} from the browser for host {HostId}", instruction.Opcode, target.HostId);
                     }
                 }
             }

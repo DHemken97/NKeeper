@@ -21,7 +21,7 @@ internal sealed record SessionTarget(
     string CredentialSource,
     IReadOnlyList<HostTrustedKey> KnownKeys)
 {
-    public string Display => $"{Username}@{Address}:{Port}";
+    public string Display => Username.Length > 0 ? $"{Username}@{Address}:{Port}" : $"{Address}:{Port}";
 }
 
 /// <summary>Turns a start message into a <see cref="SessionTarget"/>, enforcing that only inventory data is used.</summary>
@@ -29,8 +29,15 @@ internal sealed class SessionTargetResolver(HostAccess access, CredentialProtect
 {
     /// <param name="user">Only hosts this user can see can be connected to.</param>
     /// <param name="oneOffDomain">Domain typed for one-off credentials (RDP only).</param>
+    /// <param name="requireUsername">False for VNC, where servers usually ask for a password only.</param>
     public async Task<SessionTarget> ResolveAsync(
-        SessionStartMessage start, RequestUser user, ServiceProtocol protocol, int defaultPort, CancellationToken cancellationToken, string? oneOffDomain = null)
+        SessionStartMessage start,
+        RequestUser user,
+        ServiceProtocol protocol,
+        int defaultPort,
+        CancellationToken cancellationToken,
+        string? oneOffDomain = null,
+        bool requireUsername = true)
     {
         // A host the user has no access to is reported exactly like a missing one.
         var host = await access.Visible(user).AsNoTracking()
@@ -70,7 +77,7 @@ internal sealed class SessionTargetResolver(HostAccess access, CredentialProtect
             credentialSource = "one-off credentials";
         }
 
-        if (string.IsNullOrEmpty(username))
+        if (string.IsNullOrEmpty(username) && requireUsername)
         {
             throw new SessionException(SessionErrorCodes.MissingUsername, "This credential has no username. Edit the host to add one.");
         }
@@ -80,7 +87,7 @@ internal sealed class SessionTargetResolver(HostAccess access, CredentialProtect
             host.Hostname ?? host.IpAddress!,
             port,
             service,
-            username,
+            username ?? string.Empty,
             domain,
             string.IsNullOrEmpty(password) ? null : password,
             string.IsNullOrEmpty(privateKey) ? null : privateKey,

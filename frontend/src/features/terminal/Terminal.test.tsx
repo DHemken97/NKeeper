@@ -328,6 +328,42 @@ describe('host context menu', () => {
   })
 })
 
+describe('VNC', () => {
+  it('connects with a password-only credential to the VNC endpoint', async () => {
+    const vncHost: Host = {
+      ...linux01,
+      id: 'h-vnc',
+      name: 'kiosk',
+      services: [{ protocol: 'Vnc', port: null, label: null }],
+      credentials: [{ id: 'c-vnc', label: 'VNC password', username: null, domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],
+    }
+    mockFetch({
+      'GET /api/auth/me': () => jsonResponse(200, adminUser),
+      'GET /api/hosts': () => jsonResponse(200, [vncHost]),
+    })
+    const router = createMemoryRouter(routes, { initialEntries: ['/'] })
+    render(
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>,
+    )
+    const user = userEvent.setup()
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /kiosk/ }))
+    await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
+    await user.hover(screen.getByRole('menuitem', { name: /^VNC:5900/ }))
+    const credential = screen.getByRole('menuitem', { name: /VNC password/ })
+    expect(credential).not.toHaveAttribute('aria-disabled')
+    await user.click(credential)
+
+    const socket = await socketAt(0)
+    expect(socket.url).toBe('ws://localhost:3000/api/vnc/session')
+    socket.accept()
+    expect(socket.jsonSent()[0]).toMatchObject({ type: 'start', hostId: 'h-vnc', serviceIndex: 0, credentialId: 'c-vnc' })
+    expect(screen.getByRole('tab', { name: /kiosk.*VNC/, selected: true })).toBeInTheDocument()
+  })
+})
+
 describe('connectMenuEntries', () => {
   it('explains when a host has no services', () => {
     const entries = connectMenuEntries({ ...linux01, services: [] }, { connect: vi.fn(), connectWithPrompt: vi.fn(), connectWeb: vi.fn(), openDirect: vi.fn() })

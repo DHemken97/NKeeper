@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { apiWebSocketUrl } from '../../../lib/api'
 import Guacamole from '../../../vendor/guacamole-common-js/guacamole.js'
-import { describeRdpStatus } from '../rdpStatus'
+import { describeDesktopStatus } from '../desktopStatus'
 import type { RemoteSession, ServerMessage, SessionPhase } from '../types'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
 import styles from './Session.module.css'
 
-interface RdpSessionProps {
+interface DesktopSessionProps {
   session: RemoteSession
   /** Only the active tab is visible and receives the keyboard. */
   active: boolean
@@ -43,11 +43,12 @@ function desktopSize(element: HTMLElement) {
 
 
 /**
- * One Remote Desktop session: the browser half of the Apache Guacamole client, fed by NKeeper's
+ * One remote desktop session (RDP or VNC): the browser half of the Apache Guacamole client, fed by NKeeper's
  * WebSocket instead of Guacamole's own tunnel. Keyboard input goes to the remote desktop only
  * while the desktop has focus; the text clipboard syncs both ways.
  */
-export function RdpSession({ session, active, onShowHost, onEnded }: RdpSessionProps) {
+export function DesktopSession({ session, active, onShowHost, onEnded }: DesktopSessionProps) {
+  const protocol = session.protocol === 'vnc' ? 'vnc' : 'rdp'
   const areaRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const clientRef = useRef<GuacamoleClient | null>(null)
@@ -65,7 +66,7 @@ export function RdpSession({ session, active, onShowHost, onEnded }: RdpSessionP
   useEffect(() => {
     const viewport = viewportRef.current!
     const request = requestRef.current
-    const socket = new WebSocket(apiWebSocketUrl('/api/rdp/session'))
+    const socket = new WebSocket(apiWebSocketUrl(`/api/${protocol}/session`))
     socketRef.current = socket
     let parser: InstanceType<typeof Guacamole.Parser> | null = null
     let client: GuacamoleClient | null = null
@@ -141,7 +142,7 @@ export function RdpSession({ session, active, onShowHost, onEnded }: RdpSessionP
       client.onerror = (status: GuacamoleStatus) => {
         // Status 0 is a clean end (e.g. the user signed out).
         if (status.code !== 0) {
-          fail(describeRdpStatus(status))
+          fail(describeDesktopStatus(status, protocol))
         }
       }
 
@@ -234,7 +235,7 @@ export function RdpSession({ session, active, onShowHost, onEnded }: RdpSessionP
       viewport.replaceChildren()
       socket.close()
     }
-  }, [attempt])
+  }, [attempt, protocol])
 
   // The active tab gets the keyboard.
   useEffect(() => {
@@ -309,6 +310,11 @@ export function RdpSession({ session, active, onShowHost, onEnded }: RdpSessionP
   return (
     <div className={styles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} remote desktop`}>
       <SessionStatusBar phase={phase}>
+        {protocol === 'vnc' && phase.kind === 'connected' ? (
+          <span className={styles.notice} title="VNC doesn't encrypt its traffic. Your browser's connection to NKeeper is protected; the hop from NKeeper to the host is not.">
+            Unencrypted to host
+          </span>
+        ) : null}
         {phase.kind === 'connected' ? (
           <>
             <Button variant="ghost" size="sm" onClick={sendCtrlAltDel}>
