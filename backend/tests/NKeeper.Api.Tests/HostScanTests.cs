@@ -154,6 +154,18 @@ public sealed class HostScanTests(PostgresServerFixture postgres, SshServerFixtu
     }
 
     [Fact]
+    public async Task Connections_UseTheIpAddress_OverTheHostname()
+    {
+        ssh.SkipIfUnavailable();
+        // The hostname can never resolve (.invalid), so connecting at all proves the IP was used.
+        var host = await CreateHostAsync(hostname: "never-resolves.invalid");
+
+        var first = await ScanAsync(host, "internal", new { serviceIndex = 0, credentialId = host.Credentials[0].Id });
+
+        Assert.Equal("trustRequired", first.Status);
+    }
+
+    [Fact]
     public async Task ExternalScan_FindsTheOpenPort_AndReadsTheSshBanner()
     {
         ssh.SkipIfUnavailable();
@@ -187,11 +199,12 @@ public sealed class HostScanTests(PostgresServerFixture postgres, SshServerFixtu
         return (await response.Content.ReadFromJsonAsync<ScanResponse>(Json, Ct))!;
     }
 
-    private async Task<HostResponse> CreateHostAsync()
+    private async Task<HostResponse> CreateHostAsync(string? hostname = null)
     {
         var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
         {
             name = $"scan-{Guid.NewGuid():N}",
+            hostname,
             ipAddress = SshServerFixture.Address,
             services = new[] { new { protocol = "Ssh", port = (int?)(ssh.UnavailableReason is null ? ssh.Port : 22) } },
             credentials = new[] { new { username = SshServerFixture.UserName, password = SshServerFixture.Password } },

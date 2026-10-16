@@ -139,9 +139,9 @@ export function formatTag(tag: HostTag): string {
   return tag.value ? `${tag.name}: ${tag.value}` : tag.name
 }
 
-/** The address to show for a host: hostname first, else IP. */
+/** The address NKeeper connects to (and shows, copies and opens): the IP address when set, else the hostname. */
 export function primaryAddress(host: Pick<Host, 'hostname' | 'ipAddress'>): string {
-  return host.hostname ?? host.ipAddress ?? ''
+  return host.ipAddress ?? host.hostname ?? ''
 }
 
 /** Importing an mRemoteNG connection file (confCons.xml or an mRemoteNG XML export). */

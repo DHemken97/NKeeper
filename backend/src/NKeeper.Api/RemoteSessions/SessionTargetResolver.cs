@@ -84,7 +84,8 @@ internal sealed class SessionTargetResolver(HostAccess access, CredentialProtect
 
         return new SessionTarget(
             host.Id,
-            host.Hostname ?? host.IpAddress!,
+            // An IP address is used over the hostname when both are set (no DNS dependency).
+            host.IpAddress ?? host.Hostname!,
             port,
             service,
             username ?? string.Empty,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildTree, sortHosts, tagNames, type TreeGroup, type TreeNode } from './grouping'
 import { matchesSearch, parseSearch, tagSearchTerm } from './search'
-import type { Host, HostTag, ServiceProtocol } from './types'
+import { primaryAddress, type Host, type HostTag, type ServiceProtocol } from './types'
 
 function host(name: string, tags: HostTag[] = [], options: Partial<Host> & { protocols?: ServiceProtocol[] } = {}): Host {
   const { protocols = [], ...rest } = options
@@ -139,5 +139,13 @@ describe('search', () => {
 describe('tagNames', () => {
   it('lists distinct names, first spelling wins', () => {
     expect(tagNames([host('a', [t('Site', 'x'), t('env')]), host('b', [t('site', 'y')])])).toEqual(['env', 'Site'])
+  })
+})
+
+describe('primaryAddress', () => {
+  it('is the IP address when one is set, as connections use it', () => {
+    expect(primaryAddress({ hostname: 'sql01.corp.example.com', ipAddress: '10.0.0.15' })).toBe('10.0.0.15')
+    expect(primaryAddress({ hostname: 'sql01.corp.example.com', ipAddress: null })).toBe('sql01.corp.example.com')
+    expect(primaryAddress({ hostname: null, ipAddress: null })).toBe('')
   })
 })

@@ -34,7 +34,7 @@ On a phone, the two panes show one at a time.
 
 A host has:
 - a **name**;
-- a **hostname and/or IP address**;
+- a **hostname and/or IP address**. When both are set, NKeeper connects to the IP address, and shows and copies it;
 - an optional **MAC address** and **description**;
 - its own **tags**, **services** and **credentials**:
   - **Tags** are `name: value` pairs (the value is optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can have the same tag name twice with different values. Tags are what you group, search and grant access by; hosts don't live in folders.

@@ -70,7 +70,8 @@ public sealed class WebSessionsController(HostAccess access, WebSessionStore ses
         }
 
         var https = service.Protocol == ServiceProtocol.Https;
-        var address = host.Hostname ?? host.IpAddress!;
+        // An IP address is used over the hostname when both are set, as for every connection.
+        var address = host.IpAddress ?? host.Hostname!;
         var port = service.Port ?? (https ? 443 : 80);
         var target = new UriBuilder(https ? "https" : "http", address.Contains(':', StringComparison.Ordinal) ? $"[{address}]" : address, port).Uri;
 
