@@ -14,7 +14,7 @@ import { buildTree, decodeGroupKey, encodeGroupKey, sortHosts, tagNames, tagValu
 import { CredentialPromptDialog } from '../../terminal/components/CredentialPromptDialog'
 import type { RemoteSession } from '../../terminal/types'
 import { useResource } from '../hooks/useResource'
-import { connectMenuEntries, defaultConnection, hostMenuEntries, serviceLabel, type HostMenuActions } from '../hostMenu'
+import { connectMenuEntries, defaultConnection, hostMenuEntries, serviceLabel, WEB_PROTOCOLS, type HostMenuActions } from '../hostMenu'
 import { matchesSearch, parseSearch, tagSearchTerm } from '../search'
 import { formatAccount, primaryAddress, type Host, type HostCredential, type HostTag } from '../types'
 import { useAuth } from '../../auth/context'
@@ -27,6 +27,7 @@ let nextSessionId = 1
 
 // xterm.js is large; load it on the first connection rather than with the page.
 const SshTerminal = lazy(() => import('../../terminal/components/SshTerminal').then((m) => ({ default: m.SshTerminal })))
+const WebSession = lazy(() => import('../../terminal/components/WebSession').then((m) => ({ default: m.WebSession })))
 const RdpSession = lazy(() => import('../../terminal/components/RdpSession').then((m) => ({ default: m.RdpSession })))
 const SORTS: { value: HostSort; label: string }[] = [
   { value: 'name', label: 'Name' },
@@ -118,7 +119,7 @@ export function WorkspacePage() {
       {
         id,
         hostId: host.id,
-        protocol: host.services[serviceIndex].protocol === 'Rdp' ? 'rdp' : 'ssh',
+        protocol: WEB_PROTOCOLS.has(host.services[serviceIndex].protocol) ? 'web' : host.services[serviceIndex].protocol === 'Rdp' ? 'rdp' : 'ssh',
         title: sameHost > 0 ? `${host.name} (${sameHost + 1})` : host.name,
         detail: [serviceLabel(host.services[serviceIndex]), account].filter(Boolean).join(' · '),
         request: { hostId: host.id, serviceIndex, credentialId: credential?.id, oneOff },
@@ -139,6 +140,7 @@ export function WorkspacePage() {
   const menuActions: HostMenuActions = {
     connect: (host, serviceIndex, credential) => openSession(host, serviceIndex, credential),
     connectWithPrompt: (host, serviceIndex) => setPrompt({ host, serviceIndex }),
+    connectWeb: (host, serviceIndex) => openSession(host, serviceIndex),
     edit: (host) => showHost(host.id, true),
     copyAddress: (host) => void navigator.clipboard?.writeText(primaryAddress(host)),
   }
@@ -149,8 +151,8 @@ export function WorkspacePage() {
     const connection = host ? defaultConnection(host) : null
     if (!host || !connection) {
       showHost(hostId)
-    } else if (connection.credential) {
-      openSession(host, connection.serviceIndex, connection.credential)
+    } else if (WEB_PROTOCOLS.has(host.services[connection.serviceIndex].protocol) || connection.credential) {
+      openSession(host, connection.serviceIndex, connection.credential ?? undefined)
     } else {
       setPrompt({ host, serviceIndex: connection.serviceIndex })
     }
@@ -399,7 +401,9 @@ export function WorkspacePage() {
           }
         >
           {sessions.map((session) => (
-            session.protocol === 'rdp' ? (
+            session.protocol === 'web' ? (
+              <WebSession key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'rdp' ? (
               <RdpSession
                 key={session.id}
                 session={session}

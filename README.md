@@ -14,6 +14,7 @@ NKeeper is a free, open-source, web-based remote connection manager — a browse
 - [Host inventory](#host-inventory)
 - [SSH sessions](#ssh-sessions)
 - [RDP sessions](#rdp-sessions)
+- [Web sessions (HTTP/HTTPS)](#web-sessions-httphttps)
 - [Users and access](#users-and-access)
 - [Database migrations](#database-migrations)
 - [Configuration reference](#configuration-reference)
@@ -217,6 +218,19 @@ RDP services connect the same way (**Connect ▸ RDP ▸ credential**), through 
 
 In the session: keyboard input goes to the remote desktop while it has focus; **Ctrl+Alt+Del** and **Fullscreen** (which in Chromium also captures Win/Alt+Tab) are in the status bar; the text clipboard syncs both ways (reading your clipboard needs browser permission and a secure origin such as `localhost` or HTTPS); sound plays. File transfer, drives, printing, microphone and recording are off. The browser client is the official Apache Guacamole 1.6.0 release, vendored and verified (see `frontend/src/vendor/guacamole-common-js/README.md`).
 
+## Web sessions (HTTP/HTTPS)
+
+**Connect ▸ HTTP/HTTPS** opens a host's web interface (a router, iDRAC/iLO, a NAS, Proxmox, …) **through NKeeper**: the NKeeper server makes every request to the host and relays the answers, so it works even when your computer can't reach the host — exactly like the SSH and RDP sessions.
+
+- The site opens in a **new browser tab** on its own address, e.g. `http://nkw-<id>.web.localhost:8080`. Each session gets its own origin so the proxied web app can never run script with your NKeeper session. Browsers send `*.localhost` to your own machine, so this works out of the box locally.
+- **HTTPS certificates** that are publicly valid are accepted; self-signed ones are shown for trust on first use and then pinned, and a changed certificate is refused (as with SSH and RDP).
+- The host sees requests as if browsed directly (its own `Host`, `Origin` and `Referer`); redirects and cookies are kept on the session origin. NKeeper's own cookies never reach the host, and NKeeper's API is never served on session origins.
+- A session belongs to the user who opened it (a one-time link sets a session cookie in that browser). It ends when its NKeeper tab is closed, after 30 minutes without activity or 12 hours in total (`WebProxy__IdleTimeout`, `WebProxy__MaxLifetime`), and immediately when the user is disabled or loses access to the host.
+
+**Domains.** By default a session's address is `nkw-<id>.web.<the host name NKeeper is opened with>`. That needs NKeeper to be opened by **name**, not IP address, and the name must resolve with any `nkw-…` prefix: `localhost` does this by itself; for a real deployment create a wildcard DNS record (and, with HTTPS, a wildcard certificate) for `*.web.nkeeper.example.com`, or set `WebProxy__BaseDomain` to a dedicated domain such as `nkeeper-web.example.net` (recommended: a separate registrable domain keeps proxied apps from setting cookies for NKeeper's domain). The bundled nginx already routes `nkw-…` hosts to the API.
+
+Limitations: links in a page that hard-code the host's absolute address (e.g. `https://10.0.0.5/…`) leave the session and connect directly; most web interfaces use relative links. In local development (`npm run dev`), open web sessions against the API port (5080) or use the Docker setup, since Vite doesn't route `nkw-…` hosts.
+
 ## Users and access
 
 Administrators manage accounts under **Users** in the top bar; everyone can change their own password from the account menu (top right).
@@ -350,7 +364,7 @@ NKeeper must be served over HTTPS in production. The frontend container speaks p
 
 ## Known limitations
 
-- SSH and RDP sessions are implemented; VNC and the other services are listed as "Coming soon". RDP one-off logins have no domain field yet (use a saved credential for domain accounts). Workspaces, user groups (teams), an audit-event store, SignalR collaboration and mRemoteNG import are not implemented yet. 
+- SSH, RDP and web (HTTP/HTTPS) sessions are implemented; VNC and the other services are listed as "Coming soon". RDP one-off logins have no domain field yet (use a saved credential for domain accounts). Workspaces, user groups (teams), an audit-event store, SignalR collaboration and mRemoteNG import are not implemented yet. 
 - Terminal sessions live in the API process: restarting the backend ends them, and the per-user session limit is per instance. SSH agent forwarding, port forwarding, jump hosts and SFTP are not supported yet.
 - No self-service "forgot password" (an administrator resets it); the link shows a placeholder.
 - Data Protection keys are stored unencrypted in PostgreSQL (ASP.NET Core logs a warning about this), next to the credential secrets they encrypt. Protect them with a certificate or key vault (`ProtectKeysWith…`) before production use, and back them up: losing the keys makes stored passwords and SSH keys unrecoverable.

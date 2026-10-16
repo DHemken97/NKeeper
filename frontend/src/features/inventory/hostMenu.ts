@@ -2,13 +2,18 @@ import type { MenuEntry } from '../../components/ui/ContextMenu'
 import { formatAccount, PROTOCOL_INFO, primaryAddress, type Host, type HostCredential, type HostService, type ServiceProtocol } from './types'
 
 /** Protocols NKeeper can open sessions for today. */
-const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp'])
+const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp', 'Http', 'Https'])
+
+/** Web services open the host's own web interface; they need no credential from NKeeper. */
+export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https'])
 
 export interface HostMenuActions {
   /** Open a session with a saved credential. */
   connect: (host: Host, serviceIndex: number, credential: HostCredential) => void
   /** Ask for a username and password, then open a session. */
   connectWithPrompt: (host: Host, serviceIndex: number) => void
+  /** Open a web (HTTP/HTTPS) session; NKeeper connects to the host on the browser's behalf. */
+  connectWeb: (host: Host, serviceIndex: number) => void
   edit: (host: Host) => void
   copyAddress: (host: Host) => void
 }
@@ -48,10 +53,14 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
 }
 
 /** One entry per service, each opening its credentials (also used by the Connect button). */
-export function connectMenuEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt'>): MenuEntry[] {
+export function connectMenuEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWeb'>): MenuEntry[] {
   const services: MenuEntry[] = host.services.map((service, index): MenuEntry => {
     if (!CONNECTABLE.has(service.protocol)) {
       return { kind: 'item', label: serviceLabel(service), detail: 'Coming soon', disabled: true }
+    }
+
+    if (WEB_PROTOCOLS.has(service.protocol)) {
+      return { kind: 'item', label: serviceLabel(service), detail: servicePort(service), onSelect: () => actions.connectWeb(host, index) }
     }
 
     const credentials: MenuEntry[] = host.credentials.map((credential): MenuEntry => {
