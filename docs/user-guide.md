@@ -11,6 +11,7 @@
 - [Web interfaces (HTTP/HTTPS)](#web-interfaces-httphttps)
 - [KVM virtual machines (SPICE and VNC consoles)](#kvm-virtual-machines-spice-and-vnc-consoles)
 - [Trusting servers](#trusting-servers)
+- [Reports](#reports)
 - [Your account](#your-account)
 
 ## The workspace
@@ -205,6 +206,17 @@ NKeeper verifies whom it connects to, using **trust on first use**:
 - **What you're asked:** the first connection to a server shows its identity. That's an SSH host key fingerprint (`SHA256:…`, as `ssh-keygen -lf` prints it), or an RDP or HTTPS certificate fingerprint. Compare it with the server's real one, then choose **Trust and connect**.
 - **Where it's kept:** trusted keys are stored per host and listed in its details. SSH sessions and KVM share SSH keys.
 - **If it changes:** NKeeper **refuses to connect** and says so, because a reinstalled server looks exactly like an attacker in the middle. When the change is expected (a rebuild, or a renewed certificate), an administrator or anyone with *Manage* access uses **Forget trusted keys…** in the host details, then connects again.
+
+## Reports
+
+**Reports** in the top bar lists NKeeper's reports. Each one covers only the hosts you can see.
+
+**IP address map** is a spreadsheet of your address space:
+- **Columns** are /24 subnets, one for each subnet that has at least one host (e.g. `10.0.1.x`, `192.168.1.x`, `192.168.42.x`), in numeric order. Each header shows how many of the subnet's addresses are used.
+- **Rows** are the last octet, `.0` to `.255`.
+- **Cells** show the name of the host at that address. Hover for its hostname, and click to open it in the workspace. An address used by two or more hosts is highlighted as a conflict.
+- **Only used addresses** hides rows that are empty in every subnet. **Download CSV** saves the table, as shown, for Excel or another spreadsheet.
+- Hosts with only a hostname or an IPv6 address aren't in the map. The summary line counts them.
 
 ## Your account
 

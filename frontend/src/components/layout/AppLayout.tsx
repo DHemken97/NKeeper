@@ -33,6 +33,9 @@ export function AppLayout() {
           <NavLink to="/" end className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
             Hosts
           </NavLink>
+          <NavLink to="/reports" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
+            Reports
+          </NavLink>
           {admin ? (
             <NavLink to="/users" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
               Users
