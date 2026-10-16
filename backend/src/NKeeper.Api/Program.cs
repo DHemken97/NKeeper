@@ -15,6 +15,10 @@ if (app.Services.GetRequiredService<IOptions<ForwardedHeadersSettings>>().Value.
     app.UseForwardedHeaders();
 }
 
+// Requests for web session origins (nkw-<id>.<domain>) are proxied to their targets and never
+// reach NKeeper's own endpoints.
+app.UseMiddleware<NKeeper.Api.Web.WebProxyMiddleware>();
+
 // Unhandled exceptions and empty error responses become RFC 7807 problem details.
 // Stack traces are only shown by the developer exception page in Development.
 app.UseExceptionHandler();

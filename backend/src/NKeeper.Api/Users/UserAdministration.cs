@@ -19,6 +19,7 @@ public sealed class UserAdministration(
     UserManager<ApplicationUser> userManager,
     SessionRevoker sessions,
     SessionLimiter remoteSessions,
+    Web.WebSessionStore webSessions,
     TimeProvider timeProvider,
     ILogger<UserAdministration> logger)
 {
@@ -224,6 +225,7 @@ public sealed class UserAdministration(
     {
         await sessions.RevokeAllAsync(userId, cancellationToken);
         remoteSessions.TerminateAll(userId);
+        webSessions.EndAll(userId);
     }
 
     private async Task EnsureAnotherActiveAdministratorAsync(Guid exceptUserId, string field, CancellationToken cancellationToken)

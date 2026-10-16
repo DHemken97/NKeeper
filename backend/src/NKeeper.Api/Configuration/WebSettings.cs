@@ -67,3 +67,28 @@ public sealed class GuacdSettings
     [Range(1, 65535)]
     public int Port { get; set; } = 4822;
 }
+
+/// <summary>
+/// Web (HTTP/HTTPS) sessions. Each session is served on its own origin,
+/// <c>nkw-&lt;id&gt;.&lt;BaseDomain&gt;</c>, so a proxied web app can never run script on NKeeper's origin.
+/// </summary>
+public sealed class WebProxySettings
+{
+    public const string SectionName = "WebProxy";
+
+    /// <summary>
+    /// Parent domain for session origins. Empty means "web." plus the host name NKeeper is opened
+    /// with (e.g. web.localhost, which browsers resolve to this machine). In production, use a
+    /// separate domain with a wildcard DNS record and certificate, e.g. nkeeper-web.example.com.
+    /// </summary>
+    [RegularExpression(@"^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$")]
+    public string? BaseDomain { get; set; }
+
+    /// <summary>A session ends after this long without requests.</summary>
+    [Range(typeof(TimeSpan), "00:01:00", "1.00:00:00")]
+    public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>A session ends this long after it started, regardless of activity.</summary>
+    [Range(typeof(TimeSpan), "00:05:00", "7.00:00:00")]
+    public TimeSpan MaxLifetime { get; set; } = TimeSpan.FromHours(12);
+}

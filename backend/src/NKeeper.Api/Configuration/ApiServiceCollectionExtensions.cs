@@ -65,6 +65,13 @@ internal static class ApiServiceCollectionExtensions
         services.AddScoped<SshTerminalSession>();
         services.AddScoped<RdpSession>();
         services.AddSingleton<SessionLimiter>();
+        services.AddOptions<WebProxySettings>()
+            .Bind(configuration.GetSection(WebProxySettings.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddHttpForwarder();
+        services.AddSingleton<NKeeper.Api.Web.WebSessionStore>();
+        services.AddHostedService<NKeeper.Api.Web.WebSessionSweeper>();
         services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier));
         services.AddOpenApi();
