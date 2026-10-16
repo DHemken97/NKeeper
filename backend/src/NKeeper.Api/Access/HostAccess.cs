@@ -36,6 +36,10 @@ public sealed class HostAccess(NKeeperDbContext db)
     public IQueryable<Host> Visible(RequestUser user) =>
         user.IsAdministrator ? db.Hosts : db.Hosts.Where(Granted(user.Id, manageOnly: false));
 
+    /// <summary>The hosts the user may edit and delete.</summary>
+    public IQueryable<Host> Manageable(RequestUser user) =>
+        user.IsAdministrator ? db.Hosts : db.Hosts.Where(Granted(user.Id, manageOnly: true));
+
     public async Task<HostPermission> GetPermissionAsync(Guid hostId, RequestUser user, CancellationToken cancellationToken)
     {
         var hosts = db.Hosts.Where(h => h.Id == hostId);

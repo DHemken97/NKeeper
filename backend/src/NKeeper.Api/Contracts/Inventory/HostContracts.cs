@@ -73,7 +73,7 @@ public sealed record HostCredentialRequest : IValidatableObject
 
     /// <summary>
     /// For a new credential (no <see cref="Id"/>): start from the stored password and private key of
-    /// this credential on another host the user can see (cloning a host). Password, PrivateKey and
+    /// this credential on another host the user can manage (cloning a host). Password, PrivateKey and
     /// the Clear flags still apply on top.
     /// </summary>
     public Guid? CopyFromCredentialId { get; init; }

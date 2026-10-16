@@ -90,6 +90,33 @@ public sealed class UserAccessTests(PostgresServerFixture postgres) : IAsyncLife
     }
 
     [Fact]
+    public async Task User_CanCopyCredentialsOnlyFromHostsTheyCanManage()
+    {
+        var source = await CreateHostAsync("source", credential: true);
+        var target = await CreateHostAsync("target");
+        var bob = await CreateUserAsync("bob", mustChangePassword: false);
+        await GrantAsync(bob.Id, new { hostId = source.Id, level = "Use" }, new { hostId = target.Id, level = "Manage" });
+        var (client, _) = await SignInAsync("bob", BobPassword);
+        var update = new
+        {
+            name = target.Name,
+            hostname = target.Hostname,
+            ipAddress = target.IpAddress,
+            credentials = new[] { new { username = "root", copyFromCredentialId = source.Credentials[0].Id } },
+            version = target.Version,
+        };
+
+        var denied = await client.SendJsonAsync(HttpMethod.Put, $"/api/hosts/{target.Id}", update, Ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, denied.StatusCode);
+        await GrantAsync(bob.Id, new { hostId = source.Id, level = "Manage" }, new { hostId = target.Id, level = "Manage" });
+        var allowed = await client.SendJsonAsync(HttpMethod.Put, $"/api/hosts/{target.Id}", update, Ct);
+
+        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        Assert.True(Assert.Single((await allowed.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!.Credentials).HasPassword);
+    }
+
+    [Fact]
     public async Task RemoteSession_ToAHostWithoutAccess_IsRefusedLikeAMissingHost()
     {
         var hidden = await CreateHostAsync("hidden", credential: true);

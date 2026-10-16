@@ -148,7 +148,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             _ => throw new HostAccessDeniedException(),
         };
 
-    /// <summary>The credentials named by CopyFromCredentialId, from hosts the user can see.</summary>
+    /// <summary>The credentials named by CopyFromCredentialId, from hosts the user can manage.</summary>
     private async Task<Dictionary<Guid, HostCredential>> LoadCopySourcesAsync(HostRequest request, RequestUser user, CancellationToken cancellationToken)
     {
         var ids = request.Credentials.Select(c => c.CopyFromCredentialId).OfType<Guid>().Distinct().ToList();
@@ -157,7 +157,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             return [];
         }
 
-        return await access.Visible(user).AsNoTracking()
+        return await access.Manageable(user).AsNoTracking()
             .SelectMany(h => h.Credentials)
             .Where(c => ids.Contains(c.Id))
             .ToDictionaryAsync(c => c.Id, cancellationToken);
