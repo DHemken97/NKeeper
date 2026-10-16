@@ -198,7 +198,8 @@ function Invoke-Capture([scriptblock]$Command) {
 
 # Runs a native command; stops setup if it fails.
 function Invoke-Native([string]$What, [scriptblock]$Command) {
-    & $Command
+    # To the console, not the output stream: a caller's return value mustn't pick up tool output.
+    & $Command | Out-Host
     if ($LASTEXITCODE -ne 0) { Stop-Setup "$What failed (exit code $LASTEXITCODE)." }
 }
 
