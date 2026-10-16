@@ -216,7 +216,10 @@ function Get-State {
 function Resolve-Settings {
     $state = Get-State
     if (-not $script:Mode) {
-        if ($state) { $script:Mode = 'Iis' }
+        if ($state) {
+            $script:Mode = 'Iis'
+            Write-Host "Using IIS, like the previous run (state in $StateFile). Pass -Mode Docker to use containers instead."
+        }
         elseif (Test-Path (Join-Path $Repo '.env')) { $script:Mode = 'Docker' }
         elseif (Test-Interactive) {
             Write-Host 'How should NKeeper run?'

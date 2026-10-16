@@ -381,7 +381,7 @@ native_postgres() {
     password=$(get_env "$NATIVE_CONFIG/nkeeper.env" NKEEPER_DB_PASSWORD)
     password=${password:-$(random_text 48)}
     db_password=$password
-    runuser -u postgres -- psql -q -v ON_ERROR_STOP=1 -d postgres <<SQL
+    postgres_psql -q -v ON_ERROR_STOP=1 -d postgres <<SQL
 SET password_encryption = 'scram-sha-256';
 DO \$\$ BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'nkeeper') THEN CREATE ROLE nkeeper LOGIN; END IF;
@@ -392,7 +392,7 @@ SQL
 
     # Password sign-in for NKeeper over loopback (RHEL's default is "ident"), ahead of other rules.
     local hba
-    hba=$(runuser -u postgres -- psql -tAc 'SHOW hba_file')
+    hba=$(postgres_psql -tAc 'SHOW hba_file')
     if ! grep -q 'NKeeper' "$hba"; then
         local tmp
         tmp=$(mktemp)
@@ -402,15 +402,18 @@ SQL
           cat "$hba"; } >"$tmp"
         cat "$tmp" >"$hba"
         rm -f "$tmp"
-        runuser -u postgres -- psql -qc 'SELECT pg_reload_conf()' >/dev/null
+        postgres_psql -qc 'SELECT pg_reload_conf()' >/dev/null
     fi
     ok "Database nkeeper ready."
 }
 
+# psql as the postgres user, from / (it can't enter the caller's home directory).
+postgres_psql() { (cd / && runuser -u postgres -- psql "$@"); }
+
 wait_postgres() {
     local i
     for ((i = 0; i < 30; i++)); do
-        runuser -u postgres -- psql -qtAc 'SELECT 1' >/dev/null 2>&1 && return 0
+        postgres_psql -qtAc 'SELECT 1' >/dev/null 2>&1 && return 0
         sleep 1
     done
     die "PostgreSQL didn't start (systemctl status postgresql)."
@@ -460,11 +463,14 @@ native_build() {
         -c Release -r "$rid" --self-contained -o "$build_dir/api" -p:DebugType=none >/dev/null
 
     mkdir -p "$NATIVE_PREFIX"
+    # Readable by the nkeeper user and nginx even when root's umask is strict.
+    chmod 755 "$NATIVE_PREFIX"
     rm -rf "$NATIVE_PREFIX/api.new" "$NATIVE_PREFIX/frontend.new"
-    cp -a "$build_dir/api" "$NATIVE_PREFIX/api.new"
-    cp -a "$build_dir/frontend/dist" "$NATIVE_PREFIX/frontend.new"
+    # Not --preserve=context: SELinux labels from the build cache would stop systemd running the API.
+    cp -R --preserve=mode,timestamps "$build_dir/api" "$NATIVE_PREFIX/api.new"
+    cp -R --preserve=mode,timestamps "$build_dir/frontend/dist" "$NATIVE_PREFIX/frontend.new"
     chown -R root:root "$NATIVE_PREFIX/api.new" "$NATIVE_PREFIX/frontend.new"
-    chmod -R a+rX "$NATIVE_PREFIX/frontend.new"
+    chmod -R a+rX "$NATIVE_PREFIX/api.new" "$NATIVE_PREFIX/frontend.new"
     ok "Built."
 }
 
@@ -473,6 +479,12 @@ native_install_files() {
     rm -rf "$NATIVE_PREFIX/api" "$NATIVE_PREFIX/frontend"
     mv "$NATIVE_PREFIX/api.new" "$NATIVE_PREFIX/api"
     mv "$NATIVE_PREFIX/frontend.new" "$NATIVE_PREFIX/frontend"
+    if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+        # The API binary as a program systemd may start; the rest keeps /opt's default label.
+        semanage fcontext -a -t bin_t "$NATIVE_PREFIX/api/NKeeper\.Api" 2>/dev/null ||
+            semanage fcontext -m -t bin_t "$NATIVE_PREFIX/api/NKeeper\.Api"
+        restorecon -R "$NATIVE_PREFIX/api"
+    fi
 }
 
 native_config() {
@@ -700,7 +712,7 @@ native_uninstall() {
     rm -rf "$NATIVE_PREFIX" /var/cache/nkeeper-build /etc/nginx/conf.d/nkeeper.conf /etc/nginx/conf.d/nkeeper-tls.conf /etc/nginx/snippets/nkeeper
     systemctl reload nginx >/dev/null 2>&1 || true
     if $purge; then
-        runuser -u postgres -- psql -qc 'DROP DATABASE IF EXISTS nkeeper' -c 'DROP ROLE IF EXISTS nkeeper' >/dev/null 2>&1 || true
+        postgres_psql -qc 'DROP DATABASE IF EXISTS nkeeper' -c 'DROP ROLE IF EXISTS nkeeper' >/dev/null 2>&1 || true
         rm -rf "$NATIVE_CONFIG" "$NATIVE_TLS" "$REPO/nkeeper-ca.crt"
         userdel nkeeper >/dev/null 2>&1 || true
         ok "Removed, including the database and certificates."
