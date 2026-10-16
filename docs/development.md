@@ -72,7 +72,7 @@ backend/
     Controllers/                        Auth, Hosts, Users, RemoteSessions (ssh/rdp/vnc WebSockets), WebSessions, Kvm
     Desktop/                            RDP/VNC: guacd handshake, Guacamole protocol, instruction filter, RDP certificate probe
     Inventory/                          HostManager (hosts, tags, services, credentials, cloning), validation
-    Kvm/                                libvirt over SSH (virsh), SPICE console tunnels
+    Kvm/                                libvirt over SSH (virsh), SPICE and VNC console tunnels
     RemoteSessions/                     shared session plumbing: WebSocket protocol, target resolution, trusted keys, limits, origin check
     Security/                           antiforgery and account-status filters
     Ssh/                                SSH terminal sessions (SSH.NET)
@@ -90,7 +90,7 @@ frontend/
   src/components/                       layout and UI components (Button, Dialog, ContextMenu, …)
   src/features/auth, account, users     sign-in, own password, user administration
   src/features/inventory/               workspace page, host tree, search and grouping, host menu, details and editor
-  src/features/terminal/                session tabs: SSH terminal, RDP/VNC desktop, web session, KVM VM list, SPICE console
+  src/features/terminal/                session tabs: SSH terminal, RDP/VNC desktop, web session, KVM VM list, SPICE and VNC consoles
   src/lib/api.ts                        the single HTTP client (CSRF, errors)
   src/vendor/                           Apache Guacamole client and spice-html5 (vendored, see their READMEs)
   nginx/                                nginx snippets shared by the container and native Linux, HTTPS template, certificate script
@@ -116,12 +116,12 @@ All sessions start from a **target**: a host, one of its services, and a saved c
 - **Web** (`/api/web/sessions`):
   - creates a session with its own origin and a one-time launch link;
   - `WebProxyMiddleware` then forwards requests for `nkw-<id>.<domain>` hosts with YARP, rewriting cookies and framing headers.
-- **KVM** (`/api/kvm/vms`, `/api/spice/sessions`):
+- **KVM** (`/api/kvm/vms`, `/api/spice/sessions`, `/api/vnc/consoles`):
   - lists VMs by running `virsh` over SSH;
-  - a console opens an SSH local port forward to the VM's SPICE port;
-  - spice-html5 then opens one WebSocket per SPICE channel on `/api/spice/channel/{id}`, relayed raw to that forward.
+  - a console opens an SSH local port forward to the VM's SPICE or VNC port (virsh reports VNC as a display number, port 5900 + N);
+  - spice-html5 then opens one WebSocket per SPICE channel on `/api/spice/channel/{id}`, and noVNC one on `/api/vnc/channel/{id}`, each relayed raw to that forward. VNC consoles live under `/api/vnc/` so proxies already treat them as WebSockets.
 
-Trusted keys are kept per host, port and protocol (`TrustedKeyStore`). Session lifetimes, per-user limits and "end everything for this user" live in `SessionLimiter`, `WebSessionStore` and `SpiceSessionStore`.
+Trusted keys are kept per host, port and protocol (`TrustedKeyStore`). Session lifetimes, per-user limits and "end everything for this user" live in `SessionLimiter`, `WebSessionStore` and `ConsoleSessionStore`.
 
 ## Tests
 
@@ -137,13 +137,13 @@ cd frontend && npm run build           # type-check and production build
 | Fixture | Used for |
 | --- | --- |
 | PostgreSQL 17 | Every database test. Each test gets its own migrated database, so the migrations are tested on PostgreSQL. Or set `NKEEPER_TEST_POSTGRES` to a server connection string whose role can `CREATE DATABASE`. |
-| OpenSSH server | SSH sessions (password, key, one-off, host key trust and change), access checks, and KVM with a fake `virsh` and an echo server standing in for SPICE |
+| OpenSSH server | SSH sessions (password, key, one-off, host key trust and change), access checks, and KVM with a fake `virsh` and an echo server standing in for the SPICE and VNC displays |
 | xrdp, x11vnc and guacd | RDP and VNC end to end, including certificate trust and the instruction filter |
 | An in-process HTTP/HTTPS server | Web sessions: proxying, cookies, framing, certificates, isolation |
 
 Without Docker (and without `NKEEPER_TEST_POSTGRES`), these tests are reported as **Skipped** with the reason, never as passed.
 
-Frontend tests render the real app with mocked HTTP and fake WebSocket, xterm, Guacamole and SPICE clients. They cover:
+Frontend tests render the real app with mocked HTTP and fake WebSocket, xterm, Guacamole, SPICE and noVNC clients. They cover:
 - sign-in and routing;
 - the workspace (tree, search, grouping, editing, cloning);
 - the host menus;

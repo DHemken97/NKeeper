@@ -69,7 +69,7 @@ Proxying a device's web interface means running someone else's web app, so each 
   - nginx sets the policy, or the API sets it under IIS. Also sent: `X-Content-Type-Options`, `Referrer-Policy` and `Permissions-Policy`.
 - **CORS** is off unless origins are listed explicitly.
 - **Errors** are RFC 7807 problem details with a trace ID. Stack traces are never returned outside development.
-- **Third-party browser code** (the Guacamole client and spice-html5) is vendored from official releases, with provenance recorded. The Guacamole release's signature was verified.
+- **Third-party browser code:** the Guacamole client and spice-html5 are vendored from official releases, with provenance recorded. The Guacamole release's signature was verified. noVNC (VNC consoles) is installed from npm, where it's published by the noVNC project itself.
 
 ## Deployment
 

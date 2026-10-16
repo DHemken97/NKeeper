@@ -40,7 +40,8 @@ Start with the logs: `docker compose logs -f backend` (Docker), `journalctl -u n
 | A web session shows "needs NKeeper to be opened by a host name" | Web sessions need a name, not an IP address. Open NKeeper by name. |
 | A web session stays blank from other computers | They can't resolve `nkw-…` names, or don't trust the certificate. Add the wildcard DNS record and install the CA. See [Installation](installation.md#dns-for-web-sessions). |
 | KVM: "libvirt refused the request" | The SSH user needs access to `qemu:///system`, usually through membership in the `libvirt` group. |
-| KVM: the console doesn't open | The VM must be running with a SPICE display that isn't TLS-only, and the hypervisor's sshd must allow TCP forwarding. |
+| KVM: the console doesn't open | The VM must be running with a SPICE display that isn't TLS-only, or a VNC display, listening on a TCP port. The hypervisor's sshd must allow TCP forwarding. |
+| KVM: a VNC console says libvirt didn't give NKeeper the password | libvirt reveals console passwords only to accounts with full (read-write) access. Give the SSH user that access (e.g. the `libvirt` group), or remove the VM's VNC password. |
 
 ## Development
 

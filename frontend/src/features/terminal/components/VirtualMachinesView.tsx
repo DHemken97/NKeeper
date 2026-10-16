@@ -22,7 +22,7 @@ interface ListResponse {
 
 /**
  * The virtual machines of a KVM host (libvirt over SSH, like virt-manager), with a console button
- * for each running VM that has a SPICE display.
+ * for each running VM that has a SPICE or VNC display.
  */
 export function VirtualMachinesView({ session, active, onShowHost, onOpenConsole }: VirtualMachinesViewProps) {
   const [phase, setPhase] = useState<SessionPhase>({ kind: 'connecting' })
@@ -124,7 +124,6 @@ export function VirtualMachinesView({ session, active, onShowHost, onOpenConsole
                 <tbody>
                   {vms.map((vm) => {
                     const running = vm.state === 'running'
-                    const spice = vm.display === 'spice'
                     return (
                       <tr key={vm.uuid}>
                         <td className={styles.vmName}>{vm.name}</td>
@@ -133,12 +132,10 @@ export function VirtualMachinesView({ session, active, onShowHost, onOpenConsole
                         </td>
                         <td>{vm.display ? vm.display.toUpperCase() : '—'}</td>
                         <td className={styles.vmActions}>
-                          {running && spice ? (
+                          {running && vm.display ? (
                             <Button size="sm" variant="secondary" onClick={() => onOpenConsole(vm)}>
                               Open console
                             </Button>
-                          ) : running && vm.display ? (
-                            <span className={styles.hint}>Only SPICE consoles are supported</span>
                           ) : null}
                         </td>
                       </tr>

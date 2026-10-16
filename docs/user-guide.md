@@ -7,7 +7,7 @@
 - [RDP](#rdp)
 - [VNC](#vnc)
 - [Web interfaces (HTTP/HTTPS)](#web-interfaces-httphttps)
-- [KVM virtual machines (SPICE consoles)](#kvm-virtual-machines-spice-consoles)
+- [KVM virtual machines (SPICE and VNC consoles)](#kvm-virtual-machines-spice-and-vnc-consoles)
 - [Trusting servers](#trusting-servers)
 - [Your account](#your-account)
 
@@ -108,18 +108,18 @@ A web session belongs to you and ends:
 
 If web sessions don't load from other computers, the server needs the wildcard DNS record and certificate described in [Installation](installation.md#dns-for-web-sessions). Links in a page that hard-code the host's absolute address (e.g. `https://10.0.0.5/…`) leave the session and connect directly; most web interfaces use relative links.
 
-## KVM virtual machines (SPICE consoles)
+## KVM virtual machines (SPICE and VNC consoles)
 
 Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH credential. Then **Connect ▸ KVM ▸ credential**:
 
 - **The VM list:** like virt-manager, NKeeper connects over SSH, asks libvirt (`qemu:///system`) for the virtual machines, and lists each one's name, state and console type. **Refresh** updates the list.
-- **The console:** **Open console** on a running VM with a SPICE display opens it in its own tab, with **Ctrl+Alt+Del** and **Fullscreen**.
+- **The console:** **Open console** on a running VM with a SPICE or VNC display opens it in its own tab, with **Ctrl+Alt+Del** and **Fullscreen**.
 - **Network path:** the console is tunnelled through NKeeper's SSH connection to the hypervisor, so the VM's console port can stay on the hypervisor's loopback.
-- **Passwords:** the VM's SPICE password, if set, is read from libvirt and used automatically.
-- **Resolution:** the display is shown at the VM's resolution, and scrolls if it's bigger than the tab. With the SPICE guest agent (`spice-vdagent`) installed in the VM, the resolution follows the tab's size.
-- **One console at a time:** opening another replaces the first.
+- **Passwords:** the VM's console password, if set, is read from libvirt and used automatically. libvirt reveals it only to accounts with full (read-write) access to `qemu:///system`.
+- **Resolution:** a SPICE display is shown at the VM's resolution, and scrolls if it's bigger than the tab. With the SPICE guest agent (`spice-vdagent`) installed in the VM, the resolution follows the tab's size. A VNC display is scaled to fit the tab.
+- **One SPICE console at a time:** opening another SPICE console replaces the first. VNC consoles have no such limit.
 - **On the hypervisor:** the SSH user must be able to use `qemu:///system` (usually by being in the `libvirt` group), and sshd must allow TCP forwarding (the OpenSSH default).
-- **Not supported:** SPICE configured for TLS only. VMs with a VNC display show a note; add a VNC service for them instead.
+- **Not supported:** SPICE configured for TLS only, and displays that listen on a Unix socket instead of a port. When a VM has both a SPICE and a VNC display, NKeeper opens the one libvirt lists first.
 
 ## Trusting servers
 

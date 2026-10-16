@@ -20,7 +20,7 @@ public sealed class UserAdministration(
     SessionRevoker sessions,
     SessionLimiter remoteSessions,
     Web.WebSessionStore webSessions,
-    Kvm.SpiceSessionStore consoles,
+    Kvm.ConsoleSessionStore consoles,
     TimeProvider timeProvider,
     ILogger<UserAdministration> logger)
 {

@@ -13,14 +13,15 @@ using NKeeper.Api.Tests.Infrastructure;
 namespace NKeeper.Api.Tests;
 
 /// <summary>
-/// KVM hosts over SSH: VM lists from (a fake) virsh, and SPICE consoles tunnelled through the
-/// real SSH connection to a stand-in SPICE port on the server's loopback.
+/// KVM hosts over SSH: VM lists from (a fake) virsh, and SPICE and VNC consoles tunnelled through
+/// the real SSH connection to a stand-in display port (an echo server) on the server's loopback.
 /// </summary>
 public sealed class KvmTests(PostgresServerFixture postgres, SshServerFixture ssh) : IAsyncLifetime
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
     private static readonly Guid RunningVm = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid StoppedVm = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private static readonly Guid VncVm = Guid.Parse("33333333-3333-3333-3333-333333333333");
 
     private NKeeperApiFactory _factory = null!;
     private HttpClient _client = null!;
@@ -56,9 +57,10 @@ public sealed class KvmTests(PostgresServerFixture postgres, SshServerFixture ss
         var listed = await PostAsync("/api/kvm/vms", Request(host, trust: fingerprint));
         var vms = listed.GetProperty("vms").Deserialize<List<VirtualMachine>>(Json)!;
 
-        Assert.Equal(["db-vm", "web vm"], vms.Select(v => v.Name));
-        Assert.Equal(new VirtualMachine(RunningVm, "web vm", "running", "spice"), vms[1]);
+        Assert.Equal(["db-vm", "vnc-vm", "web vm"], vms.Select(v => v.Name));
         Assert.Equal(new VirtualMachine(StoppedVm, "db-vm", "shut off", null), vms[0]);
+        Assert.Equal(new VirtualMachine(VncVm, "vnc-vm", "running", "vnc"), vms[1]);
+        Assert.Equal(new VirtualMachine(RunningVm, "web vm", "running", "spice"), vms[2]);
 
         // The key is now a trusted SSH host key, shared with SSH sessions.
         var stored = (await _client.GetFromJsonAsync<HostResponse>($"/api/hosts/{host.Id}", Json, Ct))!;
@@ -75,20 +77,42 @@ public sealed class KvmTests(PostgresServerFixture postgres, SshServerFixture ss
         Assert.Equal("ready", console.GetProperty("status").GetString());
         Assert.Equal("vm-secret", console.GetProperty("password").GetString());
 
-        using var channel = await OpenChannelAsync(console.GetProperty("sessionId").GetString()!);
+        using var channel = await OpenChannelAsync($"/api/spice/channel/{console.GetProperty("sessionId").GetString()}");
         Assert.Equal("binary", channel.SubProtocol);
-        await channel.SendAsync(Encoding.ASCII.GetBytes("REDQ-spice-link"), WebSocketMessageType.Binary, true, Ct);
-        var received = new StringBuilder();
-        var buffer = new byte[1024];
-        while (received.Length < "REDQ-spice-link".Length)
-        {
-            var result = await channel.ReceiveAsync(buffer, Ct);
-            received.Append(Encoding.ASCII.GetString(buffer, 0, result.Count));
-        }
-
-        Assert.Equal("REDQ-spice-link", received.ToString());
+        Assert.Equal("REDQ-spice-link", await EchoAsync(channel, "REDQ-spice-link"));
         await channel.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", Ct);
         Assert.Equal(HttpStatusCode.NoContent, (await _client.SendJsonAsync(HttpMethod.Delete, $"/api/spice/sessions/{console.GetProperty("sessionId").GetString()}", null, Ct)).StatusCode);
+    }
+
+    [Fact]
+    public async Task VncConsole_TunnelsTheDisplayNumbersPortThroughSsh()
+    {
+        var host = await CreateTrustedHostAsync();
+
+        var console = await PostAsync("/api/vnc/consoles", Request(host, vm: VncVm));
+        Assert.Equal("ready", console.GetProperty("status").GetString());
+        Assert.Equal("vnc-pw", console.GetProperty("password").GetString());
+        var id = console.GetProperty("sessionId").GetString()!;
+
+        // Display :30 is port 5930, where the stand-in display echoes.
+        using var channel = await OpenChannelAsync($"/api/vnc/channel/{id}");
+        Assert.Equal("RFB 003.008\n", await EchoAsync(channel, "RFB 003.008\n"));
+        await channel.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", Ct);
+
+        // A VNC console isn't reachable through the SPICE routes (and vice versa).
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.SendJsonAsync(HttpMethod.Delete, $"/api/spice/sessions/{id}", null, Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.SendJsonAsync(HttpMethod.Delete, $"/api/vnc/consoles/{id}", null, Ct)).StatusCode);
+    }
+
+    [Fact]
+    public async Task ConsoleOfTheWrongType_IsExplained()
+    {
+        var host = await CreateTrustedHostAsync();
+
+        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/vnc/consoles", Request(host, vm: RunningVm), Ct);
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.Contains("has no VNC display", await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -112,7 +136,7 @@ public sealed class KvmTests(PostgresServerFixture postgres, SshServerFixture ss
         using var _ = bob;
 
         Assert.Equal(HttpStatusCode.NotFound, (await bob.SendJsonAsync(HttpMethod.Post, "/api/kvm/vms", Request(host), Ct)).StatusCode);
-        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => OpenChannelAsync(console.GetProperty("sessionId").GetString()!, bobCookies));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => OpenChannelAsync($"/api/spice/channel/{console.GetProperty("sessionId").GetString()}", bobCookies));
     }
 
     [Theory]
@@ -122,12 +146,20 @@ public sealed class KvmTests(PostgresServerFixture postgres, SshServerFixture ss
     [InlineData("spice://0.0.0.0:5903", "127.0.0.1", 5903, null)]
     [InlineData("spice://[::1]:5904", "::1", 5904, null)]
     public void SpiceUris_AreParsed(string uri, string host, int port, string? password) =>
-        Assert.Equal(new SpiceDisplay(host, port, password), KvmHost.ParseSpiceUri(uri));
+        Assert.Equal(new ConsoleDisplay("spice", host, port, password), KvmHost.ParseDisplayUri(uri));
+
+    [Theory]
+    [InlineData("vnc://127.0.0.1:0", "127.0.0.1", 5900, null)]
+    [InlineData("vnc://:s3cret@127.0.0.1:1", "127.0.0.1", 5901, "s3cret")]
+    [InlineData("vnc://0.0.0.0:12", "127.0.0.1", 5912, null)]
+    [InlineData("VNC://[::1]:3", "::1", 5903, null)]
+    public void VncUris_AreParsed_WithDisplayNumbersAsPorts(string uri, string host, int port, string? password) =>
+        Assert.Equal(new ConsoleDisplay("vnc", host, port, password), KvmHost.ParseDisplayUri(uri));
 
     [Fact]
     public void TlsOnlySpice_IsExplained()
     {
-        var error = Assert.Throws<SessionException>(() => KvmHost.ParseSpiceUri("spice://127.0.0.1?tls-port=5901"));
+        var error = Assert.Throws<SessionException>(() => KvmHost.ParseDisplayUri("spice://127.0.0.1?tls-port=5901"));
         Assert.Contains("TLS", error.Message, StringComparison.Ordinal);
     }
 
@@ -162,7 +194,22 @@ public sealed class KvmTests(PostgresServerFixture postgres, SshServerFixture ss
         return host;
     }
 
-    private async Task<WebSocket> OpenChannelAsync(string sessionId, CookieContainer? cookies = null)
+    /// <summary>Sends text through the console channel and reads the stand-in display's echo.</summary>
+    private static async Task<string> EchoAsync(WebSocket channel, string text)
+    {
+        await channel.SendAsync(Encoding.ASCII.GetBytes(text), WebSocketMessageType.Binary, true, Ct);
+        var received = new StringBuilder();
+        var buffer = new byte[1024];
+        while (received.Length < text.Length)
+        {
+            var result = await channel.ReceiveAsync(buffer, Ct);
+            received.Append(Encoding.ASCII.GetString(buffer, 0, result.Count));
+        }
+
+        return received.ToString();
+    }
+
+    private async Task<WebSocket> OpenChannelAsync(string path, CookieContainer? cookies = null)
     {
         var client = _factory.Server.CreateWebSocketClient();
         client.SubProtocols.Add("binary");
@@ -171,7 +218,7 @@ public sealed class KvmTests(PostgresServerFixture postgres, SshServerFixture ss
             request.Headers.Cookie = (cookies ?? _cookies).GetCookieHeader(new Uri("http://localhost/"));
             request.Headers.Origin = "http://localhost";
         };
-        return await client.ConnectAsync(new Uri($"ws://localhost/api/spice/channel/{sessionId}"), Ct);
+        return await client.ConnectAsync(new Uri($"ws://localhost{path}"), Ct);
     }
 
     private async Task<(HttpClient Client, CookieContainer Cookies)> SignInAsAsync(string userName, string password)

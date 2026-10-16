@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { api, ApiError, apiWebSocketUrl } from '../../../lib/api'
 import { SpiceMainConn, sendCtrlAltDel } from '../../../vendor/spice-html5/main.js'
@@ -21,6 +21,13 @@ interface ConsoleResponse {
 }
 
 const RESIZE_DEBOUNCE_MS = 250
+
+/** Stops the SPICE client once (stopping it twice would remove its canvases twice). */
+function stopConnection(ref: { current: SpiceMainConn | null }) {
+  const connection = ref.current
+  ref.current = null
+  connection?.stop()
+}
 
 /** Why the SPICE client stopped, in words for the user. */
 function describeSpiceError(error: unknown, wasConnected: boolean): string {
@@ -53,15 +60,10 @@ export function SpiceConsole({ session, active, onShowHost }: SpiceConsoleProps)
     const scroller = scrollerRef.current!
     let cancelled = false
     let sessionId: string | null = null
-    let connection: SpiceMainConn | null = null
     let connected = false
     let agent = false
 
-    const stop = () => {
-      connection?.stop()
-      connection = null
-      connectionRef.current = null
-    }
+    const stop = () => stopConnection(connectionRef)
 
     const fail = (message: string, code?: string) => {
       stop()
@@ -70,6 +72,7 @@ export function SpiceConsole({ session, active, onShowHost }: SpiceConsoleProps)
 
     /** Asks the guest agent to match the VM's resolution to the tab (X needs multiples of 8). */
     const fitToTab = () => {
+      const connection = connectionRef.current
       if (connection && agent && scroller.clientWidth > 0 && scroller.clientHeight > 0) {
         const width = scroller.clientWidth - (scroller.clientWidth % 8)
         const height = scroller.clientHeight - (scroller.clientHeight % 8)
@@ -92,7 +95,7 @@ export function SpiceConsole({ session, active, onShowHost }: SpiceConsoleProps)
 
         sessionId = response.sessionId!
         try {
-          connection = new SpiceMainConn({
+          connectionRef.current = new SpiceMainConn({
             uri: apiWebSocketUrl(`/api/spice/channel/${sessionId}`),
             screen_id: screenId,
             password: response.password ?? '',
@@ -106,7 +109,6 @@ export function SpiceConsole({ session, active, onShowHost }: SpiceConsoleProps)
             },
             onerror: (error) => fail(describeSpiceError(error, connected)),
           })
-          connectionRef.current = connection
         } catch (error) {
           fail(describeSpiceError(error, false))
         }
@@ -142,6 +144,11 @@ export function SpiceConsole({ session, active, onShowHost }: SpiceConsoleProps)
       }
     }
   }, [session.request, screenId, target, attempt])
+
+  // Closing the tab: stop spice-html5 while its screen element is still in the document. It looks
+  // the element up by ID to remove its canvases, and passive effect cleanups run only after React
+  // has removed the tab's elements (which made it throw "Cannot read properties of null").
+  useLayoutEffect(() => () => stopConnection(connectionRef), [])
 
   // The active tab gets the keyboard (spice-html5 listens on the display canvas).
   useEffect(() => {

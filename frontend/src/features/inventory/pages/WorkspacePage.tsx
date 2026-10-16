@@ -34,6 +34,7 @@ const VirtualMachinesView = lazy(() =>
   import('../../terminal/components/VirtualMachinesView').then((m) => ({ default: m.VirtualMachinesView })),
 )
 const SpiceConsole = lazy(() => import('../../terminal/components/SpiceConsole').then((m) => ({ default: m.SpiceConsole })))
+const VncConsole = lazy(() => import('../../terminal/components/VncConsole').then((m) => ({ default: m.VncConsole })))
 const SORTS: { value: HostSort; label: string }[] = [
   { value: 'name', label: 'Name' },
   { value: 'address', label: 'Address' },
@@ -152,13 +153,14 @@ export function WorkspacePage() {
   /** Opens a VM's console from a KVM host's tab, with the same login. */
   function openConsole(source: RemoteSession, vm: VirtualMachine) {
     const id = `session-${nextSessionId++}`
-    // spice-html5 gives its canvases page-wide IDs, so one console is open at a time: it replaces the last.
+    const protocol = vm.display === 'vnc' ? 'vmvnc' : 'spice'
+    // spice-html5 gives its canvases page-wide IDs, so one SPICE console is open at a time: it replaces the last.
     setSessions((current) => [
-      ...current.filter((s) => s.protocol !== 'spice'),
+      ...current.filter((s) => protocol !== 'spice' || s.protocol !== 'spice'),
       {
         id,
         hostId: source.hostId,
-        protocol: 'spice',
+        protocol,
         title: vm.name,
         detail: `Console · ${source.title}`,
         request: { ...source.request, vm: { uuid: vm.uuid, name: vm.name } },
@@ -463,6 +465,8 @@ export function WorkspacePage() {
               />
             ) : session.protocol === 'spice' ? (
               <SpiceConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'vmvnc' ? (
+              <VncConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'rdp' || session.protocol === 'vnc' ? (
               <DesktopSession
                 key={session.id}

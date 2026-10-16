@@ -9,7 +9,7 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
   - **SSH** terminal (xterm.js).
   - **RDP** and **VNC** desktops through Apache Guacamole's guacd, with clipboard sync, Ctrl+Alt+Del and full screen.
   - **Web interfaces** (routers, iDRAC/iLO, NAS…) are proxied by the server and shown in the tab, or can be opened directly in a new browser tab.
-  - **KVM virtual machines**: lists a hypervisor's VMs over SSH (like virt-manager) and opens their **SPICE consoles** in the browser.
+  - **KVM virtual machines**: lists a hypervisor's VMs over SSH (like virt-manager) and opens their **SPICE or VNC consoles** in the browser.
 - **Trust on first use**: SSH host keys, RDP certificates and self-signed HTTPS certificates are confirmed once, then pinned. A changed key or certificate is refused.
 - **Users and access**: administrators and users. Users get access to tag-based groups of hosts or to single hosts, at *Use* or *Manage* level. Changes apply immediately.
 - **Secure by default**:
@@ -67,7 +67,7 @@ NKeeper is young. It's usable and well tested, but it hasn't had an independent 
 - **Not yet automated:** backups (see [Administration](docs/administration.md#backups-and-restores) for the manual commands), an audit-event store, two-factor sign-in and mRemoteNG import.
 - **Services** other than SSH, RDP, VNC, HTTP(S) and KVM (e.g. SSMS, Telnet, SFTP, WinRM) are stored but show as "Coming soon".
 - **Sessions live in the API process.** Restarting it ends open sessions, and limits are per API instance. There's no SSH port forwarding, jump hosts or SFTP yet. RDP file transfer, drives, printing and microphone are off.
-- **KVM:** one SPICE console at a time. SPICE configured for TLS only isn't supported, and VMs with VNC displays need a VNC service instead.
+- **KVM:** one SPICE console at a time (VNC consoles aren't limited). SPICE configured for TLS only isn't supported.
 - **Web sessions** from other machines need a wildcard DNS record. Links that hard-code a host's absolute address leave the session.
 - **Passwords:** there's no self-service password reset; an administrator resets passwords.
 - **Data Protection keys** are stored in PostgreSQL next to the secrets they encrypt. Protect the database and its backups accordingly.

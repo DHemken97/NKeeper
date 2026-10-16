@@ -11,8 +11,17 @@ namespace NKeeper.Api.Kvm;
 /// <summary>A virtual machine on a KVM host, as libvirt reports it.</summary>
 public sealed record VirtualMachine(Guid Uuid, string Name, string State, string? Display);
 
-/// <summary>Where a VM's SPICE console listens on the hypervisor, and its password if it has one.</summary>
-public sealed record SpiceDisplay(string Host, int Port, string? Password);
+/// <summary>The console protocols NKeeper opens for VMs (libvirt's display URI schemes).</summary>
+public static class ConsoleProtocols
+{
+    public const string Spice = "spice";
+    public const string Vnc = "vnc";
+
+    public static string DisplayName(string protocol) => protocol.ToUpperInvariant();
+}
+
+/// <summary>Where a VM's console (SPICE or VNC) listens on the hypervisor, and its password if it has one.</summary>
+public sealed record ConsoleDisplay(string Protocol, string Host, int Port, string? Password);
 
 /// <summary>The SSH host key is not trusted yet; the user must confirm it (trust on first use).</summary>
 public sealed class HostKeyTrustRequiredException(string algorithm, string fingerprint) : Exception("The SSH host key must be confirmed.")
@@ -122,38 +131,50 @@ internal static partial class KvmHost
             if (fields.Length >= 3 && Guid.TryParse(fields[0], out var uuid))
             {
                 var display = fields.ElementAtOrDefault(3) is { Length: > 0 } uri ? uri.Split(':', 2)[0].ToLowerInvariant() : null;
-                vms.Add(new VirtualMachine(uuid, fields[1], fields[2], display is "spice" or "vnc" ? display : null));
+                vms.Add(new VirtualMachine(uuid, fields[1], fields[2], display is ConsoleProtocols.Spice or ConsoleProtocols.Vnc ? display : null));
             }
         }
 
         return [.. vms.OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)];
     }
 
-    /// <summary>The VM's SPICE address on the hypervisor (and password, when libvirt reveals it).</summary>
-    public static async Task<SpiceDisplay> GetSpiceDisplayAsync(SshClient client, Guid vm, CancellationToken cancellationToken)
+    /// <summary>The VM's console address on the hypervisor (and password, when libvirt reveals it).</summary>
+    /// <param name="protocol">One of <see cref="ConsoleProtocols"/>.</param>
+    public static async Task<ConsoleDisplay> GetConsoleDisplayAsync(SshClient client, Guid vm, string protocol, CancellationToken cancellationToken)
     {
-        // The UUID is formatted by us (never user text), so it is safe in the command line.
+        if (protocol is not (ConsoleProtocols.Spice or ConsoleProtocols.Vnc))
+        {
+            throw new ArgumentOutOfRangeException(nameof(protocol), protocol, "Unsupported console protocol.");
+        }
+
+        // The UUID is formatted by us (never user text) and the protocol is one of ours, so both are safe in the command line.
         var id = vm.ToString("D");
         var output = await RunAsync(
             client,
-            $"{Virsh} domdisplay --type spice --include-password {id} 2>/dev/null || {Virsh} domdisplay --type spice {id}",
+            $"{Virsh} domdisplay --type {protocol} --include-password {id} 2>/dev/null || {Virsh} domdisplay --type {protocol} {id}",
             cancellationToken);
-        return ParseSpiceUri(output.Trim().Split('\n')[0].Trim())
-            ?? throw new SessionException(SessionErrorCodes.ConnectionFailed, "This VM has no SPICE display, or it isn't running.");
+        var display = ParseDisplayUri(output.Trim().Split('\n')[0].Trim());
+        return display is not null && display.Protocol == protocol
+            ? display
+            : throw new SessionException(
+                SessionErrorCodes.ConnectionFailed, $"This VM has no {ConsoleProtocols.DisplayName(protocol)} display, or it isn't running.");
     }
 
     /// <summary>
-    /// Parses libvirt's display URI, e.g. <c>spice://127.0.0.1:5900</c> or
-    /// <c>spice://127.0.0.1:5900/?password=secret</c>. TLS-only SPICE ports aren't supported by the browser client.
+    /// Parses libvirt's display URI, e.g. <c>spice://127.0.0.1:5900</c>,
+    /// <c>spice://127.0.0.1:5900/?password=secret</c> or <c>vnc://127.0.0.1:0</c>. For VNC, virsh
+    /// prints the display number (port 5900 + N), not the port. TLS-only SPICE ports aren't
+    /// supported by the browser client.
     /// </summary>
-    internal static SpiceDisplay? ParseSpiceUri(string text)
+    internal static ConsoleDisplay? ParseDisplayUri(string text)
     {
-        var match = SpiceUri().Match(text);
+        var match = DisplayUri().Match(text);
         if (!match.Success)
         {
             return null;
         }
 
+        var protocol = match.Groups["scheme"].Value.ToLowerInvariant();
         var host = match.Groups["host"].Value.Trim('[', ']');
         var query = match.Groups["query"].Value;
         var password = match.Groups["userPassword"].Success ? match.Groups["userPassword"].Value : QueryValue(query, "password");
@@ -161,9 +182,20 @@ internal static partial class KvmHost
         {
             throw new SessionException(
                 SessionErrorCodes.ConnectionFailed,
-                QueryValue(query, "tls-port") is not null
+                protocol == ConsoleProtocols.Spice && QueryValue(query, "tls-port") is not null
                     ? "This VM's SPICE display only accepts TLS connections, which the browser console doesn't support yet. Add a plain SPICE port (it can listen on localhost only)."
-                    : "Couldn't read the VM's SPICE address.");
+                    : $"Couldn't read the VM's {ConsoleProtocols.DisplayName(protocol)} address.");
+        }
+
+        var port = int.Parse(match.Groups["port"].Value, CultureInfo.InvariantCulture);
+        if (protocol == ConsoleProtocols.Vnc)
+        {
+            port += 5900;
+        }
+
+        if (port > 65535)
+        {
+            throw new SessionException(SessionErrorCodes.ConnectionFailed, $"Couldn't read the VM's {ConsoleProtocols.DisplayName(protocol)} address.");
         }
 
         // A display listening on every address is reachable on the hypervisor's loopback.
@@ -172,7 +204,7 @@ internal static partial class KvmHost
             host = "127.0.0.1";
         }
 
-        return new SpiceDisplay(host, int.Parse(match.Groups["port"].Value, CultureInfo.InvariantCulture), string.IsNullOrEmpty(password) ? null : Uri.UnescapeDataString(password));
+        return new ConsoleDisplay(protocol, host, port, string.IsNullOrEmpty(password) ? null : Uri.UnescapeDataString(password));
     }
 
     private static string? QueryValue(string query, string name) =>
@@ -204,6 +236,6 @@ internal static partial class KvmHost
         return command.Result;
     }
 
-    [GeneratedRegex(@"^spice://(?::(?<userPassword>[^@]*)@)?(?<host>\[[^\]]+\]|[^:/?]*)(?::(?<port>\d{1,5}))?/?(?<query>\?.*)?$", RegexOptions.IgnoreCase)]
-    private static partial Regex SpiceUri();
+    [GeneratedRegex(@"^(?<scheme>spice|vnc)://(?::(?<userPassword>[^@]*)@)?(?<host>\[[^\]]+\]|[^:/?]*)(?::(?<port>\d{1,5}))?/?(?<query>\?.*)?$", RegexOptions.IgnoreCase)]
+    private static partial Regex DisplayUri();
 }

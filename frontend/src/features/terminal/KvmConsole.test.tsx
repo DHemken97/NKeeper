@@ -20,6 +20,8 @@ const spice = vi.hoisted(() => {
   class FakeSpiceMainConn {
     static instances: FakeSpiceMainConn[] = []
     stopped = false
+    /** spice-html5 removes its canvases from the screen element (looked up by ID) when stopped. */
+    screenPresentWhenStopped: boolean | null = null
     resized: number[][] = []
     options: Options
     constructor(options: Options) {
@@ -28,6 +30,7 @@ const spice = vi.hoisted(() => {
     }
     stop() {
       this.stopped = true
+      this.screenPresentWhenStopped = document.getElementById(this.options.screen_id) !== null
     }
     resize_window(...args: number[]) {
       this.resized.push(args)
@@ -37,6 +40,37 @@ const spice = vi.hoisted(() => {
 })
 
 vi.mock('../../vendor/spice-html5/main.js', () => ({ SpiceMainConn: spice.FakeSpiceMainConn, sendCtrlAltDel: spice.sendCtrlAltDel }))
+
+// noVNC likewise: a fake RFB that records its target, URL and options, and lets tests fire its events.
+const vnc = vi.hoisted(() => {
+  class FakeRfb extends EventTarget {
+    static instances: FakeRfb[] = []
+    scaleViewport = false
+    background = ''
+    disconnected = false
+    sendCtrlAltDel = vi.fn()
+    focus = vi.fn()
+    target: HTMLElement
+    url: string
+    options: { credentials?: { password?: string } }
+    constructor(target: HTMLElement, url: string, options: { credentials?: { password?: string } }) {
+      super()
+      this.target = target
+      this.url = url
+      this.options = options
+      FakeRfb.instances.push(this)
+    }
+    disconnect() {
+      this.disconnected = true
+    }
+    emit(type: string, detail: unknown = {}) {
+      this.dispatchEvent(new CustomEvent(type, { detail }))
+    }
+  }
+  return { FakeRfb }
+})
+
+vi.mock('@novnc/novnc', () => ({ default: vnc.FakeRfb }))
 
 const admin = { id: 'u1', userName: 'admin', email: 'admin@example.com', roles: ['Administrator'], mustChangePassword: false }
 
@@ -65,6 +99,7 @@ const vms = [
 
 beforeEach(() => {
   spice.FakeSpiceMainConn.instances = []
+  vnc.FakeRfb.instances = []
   spice.sendCtrlAltDel.mockClear()
   vi.stubGlobal(
     'ResizeObserver',
@@ -84,6 +119,7 @@ function renderWorkspace(routesOverride: Parameters<typeof mockFetch>[0]) {
     'GET /api/hosts': () => jsonResponse(200, [hypervisor]),
     'DELETE /api/spice/sessions/s1': () => new Response(null, { status: 204 }),
     'DELETE /api/spice/sessions/s2': () => new Response(null, { status: 204 }),
+    'DELETE /api/vnc/consoles/v1': () => new Response(null, { status: 204 }),
     ...routesOverride,
   })
   const router = createMemoryRouter(routes, { initialEntries: ['/'] })
@@ -102,10 +138,16 @@ async function openHost(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('menuitem', { name: /^virt/ }))
 }
 
+/** Clicks "Open console" in the VM list row of the named VM. */
+async function openConsoleOf(user: ReturnType<typeof userEvent.setup>, vm: string) {
+  const row = (await screen.findAllByRole('row')).find((r) => within(r).queryByText(vm))!
+  await user.click(within(row).getByRole('button', { name: 'Open console' }))
+}
+
 const consoleReady = (id: string) => ({ status: 'ready', sessionId: id, password: 'vm-secret', hostKey: null })
 
 describe('KVM hosts', () => {
-  it('trusts the host key, lists the VMs, and offers consoles for running SPICE VMs', async () => {
+  it('trusts the host key, lists the VMs, and offers consoles for running SPICE and VNC VMs', async () => {
     const bodies: unknown[] = []
     const { user } = renderWorkspace({
       'POST /api/kvm/vms': (_url, init) => {
@@ -128,7 +170,7 @@ describe('KVM hosts', () => {
     expect(rows.map((row) => within(row).getAllByRole('cell')[0].textContent)).toEqual(['db-vm', 'web vm', 'legacy'])
     expect(within(rows[0]).queryByRole('button')).not.toBeInTheDocument()
     expect(within(rows[1]).getByRole('button', { name: 'Open console' })).toBeInTheDocument()
-    expect(within(rows[2]).getByText('Only SPICE consoles are supported')).toBeInTheDocument()
+    expect(within(rows[2]).getByRole('button', { name: 'Open console' })).toBeInTheDocument()
   })
 
   it('opens a VM console over NKeeper’s tunnel and closes it with the tab', async () => {
@@ -142,7 +184,7 @@ describe('KVM hosts', () => {
     })
 
     await openHost(user)
-    await user.click(await screen.findByRole('button', { name: 'Open console' }))
+    await openConsoleOf(user, 'web vm')
 
     await waitFor(() => expect(spice.FakeSpiceMainConn.instances).toHaveLength(1))
     const connection = spice.FakeSpiceMainConn.instances[0]
@@ -158,6 +200,8 @@ describe('KVM hosts', () => {
 
     await user.click(screen.getByRole('button', { name: 'Close web vm' }))
     expect(connection.stopped).toBe(true)
+    // Stopped before React removed the tab, so spice-html5 could still find its screen.
+    expect(connection.screenPresentWhenStopped).toBe(true)
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith('/api/spice/sessions/s1') && init?.method === 'DELETE')).toBe(true),
     )
@@ -171,10 +215,10 @@ describe('KVM hosts', () => {
     })
 
     await openHost(user)
-    await user.click(await screen.findByRole('button', { name: 'Open console' }))
+    await openConsoleOf(user, 'web vm')
     await waitFor(() => expect(spice.FakeSpiceMainConn.instances).toHaveLength(1))
     await user.click(screen.getByRole('tab', { name: /^kvm01/ }))
-    await user.click(screen.getByRole('button', { name: 'Open console' }))
+    await openConsoleOf(user, 'web vm')
 
     await waitFor(() => expect(spice.FakeSpiceMainConn.instances).toHaveLength(2))
     expect(spice.FakeSpiceMainConn.instances[0].stopped).toBe(true)
@@ -188,7 +232,7 @@ describe('KVM hosts', () => {
     })
 
     await openHost(user)
-    await user.click(await screen.findByRole('button', { name: 'Open console' }))
+    await openConsoleOf(user, 'web vm')
     await waitFor(() => expect(spice.FakeSpiceMainConn.instances).toHaveLength(1))
     const connection = spice.FakeSpiceMainConn.instances[0]
     act(() => connection.options.onsuccess?.())
@@ -196,5 +240,76 @@ describe('KVM hosts', () => {
 
     expect(await screen.findByText(/may have shut down or restarted/)).toBeInTheDocument()
     expect(connection.stopped).toBe(true)
+  })
+
+  it('opens a VNC console with noVNC over NKeeper’s tunnel and closes it with the tab', async () => {
+    let consoleBody: unknown
+    const { user, fetchMock } = renderWorkspace({
+      'POST /api/kvm/vms': () => jsonResponse(200, { status: 'ready', vms, hostKey: null }),
+      'POST /api/vnc/consoles': (_url, init) => {
+        consoleBody = JSON.parse(String(init.body))
+        return jsonResponse(200, consoleReady('v1'))
+      },
+    })
+
+    await openHost(user)
+    await openConsoleOf(user, 'legacy')
+
+    await waitFor(() => expect(vnc.FakeRfb.instances).toHaveLength(1))
+    const rfb = vnc.FakeRfb.instances[0]
+    expect(consoleBody).toEqual({ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: 'c3' })
+    expect(rfb.url).toMatch(/^ws:\/\/.*\/api\/vnc\/channel\/v1$/)
+    expect(rfb.options.credentials?.password).toBe('vm-secret')
+    expect(rfb.scaleViewport).toBe(true)
+    expect(screen.getByRole('tab', { name: /legacy.*Console · kvm01/, selected: true })).toBeInTheDocument()
+
+    act(() => rfb.emit('connect'))
+    await user.click(await screen.findByRole('button', { name: 'Ctrl+Alt+Del' }))
+    expect(rfb.sendCtrlAltDel).toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Close legacy' }))
+    expect(rfb.disconnected).toBe(true)
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith('/api/vnc/consoles/v1') && init?.method === 'DELETE')).toBe(true),
+    )
+  })
+
+  it('keeps a VNC console open alongside a SPICE one', async () => {
+    const { user } = renderWorkspace({
+      'POST /api/kvm/vms': () => jsonResponse(200, { status: 'ready', vms, hostKey: null }),
+      'POST /api/spice/sessions': () => jsonResponse(200, consoleReady('s1')),
+      'POST /api/vnc/consoles': () => jsonResponse(200, consoleReady('v1')),
+    })
+
+    await openHost(user)
+    await openConsoleOf(user, 'web vm')
+    await waitFor(() => expect(spice.FakeSpiceMainConn.instances).toHaveLength(1))
+    await user.click(screen.getByRole('tab', { name: /^kvm01/ }))
+    await openConsoleOf(user, 'legacy')
+
+    await waitFor(() => expect(vnc.FakeRfb.instances).toHaveLength(1))
+    expect(spice.FakeSpiceMainConn.instances[0].stopped).toBe(false)
+    expect(screen.getByRole('tab', { name: /web vm/ })).toBeInTheDocument()
+  })
+
+  it('explains a VNC console that closes, and one whose password libvirt didn’t reveal', async () => {
+    const { user } = renderWorkspace({
+      'POST /api/kvm/vms': () => jsonResponse(200, { status: 'ready', vms, hostKey: null }),
+      'POST /api/vnc/consoles': () => jsonResponse(200, { ...consoleReady('v1'), password: null }),
+    })
+
+    await openHost(user)
+    await openConsoleOf(user, 'legacy')
+    await waitFor(() => expect(vnc.FakeRfb.instances).toHaveLength(1))
+    act(() => vnc.FakeRfb.instances[0].emit('credentialsrequired', { types: ['password'] }))
+    expect(await screen.findByText(/needs a password, and libvirt didn’t give it to NKeeper/)).toBeInTheDocument()
+    expect(vnc.FakeRfb.instances[0].disconnected).toBe(true)
+
+    await user.click(screen.getAllByRole('button', { name: 'Reconnect' })[0])
+    await waitFor(() => expect(vnc.FakeRfb.instances).toHaveLength(2))
+    const second = vnc.FakeRfb.instances[1]
+    act(() => second.emit('connect'))
+    act(() => second.emit('disconnect', { clean: false }))
+    expect(await screen.findByText(/may have shut down or restarted/)).toBeInTheDocument()
   })
 })

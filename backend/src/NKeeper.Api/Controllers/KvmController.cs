@@ -30,16 +30,20 @@ public sealed record HostKeyPromptResponse(string Algorithm, string Fingerprint)
 
 public sealed record VirtualMachinesResponse(string Status, IReadOnlyList<VirtualMachine>? Vms, HostKeyPromptResponse? HostKey);
 
-public sealed record SpiceSessionResponse(string Status, string? SessionId, string? Password, HostKeyPromptResponse? HostKey);
+public sealed record ConsoleSessionResponse(string Status, string? SessionId, string? Password, HostKeyPromptResponse? HostKey);
 
 /// <summary>
 /// KVM hosts managed with libvirt, over SSH like virt-manager: list virtual machines and open
-/// their SPICE consoles, tunnelled through the SSH connection (the console ports usually listen
-/// on the hypervisor's loopback only). The browser never connects to the hypervisor.
+/// their SPICE or VNC consoles, tunnelled through the SSH connection (the console ports usually
+/// listen on the hypervisor's loopback only). The browser never connects to the hypervisor.
 /// </summary>
+/// <remarks>
+/// VNC consoles live under /api/vnc/, which reverse proxies already treat as WebSocket traffic
+/// (it is also where guacd's VNC sessions are).
+/// </remarks>
 [ApiController]
 [Authorize]
-public sealed class KvmController(SpiceSessionStore consoles, IOptions<CorsSettings> cors, TimeProvider timeProvider) : ControllerBase
+public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSettings> cors, TimeProvider timeProvider) : ControllerBase
 {
     private const int DefaultSshPort = 22;
 
@@ -64,8 +68,37 @@ public sealed class KvmController(SpiceSessionStore consoles, IOptions<CorsSetti
 
     /// <summary>Opens a VM's SPICE console; the browser then connects its SPICE channels to /api/spice/channel/{id}.</summary>
     [HttpPost("api/spice/sessions")]
-    [ProducesResponseType<SpiceSessionResponse>(StatusCodes.Status200OK)]
-    public async Task<ActionResult<SpiceSessionResponse>> OpenConsole(KvmRequest request, CancellationToken cancellationToken)
+    [ProducesResponseType<ConsoleSessionResponse>(StatusCodes.Status200OK)]
+    public Task<ActionResult<ConsoleSessionResponse>> OpenSpiceConsole(KvmRequest request, CancellationToken cancellationToken) =>
+        OpenConsoleAsync(request, ConsoleProtocols.Spice, cancellationToken);
+
+    [HttpDelete("api/spice/sessions/{id}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public IActionResult CloseSpiceConsole(string id) => CloseConsole(id, ConsoleProtocols.Spice);
+
+    /// <summary>One SPICE channel (main, display, inputs, cursor, playback, …) through the console's tunnel.</summary>
+    [HttpGet("api/spice/channel/{id}")]
+    [ApiExplorerSettings(IgnoreApi = true)]
+    public Task<IActionResult> SpiceChannel(string id, CancellationToken cancellationToken) =>
+        ChannelAsync(id, ConsoleProtocols.Spice, cancellationToken);
+
+    /// <summary>Opens a VM's VNC console; the browser (noVNC) then connects to /api/vnc/channel/{id}.</summary>
+    [HttpPost("api/vnc/consoles")]
+    [ProducesResponseType<ConsoleSessionResponse>(StatusCodes.Status200OK)]
+    public Task<ActionResult<ConsoleSessionResponse>> OpenVncConsole(KvmRequest request, CancellationToken cancellationToken) =>
+        OpenConsoleAsync(request, ConsoleProtocols.Vnc, cancellationToken);
+
+    [HttpDelete("api/vnc/consoles/{id}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public IActionResult CloseVncConsole(string id) => CloseConsole(id, ConsoleProtocols.Vnc);
+
+    /// <summary>The VNC (RFB) connection through the console's tunnel.</summary>
+    [HttpGet("api/vnc/channel/{id}")]
+    [ApiExplorerSettings(IgnoreApi = true)]
+    public Task<IActionResult> VncChannel(string id, CancellationToken cancellationToken) =>
+        ChannelAsync(id, ConsoleProtocols.Vnc, cancellationToken);
+
+    private async Task<ActionResult<ConsoleSessionResponse>> OpenConsoleAsync(KvmRequest request, string protocol, CancellationToken cancellationToken)
     {
         if (request.Vm is not { } vm)
         {
@@ -85,21 +118,27 @@ public sealed class KvmController(SpiceSessionStore consoles, IOptions<CorsSetti
                     SessionErrorCodes.ConnectionFailed, $"“{machine.Name}” is not running ({machine.State}). Start it, then open its console.");
             }
 
-            var display = await KvmHost.GetSpiceDisplayAsync(client, vm, cancellationToken);
+            if (machine.Display != protocol)
+            {
+                throw new SessionException(
+                    SessionErrorCodes.ConnectionFailed, $"“{machine.Name}” has no {ConsoleProtocols.DisplayName(protocol)} display.");
+            }
+
+            var display = await KvmHost.GetConsoleDisplayAsync(client, vm, protocol, cancellationToken);
 
             var session = consoles.TryCreate(User.GetUserId(), request.HostId, machine.Name, client, display);
             if (session is null)
             {
                 return Failure(new SessionException(
-                    SessionErrorCodes.TooManySessions, $"You already have {SpiceSessionStore.MaxSessionsPerUser} open VM consoles. Close one and try again."));
+                    SessionErrorCodes.TooManySessions, $"You already have {ConsoleSessionStore.MaxSessionsPerUser} open VM consoles. Close one and try again."));
             }
 
             client = null; // Owned by the session now.
-            return new SpiceSessionResponse("ready", session.Id, session.Password, null);
+            return new ConsoleSessionResponse("ready", session.Id, session.Password, null);
         }
         catch (HostKeyTrustRequiredException trust)
         {
-            return new SpiceSessionResponse("trustRequired", null, null, new HostKeyPromptResponse(trust.Algorithm, trust.Fingerprint));
+            return new ConsoleSessionResponse("trustRequired", null, null, new HostKeyPromptResponse(trust.Algorithm, trust.Fingerprint));
         }
         catch (SessionException ex)
         {
@@ -111,14 +150,10 @@ public sealed class KvmController(SpiceSessionStore consoles, IOptions<CorsSetti
         }
     }
 
-    [HttpDelete("api/spice/sessions/{id}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public IActionResult CloseConsole(string id) => consoles.EndOwned(id, User.GetUserId()) ? NoContent() : NotFound();
+    private IActionResult CloseConsole(string id, string protocol) =>
+        consoles.EndOwned(id, User.GetUserId(), protocol) ? NoContent() : NotFound();
 
-    /// <summary>One SPICE channel (main, display, inputs, cursor, playback, …) through the console's tunnel.</summary>
-    [HttpGet("api/spice/channel/{id}")]
-    [ApiExplorerSettings(IgnoreApi = true)]
-    public async Task<IActionResult> Channel(string id, CancellationToken cancellationToken)
+    private async Task<IActionResult> ChannelAsync(string id, string protocol, CancellationToken cancellationToken)
     {
         if (!HttpContext.WebSockets.IsWebSocketRequest)
         {
@@ -130,12 +165,13 @@ public sealed class KvmController(SpiceSessionStore consoles, IOptions<CorsSetti
             return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "Consoles can only be opened from NKeeper itself.");
         }
 
-        if (consoles.Find(id) is not { } session || session.UserId != User.GetUserId())
+        if (consoles.Find(id) is not { } session || session.UserId != User.GetUserId() || session.Protocol != protocol)
         {
             return NotFound();
         }
 
-        // spice-html5 asks for the "binary" subprotocol; browsers reject an upgrade that ignores it.
+        // spice-html5 (and noVNC, when configured to) asks for the "binary" subprotocol; browsers
+        // reject an upgrade that ignores it.
         var subProtocol = HttpContext.WebSockets.WebSocketRequestedProtocols.Contains("binary") ? "binary" : null;
         using var socket = await HttpContext.WebSockets.AcceptWebSocketAsync(subProtocol);
         using var tcp = new TcpClient { NoDelay = true };

@@ -72,8 +72,8 @@ internal static class ApiServiceCollectionExtensions
         services.AddHttpForwarder();
         services.AddSingleton<NKeeper.Api.Web.WebSessionStore>();
         services.AddHostedService<NKeeper.Api.Web.WebSessionSweeper>();
-        services.AddSingleton<NKeeper.Api.Kvm.SpiceSessionStore>();
-        services.AddHostedService<NKeeper.Api.Kvm.SpiceSessionSweeper>();
+        services.AddSingleton<NKeeper.Api.Kvm.ConsoleSessionStore>();
+        services.AddHostedService<NKeeper.Api.Kvm.ConsoleSessionSweeper>();
         services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier));
         services.AddOpenApi();

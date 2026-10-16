@@ -298,3 +298,11 @@
 .spiceScreen canvas:focus {
   outline: none;
 }
+
+/* noVNC's target: it adds its own screen (scaled to fit, centred) and canvas inside. */
+.vncScreen {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+}
