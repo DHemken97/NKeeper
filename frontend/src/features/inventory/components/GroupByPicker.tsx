@@ -13,7 +13,7 @@ const MAX_LEVELS = 3
 /** Choose up to three nested grouping levels, e.g. site → role. */
 export function GroupByPicker({ value, onChange, tagNames }: GroupByPickerProps) {
   const used = new Set(value.map((k) => encodeGroupKey(k).toLowerCase()))
-  const candidates: GroupKey[] = [{ kind: 'service' }, ...tagNames.map((name): GroupKey => ({ kind: 'tag', name }))]
+  const candidates: GroupKey[] = [{ kind: 'service' }, { kind: 'hypervisor' }, ...tagNames.map((name): GroupKey => ({ kind: 'tag', name }))]
   const options = candidates.filter((k) => !used.has(encodeGroupKey(k).toLowerCase()))
 
   return (
@@ -57,7 +57,7 @@ export function GroupByPicker({ value, onChange, tagNames }: GroupByPickerProps)
           <option value="">{value.length === 0 ? 'None' : '+ Level'}</option>
           {options.map((key) => (
             <option key={encodeGroupKey(key)} value={encodeGroupKey(key)}>
-              {key.kind === 'service' ? 'Service' : `Tag: ${key.name}`}
+              {key.kind === 'service' ? 'Service' : key.kind === 'hypervisor' ? 'Runs on (hypervisor)' : `Tag: ${key.name}`}
             </option>
           ))}
         </select>

@@ -92,6 +92,32 @@ describe('buildTree', () => {
       ['fw01', 'laptop'],
     ])
   })
+
+  it('groups by the host VMs run on, named even when the search hides it', () => {
+    const vms = [
+      host('app01', [t('site', 'DC-A')], { isVirtualMachine: true, hypervisorId: 'node1' }),
+      host('app02', [t('site', 'DC-B')], { isVirtualMachine: true, hypervisorId: 'node1' }),
+      host('db01', [], { isVirtualMachine: true, hypervisorId: 'node2' }),
+      host('orphan', [], { isVirtualMachine: true, hypervisorId: 'gone' }),
+      host('node1'),
+    ]
+    const all = [...vms, host('node2')]
+
+    expect(outline(buildTree(vms, [{ kind: 'hypervisor' }], all))).toEqual([
+      'A host you can’t see (1)',
+      ['orphan'],
+      'node1 (2)',
+      ['app01', 'app02'],
+      'node2 (1)',
+      ['db01'],
+      'Not on a known host (1)',
+      ['node1'],
+    ])
+    expect(outline(buildTree(vms.slice(0, 2), [{ kind: 'hypervisor' }, { kind: 'tag', name: 'site' }], all))).toEqual([
+      'node1 (2)',
+      ['DC-A (1)', ['app01'], 'DC-B (1)', ['app02']],
+    ])
+  })
 })
 
 describe('sortHosts', () => {

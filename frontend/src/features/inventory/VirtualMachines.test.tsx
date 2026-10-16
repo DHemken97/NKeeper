@@ -162,6 +162,17 @@ describe('virtual machines', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
+  it('can group the tree by the host they run on', async () => {
+    const { router, user } = renderAt('/')
+
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Group by' }), 'Runs on (hypervisor)')
+
+    expect(router.state.location.search).toBe('?group=%40runs-on')
+    const node = screen.getByRole('button', { name: /runs on:\s*node2/, expanded: true })
+    expect(within(node.closest('li')!).getByRole('button', { name: /^app01/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Not on a known host/ })).toBeInTheDocument()
+  })
+
   it('a scan inside a VM proposes marking it as one', () => {
     const proposals = scanProposals(printer, { ...nodeScan, isKvmHost: false, guests: [], virtualization: 'kvm' }, 22)
 

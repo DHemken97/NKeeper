@@ -154,7 +154,7 @@ export function WorkspacePage() {
     const terms = parseSearch(query)
     return sortHosts((allHosts ?? []).filter((host) => matchesSearch(host, terms)), sort)
   }, [allHosts, query, sort])
-  const tree = useMemo(() => buildTree(visibleHosts, groupKeys), [visibleHosts, groupKeys])
+  const tree = useMemo(() => buildTree(visibleHosts, groupKeys, allHosts ?? []), [visibleHosts, groupKeys, allHosts])
   const knownTagNames = useMemo(() => tagNames(allHosts ?? []), [allHosts])
   const selectedHost = selectedId && selectedId !== NEW_HOST ? allHosts?.find((h) => h.id === selectedId) : undefined
   const cloneId = selectedId === NEW_HOST ? params.get('clone') : null

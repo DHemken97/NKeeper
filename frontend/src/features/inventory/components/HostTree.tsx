@@ -171,6 +171,7 @@ function GroupNode({ group, depth, ...rest }: Omit<NodesProps, 'nodes'> & { grou
         </svg>
         <span className={styles.groupLabel}>
           {group.key.kind === 'tag' && !group.missing ? <span className={styles.groupKey}>{group.key.name}:</span> : null}
+          {group.key.kind === 'hypervisor' && !group.missing ? <span className={styles.groupKey}>runs on:</span> : null}
           {group.label}
         </span>
         <span className={styles.count}>{group.hostCount}</span>

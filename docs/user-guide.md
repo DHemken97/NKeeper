@@ -26,7 +26,7 @@ On a phone, the two panes show one at a time.
   - `site:"Datacenter A"` quotes a value with spaces;
   - `env:` means "has an env tag".
   - Clicking a tag on a host filters by it.
-- **Group by** up to three levels of tag names, or the service type, e.g. *site → role*. A host appears under every value it has. Hosts without the tag collect in a "No site" group.
+- **Group by** up to three levels of tag names, the service type, or **Runs on** (the hypervisor a VM runs on), e.g. *site → role* or *Runs on → role*. A host appears under every value it has. Hosts without the tag collect in a "No site" group; hosts that run on no known host collect in "Not on a known host".
 - **Sort** by name, address or last update. Names sort naturally, so `srv2` comes before `srv10`.
 - **Select several hosts** to change them together:
   - **Ctrl+click** (**⌘+click** on a Mac) adds or removes a host, and **Ctrl+Space** does the same from the keyboard;
