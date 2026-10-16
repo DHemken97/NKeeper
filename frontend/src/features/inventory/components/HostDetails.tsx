@@ -5,7 +5,7 @@ import { Button } from '../../../components/ui/Button'
 import { ApiError } from '../../../lib/api'
 import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
-import { formatAccount, formatTag, PROTOCOL_INFO, type Host, type HostTag } from '../types'
+import { formatAccount, formatTag, PROTOCOL_INFO, RDP_SECURITY_INFO, type Host, type HostTag, type TrustedKey } from '../types'
 import { DeleteButton } from './DeleteButton'
 import styles from './HostPanel.module.css'
 
@@ -23,6 +23,15 @@ interface HostDetailsProps {
 
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
+/** SSH fingerprints read like `ssh-keygen -lf` output; RDP ones are certificate thumbprints. */
+function formatFingerprint(key: TrustedKey): string {
+  return key.protocol === 'Ssh' ? `SHA256:${key.fingerprint}` : key.fingerprint
+}
+
+function describeKey(key: TrustedKey): string {
+  return key.protocol === 'Rdp' ? 'RDP TLS certificate (SHA-256)' : `SSH ${key.algorithm} host key`
+}
+
 /** Read-only overview of a host: addresses, tags, services and credentials (never secrets). */
 export function HostDetails({ host, onEdit, onDeleted, onTagClick, onConnectMenu, onChanged }: HostDetailsProps) {
   const [deleting, setDeleting] = useState(false)
@@ -34,8 +43,8 @@ export function HostDetails({ host, onEdit, onDeleted, onTagClick, onConnectMenu
     setForgetting(true)
     setError(null)
     try {
-      await hostsApi.forgetSshHostKeys(host.id)
-      onChanged({ ...host, sshHostKeys: [] })
+      await hostsApi.forgetTrustedKeys(host.id)
+      onChanged({ ...host, trustedKeys: [] })
     } catch (err) {
       setError(toFormErrors(err).message)
     } finally {
@@ -153,7 +162,12 @@ export function HostDetails({ host, onEdit, onDeleted, onTagClick, onConnectMenu
                 return (
                   <li key={index} className={styles.row}>
                     <Badge variant={index === 0 ? 'accent' : 'neutral'}>{info.label}</Badge>
-                    <span className={styles.rowMain}>{service.label ?? info.name}</span>
+                    <span className={styles.rowMain}>
+                      {service.label ?? info.name}
+                      {service.protocol === 'Rdp' && service.rdpSecurity ? (
+                        <span className={styles.muted}> · {RDP_SECURITY_INFO[service.rdpSecurity].label}</span>
+                      ) : null}
+                    </span>
                     <span className={`${styles.mono} ${styles.muted}`}>
                       {service.port ? `port ${service.port}` : info.defaultPort ? `port ${info.defaultPort} (default)` : ''}
                     </span>
@@ -193,18 +207,18 @@ export function HostDetails({ host, onEdit, onDeleted, onTagClick, onConnectMenu
           )}
         </section>
 
-        {host.sshHostKeys.length > 0 ? (
+        {host.trustedKeys.length > 0 ? (
           <section className={styles.section} aria-labelledby="host-keys-title">
             <h2 id="host-keys-title" className={styles.sectionTitle}>
-              Trusted SSH host keys
+              Trusted keys and certificates
             </h2>
             <ul className={styles.rows}>
-              {host.sshHostKeys.map((key) => (
-                <li key={`${key.port}-${key.algorithm}`} className={styles.row}>
+              {host.trustedKeys.map((key) => (
+                <li key={`${key.protocol}-${key.port}-${key.algorithm}`} className={styles.row}>
                   <div className={styles.rowMain}>
-                    <div className={styles.mono}>SHA256:{key.fingerprint}</div>
+                    <div className={`${styles.mono} ${styles.fingerprint}`}>{formatFingerprint(key)}</div>
                     <div className={styles.muted}>
-                      {key.algorithm} · port {key.port} · trusted {dateTimeFormat.format(new Date(key.trustedAtUtc))}
+                      {describeKey(key)} · port {key.port} · trusted {dateTimeFormat.format(new Date(key.trustedAtUtc))}
                     </div>
                   </div>
                 </li>

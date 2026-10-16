@@ -20,7 +20,7 @@ function makeHost(overrides: Partial<Host>): Host {
     tags: [],
     services: [],
     credentials: [],
-    sshHostKeys: [],
+    trustedKeys: [],
     createdAtUtc: '2026-10-01T12:00:00Z',
     updatedAtUtc: '2026-10-01T12:00:00Z',
     version: 1,

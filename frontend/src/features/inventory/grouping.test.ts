@@ -15,7 +15,7 @@ function host(name: string, tags: HostTag[] = [], options: Partial<Host> & { pro
     tags,
     services: protocols.map((protocol) => ({ protocol, port: null, label: null })),
     credentials: [],
-    sshHostKeys: [],
+    trustedKeys: [],
     createdAtUtc: '2026-10-01T00:00:00Z',
     updatedAtUtc: '2026-10-01T00:00:00Z',
     version: 1,

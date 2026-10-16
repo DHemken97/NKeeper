@@ -1,8 +1,8 @@
 import type { MenuEntry } from '../../components/ui/ContextMenu'
-import { formatAccount, PROTOCOL_INFO, primaryAddress, type Host, type HostCredential, type HostService } from './types'
+import { formatAccount, PROTOCOL_INFO, primaryAddress, type Host, type HostCredential, type HostService, type ServiceProtocol } from './types'
 
 /** Protocols NKeeper can open sessions for today. */
-const CONNECTABLE = new Set(['Ssh'])
+const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp'])
 
 export interface HostMenuActions {
   /** Open a session with a saved credential. */
@@ -22,10 +22,13 @@ function servicePort(service: HostService): string {
   return `:${service.port ?? PROTOCOL_INFO[service.protocol].defaultPort ?? ''}`
 }
 
-/** Why a credential cannot be used for SSH, or null when it can. */
-export function credentialProblem(credential: HostCredential): string | null {
+/** Why a credential cannot be used with a protocol, or null when it can. */
+export function credentialProblem(credential: HostCredential, protocol: ServiceProtocol): string | null {
   if (!credential.username) {
     return 'No username'
+  }
+  if (protocol === 'Rdp') {
+    return credential.hasPassword ? null : 'No password'
   }
   if (!credential.hasPassword && !credential.hasPrivateKey) {
     return 'No password or key'
@@ -53,7 +56,7 @@ export function connectMenuEntries(host: Host, actions: Pick<HostMenuActions, 'c
 
     const credentials: MenuEntry[] = host.credentials.map((credential): MenuEntry => {
       const account = formatAccount(credential)
-      const problem = credentialProblem(credential)
+      const problem = credentialProblem(credential, service.protocol)
       return {
         kind: 'item',
         label: credential.label ?? account ?? 'Credential',
@@ -78,11 +81,12 @@ export function connectMenuEntries(host: Host, actions: Pick<HostMenuActions, 'c
   return services.length > 0 ? services : [{ kind: 'item', label: 'No services', detail: 'Edit the host to add one', disabled: true }]
 }
 
-/** The first SSH service with the first usable credential, for double-click connect. */
+/** The first connectable service with the first usable credential, for double-click connect. */
 export function defaultConnection(host: Host): { serviceIndex: number; credential: HostCredential | null } | null {
   const serviceIndex = host.services.findIndex((s) => CONNECTABLE.has(s.protocol))
   if (serviceIndex === -1) {
     return null
   }
-  return { serviceIndex, credential: host.credentials.find((c) => credentialProblem(c) === null) ?? null }
+  const protocol = host.services[serviceIndex].protocol
+  return { serviceIndex, credential: host.credentials.find((c) => credentialProblem(c, protocol) === null) ?? null }
 }

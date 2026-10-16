@@ -115,7 +115,7 @@ const linux01: Host = {
     { id: 'c-root', label: 'Root', username: 'root', domain: null, notes: null, hasPassword: true, hasPrivateKey: false },
     { id: 'c-empty', label: 'Placeholder', username: null, domain: null, notes: null, hasPassword: false, hasPrivateKey: false },
   ],
-  sshHostKeys: [],
+  trustedKeys: [],
   createdAtUtc: '2026-10-01T12:00:00Z',
   updatedAtUtc: '2026-10-01T12:00:00Z',
   version: 1,
@@ -258,7 +258,7 @@ describe('host context menu', () => {
     socket.receive({ type: 'error', code: 'host_key_changed', message: 'The ssh-ed25519 host key has changed. Someone may be intercepting the connection.' })
 
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
-    expect(screen.getByRole('alert')).toHaveTextContent('Host key changed')
+    expect(screen.getByRole('alert')).toHaveTextContent('Server identity changed')
     await user.click(screen.getByRole('button', { name: 'Show host details' }))
 
     expect(router.state.location.search).toBe('?host=h-linux01')

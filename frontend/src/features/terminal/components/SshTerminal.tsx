@@ -3,13 +3,13 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
-import { Spinner } from '../../../components/ui/Spinner'
 import { apiWebSocketUrl } from '../../../lib/api'
-import type { ServerMessage, TerminalSession } from '../types'
-import styles from './SshTerminal.module.css'
+import type { RemoteSession, ServerMessage, SessionPhase } from '../types'
+import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
+import styles from './Session.module.css'
 
 interface SshTerminalProps {
-  session: TerminalSession
+  session: RemoteSession
   /** Only the active tab is visible; it gets keyboard focus and is resized to fit. */
   active: boolean
   /** Show the host's details (e.g. to forget a changed host key). */
@@ -17,15 +17,6 @@ interface SshTerminalProps {
   /** The remote shell ended normally (e.g. `exit`); the tab closes itself. Errors keep it open. */
   onEnded: () => void
 }
-
-type HostKeyPrompt = Extract<ServerMessage, { type: 'hostKey' }>
-
-type Phase =
-  | { kind: 'connecting'; target?: string }
-  | { kind: 'hostKey'; prompt: HostKeyPrompt; target?: string }
-  | { kind: 'connected'; target: string }
-  /** Ended with an error; a normal end closes the tab instead. */
-  | { kind: 'ended'; message: string; code?: string; target?: string }
 
 const THEME = {
   background: '#0b1220',
@@ -55,7 +46,7 @@ export function SshTerminal({ session, active, onShowHost, onEnded }: SshTermina
   const connectedRef = useRef(false)
   // One-off passwords are sent once and then forgotten.
   const requestRef = useRef(session.request)
-  const [phase, setPhase] = useState<Phase>({ kind: 'connecting' })
+  const [phase, setPhase] = useState<SessionPhase>({ kind: 'connecting' })
   const [attempt, setAttempt] = useState(0)
   // Read from socket handlers created per attempt, so always call the latest callback.
   const onEndedRef = useRef(onEnded)
@@ -202,96 +193,30 @@ export function SshTerminal({ session, active, onShowHost, onEnded }: SshTermina
   }
 
   const canReconnect = !session.request.oneOff
-  const target = phase.target
 
   return (
     <div className={styles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} terminal`}>
-      <div className={styles.statusBar} role="status">
-        <span className={`${styles.dot} ${styles[phase.kind]} ${phase.kind === 'ended' ? styles.failed : ''}`} />
-        <span className={styles.statusText}>
-          {phase.kind === 'connected'
-            ? 'Connected'
-            : phase.kind === 'ended'
-              ? 'Not connected'
-              : phase.kind === 'hostKey'
-                ? 'Waiting for host key confirmation'
-                : 'Connecting…'}
-        </span>
-        {target ? <span className={styles.target}>{target}</span> : null}
+      <SessionStatusBar phase={phase}>
         {phase.kind === 'ended' && canReconnect ? (
-          <Button variant="secondary" size="sm" className={styles.statusAction} onClick={reconnect}>
+          <Button variant="secondary" size="sm" onClick={reconnect}>
             Reconnect
           </Button>
         ) : null}
-      </div>
+      </SessionStatusBar>
 
       <div className={styles.terminalArea}>
         <div ref={containerRef} className={styles.terminal} />
-
-        {phase.kind === 'connecting' && !target ? (
-          <div className={styles.overlay}>
-            <div className={styles.card}>
-              <Spinner /> Opening session…
-            </div>
-          </div>
-        ) : null}
-
-        {phase.kind === 'hostKey' ? <HostKeyCard prompt={phase.prompt} target={target} onDecide={decideHostKey} /> : null}
-
+        {phase.kind === 'connecting' && !phase.target ? <OpeningCard /> : null}
+        {phase.kind === 'hostKey' ? <TrustCard prompt={phase.prompt} target={phase.target} onDecide={decideHostKey} /> : null}
         {phase.kind === 'ended' ? (
-          <div className={styles.overlay}>
-            <div className={`${styles.card} ${styles.errorCard}`} role="alert">
-              <h3 className={styles.cardTitle}>{phase.code === 'host_key_changed' ? 'Host key changed' : 'Couldn’t connect'}</h3>
-              <p>{phase.message}</p>
-              <div className={styles.cardActions}>
-                {phase.code === 'host_key_changed' ? (
-                  <Button variant="secondary" size="sm" onClick={() => onShowHost(session.hostId)}>
-                    Show host details
-                  </Button>
-                ) : null}
-                {canReconnect ? (
-                  <Button size="sm" onClick={reconnect}>
-                    Try again
-                  </Button>
-                ) : (
-                  <p className={styles.hint}>Open a new session from the host’s menu to sign in again.</p>
-                )}
-              </div>
-            </div>
-          </div>
+          <EndedCard
+            message={phase.message}
+            code={phase.code}
+            canReconnect={canReconnect}
+            onReconnect={reconnect}
+            onShowHost={() => onShowHost(session.hostId)}
+          />
         ) : null}
-      </div>
-    </div>
-  )
-}
-
-function HostKeyCard({ prompt, target, onDecide }: { prompt: HostKeyPrompt; target?: string; onDecide: (trust: boolean) => void }) {
-  if (prompt.status === 'changed') {
-    // The server refuses the connection; an error message follows.
-    return null
-  }
-  return (
-    <div className={styles.overlay}>
-      <div className={styles.card} role="alertdialog" aria-labelledby="host-key-title" aria-describedby="host-key-text">
-        <h3 id="host-key-title" className={styles.cardTitle}>
-          Trust this host key?
-        </h3>
-        <p id="host-key-text">
-          This is the first connection to {target ?? `port ${prompt.port}`}. Check that the fingerprint matches the server’s before
-          trusting it; NKeeper will refuse the connection if it ever changes.
-        </p>
-        <dl className={styles.fingerprint}>
-          <dt>{prompt.algorithm}</dt>
-          <dd>SHA256:{prompt.fingerprint}</dd>
-        </dl>
-        <div className={styles.cardActions}>
-          <Button variant="secondary" size="sm" onClick={() => onDecide(false)}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={() => onDecide(true)} autoFocus>
-            Trust and connect
-          </Button>
-        </div>
       </div>
     </div>
   )

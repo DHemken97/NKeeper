@@ -12,7 +12,7 @@ import { HostEditor } from '../components/HostEditor'
 import { HostTree } from '../components/HostTree'
 import { buildTree, decodeGroupKey, encodeGroupKey, sortHosts, tagNames, tagValues, type GroupKey, type HostSort } from '../grouping'
 import { CredentialPromptDialog } from '../../terminal/components/CredentialPromptDialog'
-import type { TerminalSession } from '../../terminal/types'
+import type { RemoteSession } from '../../terminal/types'
 import { useResource } from '../hooks/useResource'
 import { connectMenuEntries, defaultConnection, hostMenuEntries, serviceLabel, type HostMenuActions } from '../hostMenu'
 import { matchesSearch, parseSearch, tagSearchTerm } from '../search'
@@ -25,6 +25,7 @@ let nextSessionId = 1
 
 // xterm.js is large; load it on the first connection rather than with the page.
 const SshTerminal = lazy(() => import('../../terminal/components/SshTerminal').then((m) => ({ default: m.SshTerminal })))
+const RdpSession = lazy(() => import('../../terminal/components/RdpSession').then((m) => ({ default: m.RdpSession })))
 const SORTS: { value: HostSort; label: string }[] = [
   { value: 'name', label: 'Name' },
   { value: 'address', label: 'Address' },
@@ -56,7 +57,7 @@ export function WorkspacePage() {
   const resource = useResource((signal) => hostsApi.list(signal))
   const [local, setLocal] = useState<LocalChanges>({ basedOn: undefined, hosts: [] })
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
-  const [sessions, setSessions] = useState<TerminalSession[]>([])
+  const [sessions, setSessions] = useState<RemoteSession[]>([])
   const [activeTab, setActiveTab] = useState(DETAILS_TAB)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [prompt, setPrompt] = useState<{ host: Host; serviceIndex: number } | null>(null)
@@ -111,6 +112,7 @@ export function WorkspacePage() {
       {
         id,
         hostId: host.id,
+        protocol: host.services[serviceIndex].protocol === 'Rdp' ? 'rdp' : 'ssh',
         title: sameHost > 0 ? `${host.name} (${sameHost + 1})` : host.name,
         detail: [serviceLabel(host.services[serviceIndex]), account].filter(Boolean).join(' · '),
         request: { hostId: host.id, serviceIndex, credentialId: credential?.id, oneOff },
@@ -384,13 +386,23 @@ export function WorkspacePage() {
           }
         >
           {sessions.map((session) => (
-            <SshTerminal
-              key={session.id}
-              session={session}
-              active={activeTab === session.id}
-              onShowHost={(id) => showHost(id)}
-              onEnded={() => closeSession(session.id)}
-            />
+            session.protocol === 'rdp' ? (
+              <RdpSession
+                key={session.id}
+                session={session}
+                active={activeTab === session.id}
+                onShowHost={(id) => showHost(id)}
+                onEnded={() => closeSession(session.id)}
+              />
+            ) : (
+              <SshTerminal
+                key={session.id}
+                session={session}
+                active={activeTab === session.id}
+                onShowHost={(id) => showHost(id)}
+                onEnded={() => closeSession(session.id)}
+              />
+            )
           ))}
         </Suspense>
       </main>

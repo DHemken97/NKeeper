@@ -104,6 +104,23 @@ select.input {
   cursor: default;
 }
 
+.option {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: var(--space-3);
+  padding-left: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+.option .input {
+  flex: 1;
+  min-height: 2.25rem;
+  max-width: 28rem;
+  font-size: 0.875rem;
+}
+
 .error {
   grid-column: 1 / -1;
   font-size: 0.8125rem;

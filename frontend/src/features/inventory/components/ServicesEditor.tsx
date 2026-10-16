@@ -1,7 +1,7 @@
 import { Button } from '../../../components/ui/Button'
 import { errorFor } from '../../../lib/formErrors'
 import { newServiceDraft, type ServiceDraft } from '../drafts'
-import { PROTOCOL_INFO, SERVICE_PROTOCOLS, type ServiceProtocol } from '../types'
+import { PROTOCOL_INFO, RDP_SECURITY_INFO, SERVICE_PROTOCOLS, type RdpSecurity, type ServiceProtocol } from '../types'
 import styles from './ListEditor.module.css'
 
 interface ServicesEditorProps {
@@ -104,6 +104,23 @@ export function ServicesEditor({ value, onChange, errors }: ServicesEditorProps)
                   ×
                 </button>
               </div>
+              {service.protocol === 'Rdp' ? (
+                <label className={styles.option}>
+                  <span>Security</span>
+                  <select
+                    className={styles.input}
+                    value={service.rdpSecurity}
+                    onChange={(event) => update(service.key, { rdpSecurity: event.target.value as RdpSecurity })}
+                    aria-label={`Security for ${position}`}
+                  >
+                    {Object.entries(RDP_SECURITY_INFO).map(([mode, info]) => (
+                      <option key={mode} value={mode}>
+                        {info.label} — {info.description}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               {rowError ? <p className={styles.error}>{rowError}</p> : null}
             </li>
           )

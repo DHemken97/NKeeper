@@ -37,10 +37,21 @@ export interface HostTag {
   value: string | null
 }
 
+/** How an RDP connection is secured. Legacy RDP security (no TLS) is never offered. */
+export type RdpSecurity = 'Auto' | 'Nla' | 'Tls'
+
+export const RDP_SECURITY_INFO: Record<RdpSecurity, { label: string; description: string }> = {
+  Auto: { label: 'Automatic', description: 'NLA when the server offers it, otherwise TLS' },
+  Nla: { label: 'NLA only', description: 'Network Level Authentication, the Windows default' },
+  Tls: { label: 'TLS only', description: 'For servers without NLA, such as xrdp' },
+}
+
 export interface HostService {
   protocol: ServiceProtocol
   port: number | null
   label: string | null
+  /** RDP services only. */
+  rdpSecurity?: RdpSecurity | null
 }
 
 /** A credential as returned by the API. Secrets are never included, only whether they are set. */
@@ -54,11 +65,13 @@ export interface HostCredential {
   hasPrivateKey: boolean
 }
 
-/** An SSH host key the users trusted for one of the host's ports. */
-export interface SshHostKey {
+/** An SSH host key or RDP certificate the users trusted for one of the host's ports. */
+export interface TrustedKey {
+  protocol: ServiceProtocol
   port: number
+  /** SSH: the key algorithm, e.g. "ssh-ed25519". RDP: "x509". */
   algorithm: string
-  /** SHA-256 fingerprint, unpadded base64 as printed by OpenSSH (without "SHA256:"). */
+  /** SHA-256. SSH: unpadded base64 (as OpenSSH prints it). RDP: colon-separated hex. */
   fingerprint: string
   trustedAtUtc: string
 }
@@ -73,7 +86,7 @@ export interface Host {
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredential[]
-  sshHostKeys: SshHostKey[]
+  trustedKeys: TrustedKey[]
   createdAtUtc: string
   updatedAtUtc: string
   version: number
