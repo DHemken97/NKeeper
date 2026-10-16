@@ -53,6 +53,7 @@ public sealed class SshServerFixture : IAsyncLifetime
             }
 
             PrivateKey = keygen.Stdout;
+            await PrepareKvmAsync(_container);
         }
 #pragma warning disable CA1031 // Any failure here means "no SSH server available", which is reported as a skip.
         catch (Exception ex)
@@ -60,6 +61,37 @@ public sealed class SshServerFixture : IAsyncLifetime
         {
             UnavailableReason = $"SSH terminal tests need Docker (Testcontainers). Docker was not usable: {ex.GetType().Name}: {ex.Message}";
         }
+    }
+
+    /// <summary>Port of the stand-in SPICE display (an echo server) on the SSH server's loopback.</summary>
+    public const int FakeSpicePort = 5930;
+
+    /// <summary>
+    /// Makes the SSH server look like a KVM host: a fake <c>virsh</c>, TCP forwarding enabled (as
+    /// virt-manager needs too), and an echo server standing in for a VM's SPICE port on loopback.
+    /// </summary>
+    private static async Task PrepareKvmAsync(IContainer container)
+    {
+        var virsh = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Kvm", "fake-virsh.sh"));
+        await container.CopyAsync(virsh, "/usr/local/bin/virsh", fileMode: DotNet.Testcontainers.Configurations.UnixFileModes.UserRead | DotNet.Testcontainers.Configurations.UnixFileModes.UserWrite
+            | DotNet.Testcontainers.Configurations.UnixFileModes.UserExecute | DotNet.Testcontainers.Configurations.UnixFileModes.GroupRead
+            | DotNet.Testcontainers.Configurations.UnixFileModes.GroupExecute | DotNet.Testcontainers.Configurations.UnixFileModes.OtherRead
+            | DotNet.Testcontainers.Configurations.UnixFileModes.OtherExecute);
+        var forwarding = await container.ExecAsync([
+            "sh", "-c",
+            "sed -i 's/^AllowTcpForwarding no/AllowTcpForwarding yes/' /config/sshd/sshd_config && s6-svc -r /run/service/svc-openssh-server",
+        ]);
+        if (forwarding.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"Enabling TCP forwarding failed: {forwarding.Stderr}");
+        }
+
+        // One connection at a time: OpenBSD netcat has no -e, so loop a FIFO through cat.
+        _ = container.ExecAsync([
+            "sh", "-c",
+            $"while true; do rm -f /tmp/echo.fifo; mkfifo /tmp/echo.fifo; nc -l 127.0.0.1 {FakeSpicePort} < /tmp/echo.fifo | cat > /tmp/echo.fifo; done",
+        ]);
+        await Task.Delay(TimeSpan.FromSeconds(2));
     }
 
     public void SkipIfUnavailable()

@@ -92,6 +92,7 @@ internal sealed class SessionTargetResolver(HostAccess access, CredentialProtect
             string.IsNullOrEmpty(password) ? null : password,
             string.IsNullOrEmpty(privateKey) ? null : privateKey,
             credentialSource,
-            host.TrustedKeys.Where(k => k.Protocol == protocol && k.Port == port).ToList());
+            // A KVM host is reached over SSH: its host keys are SSH host keys, shared with SSH sessions.
+            host.TrustedKeys.Where(k => k.Protocol == (protocol == ServiceProtocol.Kvm ? ServiceProtocol.Ssh : protocol) && k.Port == port).ToList());
     }
 }

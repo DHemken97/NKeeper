@@ -81,9 +81,8 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
     private async Task<SshClient> ConnectAsync(
         SessionSocket socket, SessionTarget target, List<IDisposable> disposables, Guid userId, CancellationToken cancellationToken)
     {
-        // Windows OpenSSH accepts DOMAIN\user for domain accounts.
-        var username = target.Domain is null ? target.Username : $"{target.Domain}\\{target.Username}";
-        var methods = CreateAuthenticationMethods(username, target);
+        var username = SshAuthentication.UserName(target);
+        var methods = SshAuthentication.CreateMethods(username, target);
         disposables.AddRange(methods.OfType<IDisposable>());
         var connectionInfo = new SshConnectionInfo(target.Address, target.Port, username, [.. methods]) { Timeout = ConnectTimeout };
 
@@ -105,7 +104,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
             {
                 HostKeyOutcome.Changed => new SessionException(SessionErrorCodes.HostKeyChanged, TrustedKeyStore.ChangedMessage("host key", target)),
                 HostKeyOutcome.Rejected => new SessionException(SessionErrorCodes.HostKeyRejected, "The host key was not trusted, so the connection was closed."),
-                _ => TranslateConnectError(ex, target, username),
+                _ => SshAuthentication.TranslateConnectError(ex, target, username),
             };
         }
         finally
@@ -117,58 +116,6 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
             }
         }
     }
-
-    private static List<AuthenticationMethod> CreateAuthenticationMethods(string username, SessionTarget target)
-    {
-        var methods = new List<AuthenticationMethod>();
-        if (target.PrivateKey is not null)
-        {
-            methods.Add(new PrivateKeyAuthenticationMethod(username, LoadPrivateKey(target.PrivateKey, target.Password)));
-        }
-
-        if (target.Password is { } password)
-        {
-            methods.Add(new PasswordAuthenticationMethod(username, password));
-            // Many servers (e.g. Ubuntu's default) only offer passwords through keyboard-interactive.
-            var keyboardInteractive = new KeyboardInteractiveAuthenticationMethod(username);
-            keyboardInteractive.AuthenticationPrompt += (_, e) =>
-            {
-                foreach (var prompt in e.Prompts)
-                {
-                    prompt.Response = password;
-                }
-            };
-            methods.Add(keyboardInteractive);
-        }
-
-        return methods;
-    }
-
-    /// <summary>Loads a key; the credential's password doubles as the key's passphrase.</summary>
-    private static PrivateKeyFile LoadPrivateKey(string privateKey, string? passphrase)
-    {
-        try
-        {
-            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(privateKey));
-            return string.IsNullOrEmpty(passphrase) ? new PrivateKeyFile(stream) : new PrivateKeyFile(stream, passphrase);
-        }
-        catch (Exception ex) when (ex is SshException or ArgumentException or InvalidOperationException or FormatException or NotSupportedException)
-        {
-            throw new SessionException(
-                SessionErrorCodes.InvalidPrivateKey,
-                "The SSH private key couldn't be read. Check its format, and that the credential's password is the key's passphrase if it has one.");
-        }
-    }
-
-    private static SessionException TranslateConnectError(Exception ex, SessionTarget target, string username) => ex switch
-    {
-        SshAuthenticationException => new(SessionErrorCodes.AuthenticationFailed, $"Authentication failed for {username}. Check the username, password or key."),
-        SocketException socket => new(SessionErrorCodes.ConnectionFailed, $"Couldn't connect to {target.Address}:{target.Port} ({SocketErrors.Describe(socket.SocketErrorCode, "SSH")})."),
-        SshOperationTimeoutException or OperationCanceledException or TimeoutException =>
-            new(SessionErrorCodes.Timeout, $"Timed out connecting to {target.Address}:{target.Port}."),
-        SshConnectionException connection => new(SessionErrorCodes.ConnectionFailed, $"The SSH connection failed: {connection.Message}"),
-        _ => new(SessionErrorCodes.ConnectionFailed, $"Couldn't open an SSH session to {target.Address}:{target.Port}."),
-    };
 
     private static async Task PumpAsync(SessionSocket socket, SshClient client, ShellStream shell, CancellationToken cancellationToken)
     {

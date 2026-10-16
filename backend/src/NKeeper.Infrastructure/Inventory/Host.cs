@@ -177,5 +177,8 @@ public enum ServiceProtocol
     Https,
     WinRm,
     PowerShell,
+
+    /// <summary>A KVM hypervisor managed with libvirt, reached over SSH: lists VMs and opens their SPICE consoles.</summary>
+    Kvm,
     Other,
 }

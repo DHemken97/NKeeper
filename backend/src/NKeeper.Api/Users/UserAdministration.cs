@@ -20,6 +20,7 @@ public sealed class UserAdministration(
     SessionRevoker sessions,
     SessionLimiter remoteSessions,
     Web.WebSessionStore webSessions,
+    Kvm.SpiceSessionStore consoles,
     TimeProvider timeProvider,
     ILogger<UserAdministration> logger)
 {
@@ -226,6 +227,7 @@ public sealed class UserAdministration(
         await sessions.RevokeAllAsync(userId, cancellationToken);
         remoteSessions.TerminateAll(userId);
         webSessions.EndAll(userId);
+        consoles.EndAll(userId);
     }
 
     private async Task EnsureAnotherActiveAdministratorAsync(Guid exceptUserId, string field, CancellationToken cancellationToken)
