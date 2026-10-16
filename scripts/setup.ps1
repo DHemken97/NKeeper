@@ -239,10 +239,10 @@ function Resolve-Settings {
         # .env.example's values (localhost on 8443) aren't a previous choice.
         if (($previous -join ' ') -eq 'localhost' -and $previousHttps -eq 8443) { $previous = @(); $previousHttps = 0; $previousHttp = 0 }
     } elseif ($state) {
-        $previous = @($state.Names)
-        $previousHttps = [int]$state.HttpsPort
-        $previousHttp = [int]$state.HttpPort
-        $previousLocal = [bool]$state.LocalOnly
+        $previous = @($state['Names'])
+        $previousHttps = [int]$state['HttpsPort']
+        $previousHttp = [int]$state['HttpPort']
+        $previousLocal = [bool]$state['LocalOnly']
     }
     if (-not $script:HttpsPort) { $script:HttpsPort = if ($previousHttps) { $previousHttps } else { 443 } }
     if (-not $script:HttpPort) { $script:HttpPort = if ($previousHttp) { $previousHttp } else { 80 } }
@@ -516,11 +516,11 @@ function Invoke-Psql([string]$Psql, [string]$SuperPassword, [string]$Sql) {
 
 function Initialize-Database($State) {
     if ($ConnectionString) { return $ConnectionString }
-    if ($State -and $State.ConnectionString) { return $State.ConnectionString }
+    if ($State -and $State['ConnectionString']) { return $State['ConnectionString'] }
 
     Write-Step 'Setting up PostgreSQL'
     $psql = Get-Psql
-    $super = if ($State) { $State.PostgresSuperPassword } else { $null }
+    $super = if ($State) { $State['PostgresSuperPassword'] } else { $null }
     if (-not $psql) {
         $super = New-RandomText 32
         Install-WingetPackage 'PostgreSQL.PostgreSQL.17' 'PostgreSQL 17' @('--override', "--mode unattended --unattendedmodeui none --superpassword $super --serverport 5432")
@@ -591,9 +591,9 @@ function Get-Certificate($State) {
     if ($WebDomain) { $names += "*.$WebDomain" }
     $san = Get-SanText $names
     $ca = $null
-    if ($State -and $State.CaThumbprint) { $ca = Get-Item "Cert:\LocalMachine\My\$($State.CaThumbprint)" -ErrorAction SilentlyContinue }
-    if ($State -and $State.ServerThumbprint -and $State.ServerSan -eq $san -and $ca) {
-        $existing = Get-Item "Cert:\LocalMachine\My\$($State.ServerThumbprint)" -ErrorAction SilentlyContinue
+    if ($State -and $State['CaThumbprint']) { $ca = Get-Item "Cert:\LocalMachine\My\$($State['CaThumbprint'])" -ErrorAction SilentlyContinue }
+    if ($State -and $State['ServerThumbprint'] -and $State['ServerSan'] -eq $san -and $ca) {
+        $existing = Get-Item "Cert:\LocalMachine\My\$($State['ServerThumbprint'])" -ErrorAction SilentlyContinue
         if ($existing -and $existing.NotAfter -gt (Get-Date).AddDays(30)) { return $existing.Thumbprint }
     }
 
@@ -617,8 +617,8 @@ function Get-Certificate($State) {
 }
 
 function Export-CaCertificate($State) {
-    if ($CertificateThumbprint -or -not $State.CaThumbprint) { return }
-    $ca = Get-Item "Cert:\LocalMachine\My\$($State.CaThumbprint)" -ErrorAction SilentlyContinue
+    if ($CertificateThumbprint -or -not $State['CaThumbprint']) { return }
+    $ca = Get-Item "Cert:\LocalMachine\My\$($State['CaThumbprint'])" -ErrorAction SilentlyContinue
     if (-not $ca) { return }
     $pem = "-----BEGIN CERTIFICATE-----`n" + ([Convert]::ToBase64String($ca.RawData, 'InsertLineBreaks') -replace "`r`n", "`n") + "`n-----END CERTIFICATE-----`n"
     $script:CaFile = Join-Path $Repo 'nkeeper-ca.crt'
@@ -690,7 +690,7 @@ $variables
 function Install-Iis {
     if (-not (Test-Administrator)) { Stop-Setup 'IIS mode installs Windows features and services: run PowerShell as administrator.' }
     $state = Get-State
-    $fresh = -not ($state -and $state.Installed)
+    $fresh = -not ($state -and $state['Installed'])
 
     Install-IisPrerequisites
     $connection = Initialize-Database $state
@@ -833,17 +833,17 @@ function Uninstall-Iis {
     if (Test-Path "IIS:\AppPools\$PoolName") { Remove-WebAppPool -Name $PoolName }
     if ($state) {
         $bindingIp = '0.0.0.0'
-        Get-Item "IIS:\SslBindings\$bindingIp!$($state.HttpsPort)" -ErrorAction SilentlyContinue | Remove-Item
+        Get-Item "IIS:\SslBindings\$bindingIp!$($state['HttpsPort'])" -ErrorAction SilentlyContinue | Remove-Item
     }
     Remove-Item -Recurse -Force $SiteDir, $RedirectDir, (Join-Path $DataDir 'build') -ErrorAction SilentlyContinue
     if (Get-Command docker -ErrorAction SilentlyContinue) { $null = Invoke-Quiet { docker rm -f nkeeper-guacd } }
     Remove-FirewallRule
     if ($Purge -and $state) {
         $psql = Get-Psql
-        if ($psql -and $state.PostgresSuperPassword) {
-            Invoke-Psql $psql $state.PostgresSuperPassword "DROP DATABASE IF EXISTS nkeeper WITH (FORCE);`nDROP ROLE IF EXISTS nkeeper;"
+        if ($psql -and $state['PostgresSuperPassword']) {
+            Invoke-Psql $psql $state['PostgresSuperPassword'] "DROP DATABASE IF EXISTS nkeeper WITH (FORCE);`nDROP ROLE IF EXISTS nkeeper;"
         }
-        foreach ($thumb in $state.ServerThumbprint, $state.CaThumbprint) {
+        foreach ($thumb in $state['ServerThumbprint'], $state['CaThumbprint']) {
             if ($thumb) { Get-ChildItem Cert:\LocalMachine\My, Cert:\LocalMachine\Root | Where-Object Thumbprint -eq $thumb | Remove-Item }
         }
         Remove-Item -Recurse -Force $DataDir, (Join-Path $Repo 'nkeeper-ca.crt') -ErrorAction SilentlyContinue
