@@ -57,7 +57,8 @@ describe('authentication flow', () => {
     expect(await screen.findByText('Your inventory is empty')).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/')
 
-    await user.click(screen.getByRole('button', { name: 'Sign out' }))
+    await user.click(screen.getByRole('button', { name: /admin/ }))
+    await user.click(screen.getByRole('menuitem', { name: 'Sign out' }))
 
     expect(await screen.findByRole('heading', { name: 'Sign in to NKeeper' })).toBeInTheDocument()
   })

@@ -14,6 +14,7 @@ NKeeper is a free, open-source, web-based remote connection manager — a browse
 - [Host inventory](#host-inventory)
 - [SSH sessions](#ssh-sessions)
 - [RDP sessions](#rdp-sessions)
+- [Users and access](#users-and-access)
 - [Database migrations](#database-migrations)
 - [Configuration reference](#configuration-reference)
 - [Testing](#testing)
@@ -216,6 +217,18 @@ RDP services connect the same way (**Connect ▸ RDP ▸ credential**), through 
 
 In the session: keyboard input goes to the remote desktop while it has focus; **Ctrl+Alt+Del** and **Fullscreen** (which in Chromium also captures Win/Alt+Tab) are in the status bar; the text clipboard syncs both ways (reading your clipboard needs browser permission and a secure origin such as `localhost` or HTTPS); sound plays. File transfer, drives, printing, microphone and recording are off. The browser client is the official Apache Guacamole 1.6.0 release, vendored and verified (see `frontend/src/vendor/guacamole-common-js/README.md`).
 
+## Users and access
+
+Administrators manage accounts under **Users** in the top bar; everyone can change their own password from the account menu (top right).
+
+- **Roles.** *Administrators* see and manage every host and manage users. *Users* see only what they've been granted.
+- **Access grants** give a user a **group** of hosts — a tag, e.g. `site: Datacenter A`, or just `site` for any value — or **individual hosts**, at one of two levels: **Use** (see and connect) or **Manage** (also edit and delete). Group grants follow the tags, so newly tagged hosts are included automatically. The editor shows how many hosts each grant covers. Only administrators add hosts.
+- **New users** get a password from the administrator (there's a generator) and, by default, must choose their own at first sign-in. Users sign in with their username or email, so email is required and unique.
+- **Changes apply immediately.** Accounts are re-checked on every request. Disabling, deleting, promoting or demoting a user, or resetting their password, signs them out everywhere, including open SSH and RDP sessions. Changing your own password signs out your other sessions. Grant changes apply to the user's next action (open sessions continue).
+- **No lock-outs.** Administrators can't demote, disable or delete themselves, and NKeeper keeps at least one active administrator.
+
+Everything is enforced by the API: hosts a user can't see answer `404` (their existence isn't revealed), hosts they can see but not manage answer `403`, and SSH/RDP sessions resolve hosts through the same rules. Account changes are logged with who made them.
+
 ## Database migrations
 
 Migrations live in `backend/src/NKeeper.Infrastructure/Migrations` and are committed. The schema is never created with `EnsureCreated()`. Run these from `backend/` after `dotnet tool restore`:
@@ -337,9 +350,9 @@ NKeeper must be served over HTTPS in production. The frontend container speaks p
 
 ## Known limitations
 
-- SSH and RDP sessions are implemented; VNC and the other services are listed as "Coming soon". RDP one-off logins have no domain field yet (use a saved credential for domain accounts). Workspaces, permissions, an audit-event store, SignalR collaboration and mRemoteNG import are not implemented yet. The host inventory is shared by all signed-in users.
+- SSH and RDP sessions are implemented; VNC and the other services are listed as "Coming soon". RDP one-off logins have no domain field yet (use a saved credential for domain accounts). Workspaces, user groups (teams), an audit-event store, SignalR collaboration and mRemoteNG import are not implemented yet. 
 - Terminal sessions live in the API process: restarting the backend ends them, and the per-user session limit is per instance. SSH agent forwarding, port forwarding, jump hosts and SFTP are not supported yet.
-- No self-service password reset or user administration UI; the "Forgot password?" link shows a placeholder.
+- No self-service "forgot password" (an administrator resets it); the link shows a placeholder.
 - Data Protection keys are stored unencrypted in PostgreSQL (ASP.NET Core logs a warning about this), next to the credential secrets they encrypt. Protect them with a certificate or key vault (`ProtectKeysWith…`) before production use, and back them up: losing the keys makes stored passwords and SSH keys unrecoverable.
 - Expired sessions are purged opportunistically when new sessions are created; there is no background cleanup job yet.
 - Rate limiting is in-memory and per API instance.

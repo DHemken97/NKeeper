@@ -42,7 +42,7 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
     { kind: 'header', label: host.name },
     { kind: 'item', label: 'Connect', submenu: connectMenuEntries(host, actions) },
     { kind: 'separator' },
-    { kind: 'item', label: 'Edit', onSelect: () => actions.edit(host) },
+    ...(host.canManage ? [{ kind: 'item', label: 'Edit', onSelect: () => actions.edit(host) } as const] : []),
     { kind: 'item', label: 'Copy address', detail: primaryAddress(host), onSelect: () => actions.copyAddress(host) },
   ]
 }

@@ -90,6 +90,8 @@ export interface Host {
   createdAtUtc: string
   updatedAtUtc: string
   version: number
+  /** Whether the signed-in user may edit and delete this host. */
+  canManage: boolean
 }
 
 /**

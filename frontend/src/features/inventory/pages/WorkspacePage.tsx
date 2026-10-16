@@ -17,6 +17,8 @@ import { useResource } from '../hooks/useResource'
 import { connectMenuEntries, defaultConnection, hostMenuEntries, serviceLabel, type HostMenuActions } from '../hostMenu'
 import { matchesSearch, parseSearch, tagSearchTerm } from '../search'
 import { formatAccount, primaryAddress, type Host, type HostCredential, type HostTag } from '../types'
+import { useAuth } from '../../auth/context'
+import { isAdministrator } from '../../auth/types'
 import styles from './WorkspacePage.module.css'
 
 const NEW_HOST = 'new'
@@ -54,6 +56,8 @@ interface MenuState {
  */
 export function WorkspacePage() {
   const [params, setParams] = useSearchParams()
+  const { user } = useAuth()
+  const admin = isAdministrator(user)
   const resource = useResource((signal) => hostsApi.list(signal))
   const [local, setLocal] = useState<LocalChanges>({ basedOn: undefined, hosts: [] })
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
@@ -67,7 +71,7 @@ export function WorkspacePage() {
   const groupKeys = useMemo(() => params.getAll('group').map(decodeGroupKey), [params])
   const sort = (SORTS.find((s) => s.value === params.get('sort'))?.value ?? 'name') as HostSort
   const selectedId = params.get('host')
-  const editing = selectedId === NEW_HOST || params.get('edit') === '1'
+  const editRequested = selectedId === NEW_HOST || params.get('edit') === '1'
 
   const visibleHosts = useMemo(() => {
     const terms = parseSearch(query)
@@ -76,6 +80,8 @@ export function WorkspacePage() {
   const tree = useMemo(() => buildTree(visibleHosts, groupKeys), [visibleHosts, groupKeys])
   const knownTagNames = useMemo(() => tagNames(allHosts ?? []), [allHosts])
   const selectedHost = selectedId && selectedId !== NEW_HOST ? allHosts?.find((h) => h.id === selectedId) : undefined
+  // Only administrators add hosts, and only hosts the user may manage can be edited.
+  const editing = editRequested && (selectedId === NEW_HOST ? admin : selectedHost?.canManage === true)
 
   /** Updates URL view state. `null` removes a parameter; arrays set repeated parameters. */
   function update(changes: Record<string, string | string[] | null>) {
@@ -214,9 +220,11 @@ export function WorkspacePage() {
                 />
               </svg>
             </button>
-            <Button size="sm" onClick={() => showHost(NEW_HOST)}>
-              New host
-            </Button>
+            {admin ? (
+              <Button size="sm" onClick={() => showHost(NEW_HOST)}>
+                New host
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -269,7 +277,7 @@ export function WorkspacePage() {
               <Spinner label="Loading hosts" />
             </div>
           ) : allHosts.length === 0 ? (
-            <p className={styles.sidebarState}>No hosts yet.</p>
+            <p className={styles.sidebarState}>{admin ? 'No hosts yet.' : 'No hosts have been shared with you yet.'}</p>
           ) : visibleHosts.length === 0 ? (
             <div className={styles.sidebarState}>
               <p>No hosts match “{query}”.</p>
@@ -360,11 +368,16 @@ export function WorkspacePage() {
             </div>
           ) : (
             <div className={styles.mainState}>
-              {allHosts?.length === 0 ? (
+              {allHosts?.length === 0 && admin ? (
                 <>
                   <p className={styles.stateTitle}>Your inventory is empty</p>
                   <p>Add your first host, with its services, credentials and tags.</p>
                   <Button onClick={() => showHost(NEW_HOST)}>New host</Button>
+                </>
+              ) : allHosts?.length === 0 ? (
+                <>
+                  <p className={styles.stateTitle}>No hosts yet</p>
+                  <p>No hosts have been shared with you. Ask an administrator to give you access to the hosts or groups you need.</p>
                 </>
               ) : (
                 <>

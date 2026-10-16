@@ -82,10 +82,14 @@ export function HostDetails({ host, onEdit, onDeleted, onTagClick, onConnectMenu
           <p className={`${styles.subtitle} ${styles.mono}`}>{addresses}</p>
         </div>
         <div className={styles.actions}>
-          <DeleteButton question="Delete this host?" onConfirm={handleDelete} loading={deleting} />
-          <Button variant="secondary" onClick={onEdit} disabled={deleting}>
-            Edit
-          </Button>
+          {host.canManage ? (
+            <>
+              <DeleteButton question="Delete this host?" onConfirm={handleDelete} loading={deleting} />
+              <Button variant="secondary" onClick={onEdit} disabled={deleting}>
+                Edit
+              </Button>
+            </>
+          ) : null}
           <Button
             onClick={(event) => onConnectMenu(event.currentTarget.getBoundingClientRect())}
             disabled={deleting}
@@ -224,7 +228,7 @@ export function HostDetails({ host, onEdit, onDeleted, onTagClick, onConnectMenu
                 </li>
               ))}
             </ul>
-            <div className={styles.actions}>
+            <div className={styles.actions} hidden={!host.canManage}>
               {confirmForget ? (
                 <>
                   <span className={styles.muted}>The next connection will ask you to verify the key again.</span>

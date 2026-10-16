@@ -1,25 +1,27 @@
 import { useState } from 'react'
-import { Outlet } from 'react-router'
+import { NavLink, Outlet } from 'react-router'
+import { ChangePasswordDialog } from '../../features/account/components/ChangePasswordDialog'
 import { useAuth } from '../../features/auth/context'
+import { isAdministrator } from '../../features/auth/types'
 import { Alert } from '../ui/Alert'
-import { Button } from '../ui/Button'
+import { ContextMenu } from '../ui/ContextMenu'
 import { Logo } from '../ui/Logo'
 import styles from './AppLayout.module.css'
 
 /** Shell for authenticated pages: a compact top bar, and the page filling the rest of the window. */
 export function AppLayout() {
   const { user, logout } = useAuth()
-  const [signingOut, setSigningOut] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [changingPassword, setChangingPassword] = useState(false)
+  const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
+  const admin = isAdministrator(user)
 
   async function handleSignOut() {
-    setSigningOut(true)
-    setError(null)
+    setNotice(null)
     try {
       await logout()
     } catch {
-      setError('Sign-out failed. Check your connection and try again.')
-      setSigningOut(false)
+      setNotice({ kind: 'error', text: 'Sign-out failed. Check your connection and try again.' })
     }
   }
 
@@ -27,23 +29,68 @@ export function AppLayout() {
     <div className={styles.shell}>
       <header className={styles.header}>
         <Logo size={24} />
-        <div className={styles.account}>
-          <span className={styles.user} title={user?.email ?? undefined}>
-            {user?.userName}
+        <nav className={styles.nav} aria-label="Main">
+          <NavLink to="/" end className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
+            Hosts
+          </NavLink>
+          {admin ? (
+            <NavLink to="/users" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
+              Users
+            </NavLink>
+          ) : null}
+        </nav>
+        <button
+          type="button"
+          className={styles.accountButton}
+          aria-haspopup="menu"
+          aria-expanded={menu !== null}
+          title={user?.email ?? undefined}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            setMenu({ x: rect.right - 200, y: rect.bottom + 4 })
+          }}
+        >
+          <span className={styles.avatar} aria-hidden="true">
+            {user?.userName.slice(0, 1).toUpperCase()}
           </span>
-          <Button variant="secondary" size="sm" onClick={handleSignOut} loading={signingOut}>
-            Sign out
-          </Button>
-        </div>
+          <span className={styles.user}>{user?.userName}</span>
+          <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+            <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
       </header>
-      {error ? (
+      {notice ? (
         <div className={styles.banner}>
-          <Alert>{error}</Alert>
+          <Alert variant={notice.kind}>{notice.text}</Alert>
         </div>
       ) : null}
       <main className={styles.content}>
         <Outlet />
       </main>
+
+      {menu ? (
+        <ContextMenu
+          label="Account"
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          entries={[
+            { kind: 'header', label: user?.email ?? user?.userName ?? '' },
+            { kind: 'item', label: 'Change password', onSelect: () => setChangingPassword(true) },
+            { kind: 'separator' },
+            { kind: 'item', label: 'Sign out', onSelect: () => void handleSignOut() },
+          ]}
+        />
+      ) : null}
+      {changingPassword ? (
+        <ChangePasswordDialog
+          onClose={() => setChangingPassword(false)}
+          onChanged={() => {
+            setChangingPassword(false)
+            setNotice({ kind: 'info', text: 'Your password was changed. Other sessions were signed out.' })
+          }}
+        />
+      ) : null}
     </div>
   )
 }

@@ -116,6 +116,7 @@ const linux01: Host = {
     { id: 'c-empty', label: 'Placeholder', username: null, domain: null, notes: null, hasPassword: false, hasPrivateKey: false },
   ],
   trustedKeys: [],
+  canManage: true,
   createdAtUtc: '2026-10-01T12:00:00Z',
   updatedAtUtc: '2026-10-01T12:00:00Z',
   version: 1,
