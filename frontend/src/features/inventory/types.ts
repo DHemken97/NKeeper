@@ -110,6 +110,8 @@ export interface HostCredentialInput {
   clearPassword?: boolean
   privateKey?: string
   clearPrivateKey?: boolean
+  /** New credential starting from another credential's stored secrets (cloning a host). */
+  copyFromCredentialId?: string
 }
 
 export interface HostInput {

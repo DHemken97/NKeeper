@@ -17,6 +17,8 @@ export interface HostMenuActions {
   /** Open the host's web interface in a new browser tab, loaded directly by this computer. */
   openDirect: (host: Host, serviceIndex: number) => void
   edit: (host: Host) => void
+  /** Start a new host from a copy of this one; absent when the user can't add hosts. */
+  clone?: (host: Host) => void
   copyAddress: (host: Host) => void
 }
 
@@ -54,6 +56,7 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
     { kind: 'item', label: 'Connect', submenu: connectMenuEntries(host, actions) },
     { kind: 'separator' },
     ...(host.canManage ? [{ kind: 'item', label: 'Edit', onSelect: () => actions.edit(host) } as const] : []),
+    ...(actions.clone ? [{ kind: 'item', label: 'Clone', detail: 'New host from this one', onSelect: () => actions.clone!(host) } as const] : []),
     { kind: 'item', label: 'Copy address', detail: primaryAddress(host), onSelect: () => actions.copyAddress(host) },
   ]
 }

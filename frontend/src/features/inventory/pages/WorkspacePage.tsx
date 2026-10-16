@@ -94,6 +94,8 @@ export function WorkspacePage() {
   const tree = useMemo(() => buildTree(visibleHosts, groupKeys), [visibleHosts, groupKeys])
   const knownTagNames = useMemo(() => tagNames(allHosts ?? []), [allHosts])
   const selectedHost = selectedId && selectedId !== NEW_HOST ? allHosts?.find((h) => h.id === selectedId) : undefined
+  const cloneId = selectedId === NEW_HOST ? params.get('clone') : null
+  const cloneSource = cloneId ? allHosts?.find((h) => h.id === cloneId) : undefined
   // Only administrators add hosts, and only hosts the user may manage can be edited.
   const editing = editRequested && (selectedId === NEW_HOST ? admin : selectedHost?.canManage === true)
 
@@ -119,7 +121,13 @@ export function WorkspacePage() {
   }
 
   function showHost(id: string | null, edit = false) {
-    update({ host: id, edit: edit ? '1' : null })
+    update({ host: id, edit: edit ? '1' : null, clone: null })
+    setActiveTab(DETAILS_TAB)
+  }
+
+  /** Opens the editor for a new host prefilled from this one. */
+  function cloneHost(host: Host) {
+    update({ host: NEW_HOST, edit: null, clone: host.id })
     setActiveTab(DETAILS_TAB)
   }
 
@@ -175,6 +183,7 @@ export function WorkspacePage() {
     // Called from the menu click itself, so the browser allows the new tab.
     openDirect: (host, serviceIndex) => void window.open(directWebUrl(host, host.services[serviceIndex]), '_blank', 'noopener,noreferrer'),
     edit: (host) => showHost(host.id, true),
+    clone: admin ? cloneHost : undefined,
     copyAddress: (host) => void navigator.clipboard?.writeText(primaryAddress(host)),
   }
 
@@ -379,18 +388,20 @@ export function WorkspacePage() {
         <div className={styles.view} hidden={activeTab !== DETAILS_TAB}>
           {editing && (selectedId === NEW_HOST || selectedHost) ? (
             <HostEditor
-              key={selectedId}
+              key={`${selectedId}:${cloneSource?.id ?? ''}`}
               host={selectedHost ?? null}
+              cloneOf={cloneSource}
               knownTagNames={knownTagNames}
               knownTagValues={(name) => tagValues(allHosts ?? [], name)}
               onSaved={handleSaved}
-              onCancel={() => update(selectedId === NEW_HOST ? { host: null } : { edit: null })}
+              onCancel={() => update(selectedId === NEW_HOST ? { host: cloneSource?.id ?? null, clone: null } : { edit: null })}
             />
           ) : selectedHost ? (
             <HostDetails
               key={selectedHost.id}
               host={selectedHost}
               onEdit={() => update({ edit: '1' })}
+              onClone={admin ? () => cloneHost(selectedHost) : undefined}
               onDeleted={handleDeleted}
               onTagClick={filterByTag}
               onConnectMenu={(anchor) => setMenu({ hostId: selectedHost.id, x: anchor.left, y: anchor.bottom + 4, connectOnly: true })}

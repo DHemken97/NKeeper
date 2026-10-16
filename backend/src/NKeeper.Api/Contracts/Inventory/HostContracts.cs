@@ -71,11 +71,23 @@ public sealed record HostCredentialRequest : IValidatableObject
     [StringLength(2000)]
     public string? Notes { get; init; }
 
+    /// <summary>
+    /// For a new credential (no <see cref="Id"/>): start from the stored password and private key of
+    /// this credential on another host the user can see (cloning a host). Password, PrivateKey and
+    /// the Clear flags still apply on top.
+    /// </summary>
+    public Guid? CopyFromCredentialId { get; init; }
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (string.IsNullOrWhiteSpace(Username) && string.IsNullOrWhiteSpace(Label))
         {
             yield return new ValidationResult("Enter a username or a label.", ["username"]);
+        }
+
+        if (Id is not null && CopyFromCredentialId is not null)
+        {
+            yield return new ValidationResult("An existing credential can't be copied from another one.", ["copyFromCredentialId"]);
         }
     }
 }

@@ -72,7 +72,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
     {
         var userId = user.Id;
         var host = new Host { CreatedAtUtc = timeProvider.GetUtcNow(), CreatedByUserId = userId };
-        Apply(host, request, userId);
+        Apply(host, request, userId, await LoadCopySourcesAsync(request, user, cancellationToken));
         db.Hosts.Add(host);
         await db.SaveChangesAsync(cancellationToken);
         return (await GetAsync(host.Id, user, cancellationToken))!;
@@ -107,7 +107,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
 
         db.Entry(host).Property(h => h.Version).OriginalValue = version;
         var previousAddress = (host.Hostname, host.IpAddress);
-        Apply(host, request, userId);
+        Apply(host, request, userId, await LoadCopySourcesAsync(request, user, cancellationToken));
         await db.SaveChangesAsync(cancellationToken);
 
         // A new address may be a different machine: its keys and certificates must be confirmed again.
@@ -148,7 +148,22 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             _ => throw new HostAccessDeniedException(),
         };
 
-    private void Apply(Host host, HostRequest request, Guid userId)
+    /// <summary>The credentials named by CopyFromCredentialId, from hosts the user can see.</summary>
+    private async Task<Dictionary<Guid, HostCredential>> LoadCopySourcesAsync(HostRequest request, RequestUser user, CancellationToken cancellationToken)
+    {
+        var ids = request.Credentials.Select(c => c.CopyFromCredentialId).OfType<Guid>().Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        return await access.Visible(user).AsNoTracking()
+            .SelectMany(h => h.Credentials)
+            .Where(c => ids.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, cancellationToken);
+    }
+
+    private void Apply(Host host, HostRequest request, Guid userId, Dictionary<Guid, HostCredential> copySources)
     {
         host.Name = request.Name.Trim();
         host.Hostname = InventoryText.TrimToNull(request.Hostname);
@@ -160,7 +175,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
 
         ApplyServices(host, request.Services);
         ApplyTags(host, request.Tags);
-        ApplyCredentials(host, request.Credentials);
+        ApplyCredentials(host, request.Credentials, copySources);
     }
 
     private static void ApplyServices(Host host, IEnumerable<HostServiceRequest> services)
@@ -196,7 +211,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         }
     }
 
-    private void ApplyCredentials(Host host, HostCredentialRequest[] credentials)
+    private void ApplyCredentials(Host host, HostCredentialRequest[] credentials, Dictionary<Guid, HostCredential> copySources)
     {
         var kept = new List<HostCredential>(credentials.Length);
         for (var index = 0; index < credentials.Length; index++)
@@ -208,6 +223,14 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
                 credential = host.Credentials.FirstOrDefault(c => c.Id == id)
                     ?? throw new InventoryValidationException(
                         $"credentials[{index}].id", "This credential no longer exists on the host. Reload and try again.");
+            }
+            else if (request.CopyFromCredentialId is { } sourceId)
+            {
+                // Hidden and missing credentials look the same, so nothing leaks about other hosts.
+                var source = copySources.GetValueOrDefault(sourceId)
+                    ?? throw new InventoryValidationException(
+                        $"credentials[{index}].copyFromCredentialId", "The credential to copy no longer exists. Reload and try again.");
+                credential = new HostCredential { ProtectedPassword = source.ProtectedPassword, ProtectedPrivateKey = source.ProtectedPrivateKey };
             }
             else
             {

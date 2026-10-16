@@ -12,6 +12,8 @@ import styles from './HostPanel.module.css'
 interface HostDetailsProps {
   host: Host
   onEdit: () => void
+  /** Start a new host from a copy of this one (shown to administrators only). */
+  onClone?: () => void
   onDeleted: (id: string) => void
   /** Filter the tree to hosts carrying this tag. */
   onTagClick: (tag: HostTag) => void
@@ -33,7 +35,7 @@ function describeKey(key: TrustedKey): string {
 }
 
 /** Read-only overview of a host: addresses, tags, services and credentials (never secrets). */
-export function HostDetails({ host, onEdit, onDeleted, onTagClick, onConnectMenu, onChanged }: HostDetailsProps) {
+export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onConnectMenu, onChanged }: HostDetailsProps) {
   const [deleting, setDeleting] = useState(false)
   const [forgetting, setForgetting] = useState(false)
   const [confirmForget, setConfirmForget] = useState(false)
@@ -89,6 +91,11 @@ export function HostDetails({ host, onEdit, onDeleted, onTagClick, onConnectMenu
                 Edit
               </Button>
             </>
+          ) : null}
+          {onClone ? (
+            <Button variant="secondary" onClick={onClone} disabled={deleting}>
+              Clone
+            </Button>
           ) : null}
           <Button
             onClick={(event) => onConnectMenu(event.currentTarget.getBoundingClientRect())}

@@ -22,6 +22,8 @@ export interface CredentialDraft {
   key: number
   /** Set for credentials that already exist on the server. */
   id?: string
+  /** For a cloned host: the original credential whose stored secrets the server copies. */
+  copyFrom?: string
   label: string
   username: string
   domain: string
@@ -93,6 +95,17 @@ export function toHostDraft(host: Host | null): HostDraft {
   }
 }
 
+/** A new host prefilled from an existing one: same details, a "(copy)" name, and its credentials'
+ * secrets copied on the server (they never reach the browser). Trusted keys are not copied. */
+export function toCloneDraft(source: Host): HostDraft {
+  const draft = toHostDraft(source)
+  return {
+    ...draft,
+    name: `${source.name} (copy)`,
+    credentials: source.credentials.map((c) => ({ ...newCredentialDraft(c), id: undefined, copyFrom: c.id })),
+  }
+}
+
 const blankToNull = (value: string) => (value.trim() === '' ? null : value.trim())
 
 export function toHostInput(draft: HostDraft, version?: number): HostInput {
@@ -114,6 +127,7 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
     })),
     credentials: draft.credentials.map((c) => ({
       ...(c.id ? { id: c.id } : {}),
+      ...(c.copyFrom ? { copyFromCredentialId: c.copyFrom } : {}),
       label: blankToNull(c.label),
       username: blankToNull(c.username),
       domain: blankToNull(c.domain),

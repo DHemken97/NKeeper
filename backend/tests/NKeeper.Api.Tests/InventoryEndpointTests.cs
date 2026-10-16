@@ -239,6 +239,66 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
     }
 
     [Fact]
+    public async Task CloningHost_CopiesCredentialSecretsOnTheServer()
+    {
+        var source = await ReadAsync<HostResponse>(await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        {
+            name = "web01",
+            hostname = "web01",
+            credentials = new object[]
+            {
+                new { username = "root", password = "root-secret", privateKey = "KEY-1" },
+                new { username = "deploy", password = "deploy-secret" },
+            },
+        }, Ct));
+
+        // The clone keeps root's secrets, replaces deploy's password, and adds a credential.
+        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        {
+            name = "web02",
+            hostname = "web02",
+            credentials = new object[]
+            {
+                new { username = "root", copyFromCredentialId = source.Credentials[0].Id },
+                new { username = "deploy", copyFromCredentialId = source.Credentials[1].Id, password = "new-deploy-secret" },
+                new { username = "extra", copyFromCredentialId = source.Credentials[1].Id, clearPassword = true },
+            },
+        }, Ct);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var clone = await ReadAsync<HostResponse>(response);
+        Assert.Equal([true, true, false], clone.Credentials.Select(c => c.HasPassword));
+        Assert.Equal([true, false, false], clone.Credentials.Select(c => c.HasPrivateKey));
+        Assert.DoesNotContain(clone.Credentials, c => source.Credentials.Any(s => s.Id == c.Id));
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<NKeeperDbContext>();
+        var protector = scope.ServiceProvider.GetRequiredService<CredentialProtector>();
+        var stored = await db.HostCredentials.AsNoTracking().Where(c => c.HostId == clone.Id).OrderBy(c => c.Position).ToListAsync(Ct);
+        Assert.Equal("root-secret", protector.Unprotect(stored[0].ProtectedPassword!));
+        Assert.Equal("KEY-1", protector.Unprotect(stored[0].ProtectedPrivateKey!));
+        Assert.Equal("new-deploy-secret", protector.Unprotect(stored[1].ProtectedPassword!));
+
+        // The source is untouched.
+        var original = await db.HostCredentials.AsNoTracking().Where(c => c.HostId == source.Id).OrderBy(c => c.Position).ToListAsync(Ct);
+        Assert.Equal("deploy-secret", protector.Unprotect(original[1].ProtectedPassword!));
+    }
+
+    [Fact]
+    public async Task CloningHost_RejectsUnknownSourceCredentials()
+    {
+        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        {
+            name = "web02",
+            hostname = "web02",
+            credentials = new[] { new { username = "root", copyFromCredentialId = Guid.NewGuid() } },
+        }, Ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("copyFromCredentialId", await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DeleteHost_RemovesOwnedItemsAndReturns404Afterwards()
     {
         var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
