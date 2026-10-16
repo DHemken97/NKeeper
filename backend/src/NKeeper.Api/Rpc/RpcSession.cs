@@ -75,6 +75,11 @@ internal sealed class RpcSession(SessionTargetResolver resolver, ILogger<RpcSess
         {
             // The browser went away or the request was aborted.
         }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "RPC session for user {UserId} failed", user.Id);
+            await socket.SendErrorAndCloseAsync(SessionErrorCodes.ConnectionFailed, $"The RPC session failed: {ex.GetType().Name}: {ex.Message}", cancellationToken);
+        }
         finally
         {
             logger.LogInformation("RPC session ended for user {UserId} (host {HostId}) after {Duration}", user.Id, target?.HostId, started.Elapsed);
