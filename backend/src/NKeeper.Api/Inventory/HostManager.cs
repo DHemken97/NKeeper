@@ -169,6 +169,76 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
     }
 
     /// <summary>
+    /// Adds hosts for VMs and containers found by scanning their hypervisor, each already linked to
+    /// it (with its VM identity and when it was seen). Administrators only (enforced by the controller).
+    /// </summary>
+    /// <returns>The new hosts.</returns>
+    public async Task<List<HostResponse>> CreateFromScanAsync(IReadOnlyList<ScannedHostRequest> requests, RequestUser user, CancellationToken cancellationToken)
+    {
+        var hypervisors = requests.Select(r => r.HypervisorId).Distinct().ToList();
+        var visible = await access.Visible(user).Where(h => hypervisors.Contains(h.Id)).Select(h => h.Id).ToListAsync(cancellationToken);
+        var now = timeProvider.GetUtcNow();
+        var hosts = new List<Host>(requests.Count);
+        for (var index = 0; index < requests.Count; index++)
+        {
+            var request = requests[index];
+            var field = $"hosts[{index}]";
+            var hostname = InventoryText.TrimToNull(request.Hostname);
+            string? ip = null, mac = null;
+            if (hostname is not null && !NetworkAddress.IsValidHostname(hostname))
+            {
+                throw new InventoryValidationException($"{field}.hostname", $"“{hostname}” isn't a valid hostname.");
+            }
+
+            if (InventoryText.TrimToNull(request.IpAddress) is { } rawIp && !NetworkAddress.TryNormalizeIp(rawIp, out ip))
+            {
+                throw new InventoryValidationException($"{field}.ipAddress", $"“{rawIp}” isn't a valid IP address.");
+            }
+
+            if (hostname is null && ip is null)
+            {
+                throw new InventoryValidationException($"{field}.hostname", $"“{request.Name}” needs a hostname or an IP address.");
+            }
+
+            if (InventoryText.TrimToNull(request.MacAddress) is { } rawMac && !NetworkAddress.TryNormalizeMac(rawMac, out mac))
+            {
+                mac = null; // A MAC address is a nice-to-have: leave it out rather than refuse the host.
+            }
+
+            if (!visible.Contains(request.HypervisorId))
+            {
+                throw new InventoryValidationException($"{field}.hypervisorId", "The host it runs on no longer exists.");
+            }
+
+            hosts.Add(new Host
+            {
+                Id = Guid.NewGuid(),
+                Name = request.Name.Trim(),
+                Hostname = hostname,
+                IpAddress = ip,
+                MacAddress = mac,
+                Description = InventoryText.TrimToNull(request.Description),
+                IsVirtualMachine = true,
+                HypervisorId = request.HypervisorId,
+                VirtualMachineId = InventoryText.TrimToNull(request.VirtualMachineId),
+                HypervisorSeenAtUtc = now,
+                CreatedAtUtc = now,
+                CreatedByUserId = user.Id,
+                UpdatedAtUtc = now,
+                UpdatedByUserId = user.Id,
+            });
+        }
+
+        db.Hosts.AddRange(hosts);
+        await db.SaveChangesAsync(cancellationToken);
+        var ids = hosts.Select(h => h.Id).ToList();
+        var created = await access.Visible(user).AsNoTracking().Where(h => ids.Contains(h.Id))
+            .OrderBy(h => h.Name.ToUpper()).ThenBy(h => h.Id)
+            .Select(Projection).AsSplitQuery().ToListAsync(cancellationToken);
+        return [.. created.Select(h => h with { CanManage = true })];
+    }
+
+    /// <summary>
     /// Applies the same tag and hypervisor changes to many hosts in one transaction. Hosts the
     /// changes don't affect are left untouched (their update time doesn't move).
     /// </summary>

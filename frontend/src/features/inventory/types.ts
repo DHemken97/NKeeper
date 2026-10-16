@@ -207,6 +207,8 @@ export interface ScannedGuest {
   node: string | null
   onScannedHost: boolean
   macAddresses: string[]
+  /** IP addresses it was seen with (libvirt leases and ARP, Proxmox static configuration). */
+  addresses: string[]
   guestHostId: string | null
   guestHostName: string | null
   matchedBy: 'id' | 'mac' | 'name' | null
@@ -215,6 +217,23 @@ export interface ScannedGuest {
   /** Linking the guest to that host would change something. */
   linkProposed: boolean
   note: string | null
+  /** For a guest that isn't in NKeeper: the host that could be added for it (null without an address). */
+  newHost: ProposedHost | null
+}
+
+/** A host a scan could add for a VM or container NKeeper doesn't have yet. */
+export interface ProposedHost {
+  name: string
+  hostname: string | null
+  ipAddress: string | null
+  macAddress: string | null
+  description: string
+}
+
+/** A host to add from a scan, linked to the host it runs on. */
+export interface ScannedHostInput extends ProposedHost {
+  hypervisorId: string
+  virtualMachineId: string
 }
 
 /** What a scan found. Nothing is saved until the user applies findings to the host. */

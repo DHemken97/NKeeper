@@ -18,8 +18,10 @@ interface ScanDialogProps {
   /** Internal scans: how to log in. */
   login?: InternalScanLogin
   onClose: () => void
-  /** Each host the chosen findings changed (the scanned host, and VMs linked to it). */
+  /** Each host the chosen findings changed or added (the scanned host, VMs linked to it, new hosts). */
   onApplied: (host: Host) => void
+  /** Administrators can add hosts for VMs that aren't in NKeeper yet. */
+  canAddHosts: boolean
 }
 
 type Phase =
@@ -33,7 +35,7 @@ type Phase =
  * Tasks ▸ Scan: runs an internal (one SSH login) or external (network) scan, then lists what it
  * found as changes to pick from. Only the chosen changes are saved, as an ordinary host update.
  */
-export function ScanDialog({ host, kind, login, onClose, onApplied }: ScanDialogProps) {
+export function ScanDialog({ host, kind, login, onClose, onApplied, canAddHosts }: ScanDialogProps) {
   // An external scan is visible on the network, so it waits for a go-ahead.
   const [phase, setPhase] = useState<Phase>({ kind: kind === 'external' ? 'confirm' : 'scanning' })
   const [trust, setTrust] = useState<string | undefined>(undefined)
@@ -78,7 +80,17 @@ export function ScanDialog({ host, kind, login, onClose, onApplied }: ScanDialog
   const sshPort = login ? (host.services[login.serviceIndex]?.port ?? PROTOCOL_INFO.Ssh.defaultPort ?? 22) : null
 
   if (phase.kind === 'results') {
-    return <ScanResults title={title} host={host} findings={phase.findings} sshPort={sshPort} onClose={onClose} onApplied={onApplied} />
+    return (
+      <ScanResults
+        title={title}
+        host={host}
+        findings={phase.findings}
+        sshPort={sshPort}
+        canAddHosts={canAddHosts}
+        onClose={onClose}
+        onApplied={onApplied}
+      />
+    )
   }
 
   return (
@@ -138,6 +150,7 @@ interface ScanResultsProps {
   host: Host
   findings: ScanFindings
   sshPort: number | null
+  canAddHosts: boolean
   onClose: () => void
   onApplied: (host: Host) => void
 }
@@ -148,7 +161,7 @@ const GROUPS: { group: ScanProposal['group']; title: string }[] = [
   { group: 'Logins', title: 'Logins' },
 ]
 
-function ScanResults({ title, host, findings, sshPort, onClose, onApplied }: ScanResultsProps) {
+function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onApplied }: ScanResultsProps) {
   const proposals = useMemo(() => scanProposals(host, findings, sshPort), [host, findings, sshPort])
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set(proposals.filter((p) => p.checked).map((p) => p.key)))
   const links = useMemo(() => findings.guests.filter((g) => g.linkProposed && g.guestHostId && g.hypervisorHostId), [findings])
@@ -156,9 +169,12 @@ function ScanResults({ title, host, findings, sshPort, onClose, onApplied }: Sca
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const otherPorts = findings.ports.filter((p) => p.protocol === null)
-  const unlinked = findings.guests.filter((g) => !links.includes(g))
-  const changeCount = chosen.size + chosenLinks.size
-  const anything = proposals.length + links.length > 0
+  // Guests NKeeper doesn't have can be added, unticked: adding hosts is a bigger step than linking.
+  const addable = canAddHosts ? findings.guests.filter((g) => g.newHost && g.hypervisorHostId) : []
+  const [chosenNew, setChosenNew] = useState<ReadonlySet<string>>(new Set())
+  const unlinked = findings.guests.filter((g) => !links.includes(g) && !addable.includes(g))
+  const changeCount = chosen.size + chosenLinks.size + chosenNew.size
+  const anything = proposals.length + links.length + addable.length > 0
 
   function toggleLink(id: string, on: boolean) {
     setChosenLinks((current) => {
@@ -199,6 +215,13 @@ function ScanResults({ title, host, findings, sshPort, onClose, onApplied }: Sca
           chosenGuests.map((g) => ({ guestId: g.guestHostId!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId })),
         )
         updated.forEach(onApplied)
+      }
+      const newGuests = addable.filter((g) => chosenNew.has(g.virtualMachineId))
+      if (newGuests.length > 0) {
+        const created = await hostsApi.createFromScan(
+          newGuests.map((g) => ({ ...g.newHost!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId })),
+        )
+        created.forEach(onApplied)
       }
       onClose()
     } catch (failure) {
@@ -263,9 +286,53 @@ function ScanResults({ title, host, findings, sshPort, onClose, onApplied }: Sca
           </fieldset>
         ) : null}
 
+        {addable.length > 0 ? (
+          <fieldset className={styles.group}>
+            <legend className={styles.heading}>Add to NKeeper</legend>
+            <p className={styles.muted}>
+              Not in NKeeper yet. Each becomes a host linked to {addable[0].hypervisorHostName}
+              {addable.some((g) => g.hypervisorHostId !== addable[0].hypervisorHostId) ? ' (or its node)' : ''}, with the address and MAC
+              address the scan found. Add services and logins afterwards.
+            </p>
+            {addable.length > 1 ? (
+              <div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    setChosenNew(chosenNew.size === addable.length ? new Set() : new Set(addable.map((g) => g.virtualMachineId)))
+                  }
+                >
+                  {chosenNew.size === addable.length ? 'Select none' : `Select all ${addable.length}`}
+                </Button>
+              </div>
+            ) : null}
+            {addable.map((guest) => (
+              <div key={guest.virtualMachineId} className={styles.proposal}>
+                <Checkbox
+                  label={`Add ${guest.newHost!.name}`}
+                  checked={chosenNew.has(guest.virtualMachineId)}
+                  onChange={(event) =>
+                    setChosenNew((current) => {
+                      const next = new Set(current)
+                      if (event.target.checked) {
+                        next.add(guest.virtualMachineId)
+                      } else {
+                        next.delete(guest.virtualMachineId)
+                      }
+                      return next
+                    })
+                  }
+                />
+                <span className={styles.detail}>{newHostDetail(guest)}</span>
+              </div>
+            ))}
+          </fieldset>
+        ) : null}
+
         {unlinked.length > 0 ? (
           <section className={styles.group} aria-label="Other virtual machines">
-            <h3 className={styles.heading}>{links.length > 0 ? 'Other virtual machines' : 'Virtual machines'}</h3>
+            <h3 className={styles.heading}>{links.length + addable.length > 0 ? 'Other virtual machines' : 'Virtual machines'}</h3>
             <ul className={styles.notes}>
               {unlinked.map((guest) => (
                 <li key={guest.virtualMachineId}>
@@ -307,6 +374,18 @@ function guestDetail(guest: ScannedGuest): string {
     `${PLATFORMS[guest.platform]} “${guest.name}”${guest.state ? ` (${guest.state})` : ''}`,
     guest.matchedBy ? `matched by ${MATCHED_BY[guest.matchedBy]}` : null,
     guest.note,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/** What a new host would get: its address, MAC address, and where it runs. */
+function newHostDetail(guest: ScannedGuest): string {
+  const host = guest.newHost!
+  return [
+    `${PLATFORMS[guest.platform]} on ${guest.hypervisorHostName}`,
+    host.ipAddress ?? `hostname ${host.hostname}`,
+    host.macAddress,
   ]
     .filter(Boolean)
     .join(' · ')

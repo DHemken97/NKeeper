@@ -112,6 +112,13 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - **KVM / libvirt:** the node's VMs, read with `virsh` (read-only if possible). VMs often move between nodes. A VM moves to the scanned node only if it's **running** there; one that is merely defined there (shared storage) stays linked where it runs. Scan each node to keep the links current.
   - **Proxmox:** the VM and container configurations are shared by the whole cluster, so scanning **any one node** links every VM in the cluster to the node it's on. Other nodes must be NKeeper hosts named like the Proxmox node (e.g. `pve2`, or `pve2.example.com`). Reading the configurations needs **root**; as another user the scan says which it couldn't read.
   - A link records when a scan saw the VM there (shown on the VM). A link you set by hand in the editor has no such time.
+  - **VMs that aren't in NKeeper yet** can be added from the same scan (administrators). Tick **Add …** for each one you want; they start unticked, and **Select all** ticks them all. Each new host gets:
+    - the VM's name;
+    - an IP address the scan found, or the VM's name as its hostname when that's a valid DNS name;
+    - its first MAC address;
+    - a link to the node it runs on, with its VM identity.
+
+    Add services and logins afterwards. Addresses come from the node itself: libvirt's DHCP leases and the node's ARP table (running VMs), and Proxmox containers' and cloud-init VMs' static addresses. A VM with no address and a name that isn't a hostname is listed but can't be added from the scan.
 
 Changing a host's hostname or IP address forgets its trusted keys too, for the same reason.
 

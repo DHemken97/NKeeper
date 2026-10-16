@@ -1,5 +1,15 @@
 import { api } from '../../../lib/api'
-import type { BulkHostUpdateInput, Host, HostImportInput, HostImportResult, HostInput, HypervisorLink, InternalScanLogin, ScanResponse } from '../types'
+import type {
+  BulkHostUpdateInput,
+  Host,
+  HostImportInput,
+  HostImportResult,
+  HostInput,
+  HypervisorLink,
+  InternalScanLogin,
+  ScannedHostInput,
+  ScanResponse,
+} from '../types'
 
 export const hostsApi = {
   /** The whole inventory; searching, grouping and sorting happen client-side. */
@@ -20,4 +30,6 @@ export const hostsApi = {
   linkVirtualMachines: (links: HypervisorLink[]) => api.post<Host[]>('/api/hosts/hypervisor-links', { body: { links } }),
   /** Apply the same tag and "runs on" changes to many hosts; returns them as they now are. */
   bulkUpdate: (input: BulkHostUpdateInput) => api.post<Host[]>('/api/hosts/bulk', { body: input }),
+  /** Add hosts for VMs a scan found, linked to their hypervisor. Administrators only. */
+  createFromScan: (hosts: ScannedHostInput[]) => api.post<Host[]>('/api/hosts/from-scan', { body: { hosts } }),
 }

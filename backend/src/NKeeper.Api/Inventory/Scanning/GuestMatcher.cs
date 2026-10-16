@@ -43,11 +43,19 @@ internal static class GuestMatcher
                 HypervisorHostName = node?.Name,
             };
 
-            if (host is null)
+            if (host is null && ambiguous)
             {
+                matched.Add(result with { Note = "Several NKeeper hosts match it, so it wasn't linked." });
+            }
+            else if (host is null)
+            {
+                var proposal = node is null ? null : Propose(guest, node);
                 matched.Add(result with
                 {
-                    Note = ambiguous ? "Several NKeeper hosts match it, so it wasn't linked." : "Not in NKeeper: no host has its name, MAC address or VM identity.",
+                    NewHost = proposal,
+                    Note = proposal is not null ? "Not in NKeeper yet."
+                        : node is null ? $"Not in NKeeper, and its node “{guest.Node}” isn't either."
+                        : "Not in NKeeper, and the scan found no address for it (no IP address, and its name isn't a hostname), so it can't be added from here.",
                 });
             }
             else if (!host.CanManage)
@@ -78,6 +86,24 @@ internal static class GuestMatcher
         }
 
         return matched;
+    }
+
+    /// <summary>
+    /// The host to add for a guest NKeeper doesn't have: its name, an IP address it was seen with
+    /// (or its name, when that's a valid hostname), and its first MAC address. Null without an address.
+    /// </summary>
+    private static ProposedHost? Propose(ScannedGuest guest, Candidate node)
+    {
+        var name = guest.Name.Trim();
+        var ip = guest.Addresses.Count > 0 ? guest.Addresses[0] : null;
+        var hostname = NetworkAddress.IsValidHostname(name) ? name : null;
+        if (name.Length is 0 or > 200 || (ip is null && hostname is null))
+        {
+            return null;
+        }
+
+        var kind = guest.Platform switch { "proxmox-lxc" => "Proxmox container", "proxmox-qemu" => "Proxmox VM", _ => "libvirt VM" };
+        return new ProposedHost(name, hostname, ip, guest.MacAddresses.Count > 0 ? guest.MacAddresses[0] : null, $"Added from a scan of {node.Name} ({kind} {guest.VirtualMachineId}).");
     }
 
     private static (Candidate? Host, string? MatchedBy, bool Ambiguous) Find(List<Candidate> hosts, ScannedGuest guest)

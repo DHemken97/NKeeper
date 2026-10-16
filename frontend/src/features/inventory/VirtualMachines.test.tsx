@@ -70,6 +70,7 @@ const guest = (overrides: Partial<ScannedGuest>): ScannedGuest => ({
   node: null,
   onScannedHost: true,
   macAddresses: [],
+  addresses: [],
   guestHostId: null,
   guestHostName: null,
   matchedBy: null,
@@ -77,6 +78,7 @@ const guest = (overrides: Partial<ScannedGuest>): ScannedGuest => ({
   hypervisorHostName: 'node1',
   linkProposed: false,
   note: null,
+  newHost: null,
   ...overrides,
 })
 
@@ -92,7 +94,14 @@ const nodeScan: ScanFindings = {
   virtualization: null,
   guests: [
     guest({ guestHostId: 'h-app01', guestHostName: 'app01', matchedBy: 'name', linkProposed: true, note: 'Moved from “node2”.' }),
-    guest({ virtualMachineId: 'libvirt:2', name: 'scratch', note: 'Not in NKeeper: no host has its name, MAC address or VM identity.' }),
+    guest({
+      virtualMachineId: 'libvirt:2',
+      name: 'scratch',
+      addresses: ['192.168.122.20'],
+      note: 'Not in NKeeper yet.',
+      newHost: { name: 'scratch', hostname: 'scratch', ipAddress: '192.168.122.20', macAddress: '52:54:00:00:00:02', description: 'Added from a scan of node1.' },
+    }),
+    guest({ virtualMachineId: 'libvirt:3', name: 'Windows 11', note: 'Not in NKeeper, and the scan found no address for it.' }),
   ],
 }
 
@@ -134,13 +143,18 @@ describe('virtual machines', () => {
     expect(within(vms).getByRole('button', { name: 'app01' })).toBeInTheDocument()
   })
 
-  it('are linked to the node a scan found them on', async () => {
+  it('are linked to the node a scan found them on, and ones NKeeper lacks can be added', async () => {
     let links: unknown
+    let created: unknown
     const { user } = renderAt('/', {
       'POST /api/hosts/h-node1/scan/internal': () => jsonResponse(200, { status: 'ready', findings: nodeScan, hostKey: null }),
       'POST /api/hosts/hypervisor-links': (_url, init) => {
         links = JSON.parse(String(init.body))
         return jsonResponse(200, [{ ...app01, hypervisorId: 'h-node1', virtualMachineId: 'libvirt:1' }])
+      },
+      'POST /api/hosts/from-scan': (_url, init) => {
+        created = JSON.parse(String(init.body))
+        return jsonResponse(200, [makeHost({ id: 'h-scratch', name: 'scratch', isVirtualMachine: true, hypervisorId: 'h-node1' })])
       },
     })
 
@@ -154,12 +168,34 @@ describe('virtual machines', () => {
     const link = await within(dialog).findByRole('checkbox', { name: 'app01 runs on node1' })
     expect(link).toBeChecked()
     expect(within(dialog).getByText(/libvirt VM “app01” \(running\) · matched by its name · Moved from “node2”/)).toBeInTheDocument()
-    expect(within(dialog).getByText('scratch')).toBeInTheDocument()
+    // Adding hosts starts unticked; a VM without an address is only listed.
+    const add = within(dialog).getByRole('checkbox', { name: 'Add scratch' })
+    expect(add).not.toBeChecked()
+    expect(within(dialog).getByText('libvirt VM on node1 · 192.168.122.20 · 52:54:00:00:00:02')).toBeInTheDocument()
+    expect(within(dialog).getByText('Windows 11')).toBeInTheDocument()
+    await user.click(add)
 
-    await user.click(within(dialog).getByRole('button', { name: 'Apply 1 change' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Apply 2 changes' }))
 
     await waitFor(() => expect(links).toEqual({ links: [{ guestId: 'h-app01', hypervisorId: 'h-node1', virtualMachineId: 'libvirt:1' }] }))
+    await waitFor(() =>
+      expect(created).toEqual({
+        hosts: [
+          {
+            name: 'scratch',
+            hostname: 'scratch',
+            ipAddress: '192.168.122.20',
+            macAddress: '52:54:00:00:00:02',
+            description: 'Added from a scan of node1.',
+            hypervisorId: 'h-node1',
+            virtualMachineId: 'libvirt:2',
+          },
+        ],
+      }),
+    )
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    // The new host joins the tree.
+    expect(await screen.findByRole('button', { name: /^scratch/ })).toBeInTheDocument()
   })
 
   it('can group the tree by the host they run on', async () => {

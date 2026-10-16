@@ -273,3 +273,38 @@ public sealed record BulkHostUpdateRequest : IValidatableObject
         }
     }
 }
+
+/// <summary>A host to add for a VM or container a scan of its hypervisor found.</summary>
+public sealed record ScannedHostRequest
+{
+    [Required(ErrorMessage = "Enter a name.")]
+    [StringLength(200)]
+    public string Name { get; init; } = string.Empty;
+
+    [StringLength(253)]
+    public string? Hostname { get; init; }
+
+    [StringLength(45)]
+    public string? IpAddress { get; init; }
+
+    [StringLength(32)]
+    public string? MacAddress { get; init; }
+
+    [StringLength(4000)]
+    public string? Description { get; init; }
+
+    /// <summary>The host it runs on.</summary>
+    public Guid HypervisorId { get; init; }
+
+    /// <summary>Its identity on the hypervisor, e.g. libvirt:&lt;uuid&gt;.</summary>
+    [StringLength(128)]
+    public string? VirtualMachineId { get; init; }
+}
+
+public sealed record ScannedHostsRequest
+{
+    [Required]
+    [MinLength(1)]
+    [MaxLength(1000, ErrorMessage = "Add at most 1000 hosts at a time.")]
+    public ScannedHostRequest[] Hosts { get; init; } = [];
+}

@@ -42,8 +42,10 @@ internal static class InternalScan
         if command -v virsh >/dev/null 2>&1; then
           v='virsh -r -c qemu:///system'; $v uri >/dev/null 2>&1 || v='virsh -c qemu:///system'
           for u in $($v list --all --uuid 2>/dev/null); do
-            printf '%s\t%s\t%s\t%s\n' "$u" "$($v domname "$u" 2>/dev/null)" "$($v domstate "$u" 2>/dev/null | head -n 1)" \
-              "$($v domiflist "$u" 2>/dev/null | awk 'NR > 2 && $5 ~ /:/ { printf "%s,", $5 }')"
+            # Addresses come from the node's own DHCP leases and ARP table (local reads).
+            printf '%s\t%s\t%s\t%s\t%s\n' "$u" "$($v domname "$u" 2>/dev/null)" "$($v domstate "$u" 2>/dev/null | head -n 1)" \
+              "$($v domiflist "$u" 2>/dev/null | awk 'NR > 2 && $5 ~ /:/ { printf "%s,", $5 }')" \
+              "$( { $v domifaddr "$u" --source lease; $v domifaddr "$u" --source arp; } 2>/dev/null | awk '$3 ~ /^ipv/ { split($4, a, "/"); printf "%s,", a[1] }')"
           done
         fi
         s proxmox
@@ -57,7 +59,9 @@ internal static class InternalScan
             case $f in */lxc/*) kind=lxc ;; *) kind=qemu ;; esac
             name=$(sed -n '/^\[/q; s/^name:[[:space:]]*//p; s/^hostname:[[:space:]]*//p' "$f" | head -n 1)
             macs=$(sed -n '/^\[/q; /^net[0-9]*:/p' "$f" | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | tr '\n' ',')
-            printf 'vm\t%s\t%s\t%s\t%s\t%s\n' "$kind" "$n" "$id" "$name" "$macs"
+            # Static addresses: containers' ip=/ip6=, and VMs' cloud-init ipconfigN.
+            ips=$(sed -n '/^\[/q; /^net[0-9]*:/p; /^ipconfig[0-9]*:/p' "$f" | grep -oE 'ip6?=[^,/ ]+' | cut -d= -f2 | grep -vE '^(dhcp|auto|manual)$' | tr '\n' ',')
+            printf 'vm\t%s\t%s\t%s\t%s\t%s\t%s\n' "$kind" "$n" "$id" "$name" "$macs" "$ips"
           done
         fi
         s end
@@ -166,7 +170,7 @@ internal static class InternalScan
             if (fields.Length >= 3 && Guid.TryParse(fields[0], out var uuid))
             {
                 guests.Add(new ScannedGuest(
-                    "libvirt", $"libvirt:{uuid:D}", fields[1].Trim(), fields[2].Trim(), null, true, Macs(fields.ElementAtOrDefault(3))));
+                    "libvirt", $"libvirt:{uuid:D}", fields[1].Trim(), fields[2].Trim(), null, true, Macs(fields.ElementAtOrDefault(3)), Ips(fields.ElementAtOrDefault(4))));
             }
         }
 
@@ -185,7 +189,8 @@ internal static class InternalScan
                 null,
                 node,
                 string.Equals(node, localNode, StringComparison.OrdinalIgnoreCase),
-                Macs(fields.ElementAtOrDefault(5))));
+                Macs(fields.ElementAtOrDefault(5)),
+                Ips(fields.ElementAtOrDefault(6))));
         }
 
         if (proxmox.Contains("unreadable"))
@@ -195,6 +200,16 @@ internal static class InternalScan
 
         return guests;
     }
+
+    /// <summary>Addresses a host could be reached on: IPv4 first, without loopback or link-local ones.</summary>
+    private static List<string> Ips(string? list) =>
+        [.. (list ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(ip => NetworkAddress.TryNormalizeIp(ip, out var normalized) ? IPAddress.Parse(normalized) : null)
+            .OfType<IPAddress>()
+            .Where(ip => !IPAddress.IsLoopback(ip) && !ip.IsIPv6LinkLocal && !ip.ToString().StartsWith("169.254.", StringComparison.Ordinal))
+            .OrderBy(ip => ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 0 : 1)
+            .Select(ip => ip.ToString())
+            .Distinct()];
 
     private static List<string> Macs(string? list) =>
         [.. (list ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

@@ -91,13 +91,13 @@ public sealed class VirtualMachineTests(PostgresServerFixture postgres, SshServe
             @@virt
             none
             @@libvirtvms
-            9f0c6b5e-1111-4a2b-9c3d-000000000001	web01	running	52:54:00:aa:bb:01,
+            9f0c6b5e-1111-4a2b-9c3d-000000000001	web01	running	52:54:00:aa:bb:01,	fe80::1,192.168.122.10,192.168.122.10,
             9f0c6b5e-1111-4a2b-9c3d-000000000002	db01	shut off
             @@proxmox
             cluster	lab
             node	pve1
             vm	qemu	pve1	101	app01	BC:24:11:00:00:01,BC:24:11:00:00:02,
-            vm	lxc	pve2	200	dns01	bc:24:11:00:00:03,
+            vm	lxc	pve2	200	dns01	bc:24:11:00:00:03,	10.0.0.53,2001:db8::53,
             vm	qemu	pve2	102
             unreadable
             @@end
@@ -108,10 +108,19 @@ public sealed class VirtualMachineTests(PostgresServerFixture postgres, SshServe
         Assert.Null(findings.Virtualization);
         Assert.Collection(
             findings.Guests,
-            g => Assert.Equal(("libvirt", "libvirt:9f0c6b5e-1111-4a2b-9c3d-000000000001", "web01", "running", true, "52:54:00:AA:BB:01"), (g.Platform, g.VirtualMachineId, g.Name, g.State, g.OnScannedHost, g.MacAddresses.Single())),
+            g =>
+            {
+                Assert.Equal(("libvirt", "libvirt:9f0c6b5e-1111-4a2b-9c3d-000000000001", "web01", "running", true, "52:54:00:AA:BB:01"), (g.Platform, g.VirtualMachineId, g.Name, g.State, g.OnScannedHost, g.MacAddresses.Single()));
+                // Link-local addresses are left out; duplicates (lease and ARP) appear once.
+                Assert.Equal(["192.168.122.10"], g.Addresses);
+            },
             g => Assert.Equal(("db01", "shut off", 0), (g.Name, g.State, g.MacAddresses.Count)),
             g => Assert.Equal(("proxmox-qemu", "proxmox:lab/101", "app01", "pve1", true, 2), (g.Platform, g.VirtualMachineId, g.Name, g.Node, g.OnScannedHost, g.MacAddresses.Count)),
-            g => Assert.Equal(("proxmox-lxc", "proxmox:lab/200", "dns01", "pve2", false, "BC:24:11:00:00:03"), (g.Platform, g.VirtualMachineId, g.Name, g.Node, g.OnScannedHost, g.MacAddresses.Single())),
+            g =>
+            {
+                Assert.Equal(("proxmox-lxc", "proxmox:lab/200", "dns01", "pve2", false, "BC:24:11:00:00:03"), (g.Platform, g.VirtualMachineId, g.Name, g.Node, g.OnScannedHost, g.MacAddresses.Single()));
+                Assert.Equal(["10.0.0.53", "2001:db8::53"], g.Addresses);
+            },
             g => Assert.Equal(("VM 102", "pve2"), (g.Name, g.Node)));
         Assert.Contains(findings.Notes, n => n.Contains("as root", StringComparison.Ordinal));
 
@@ -149,7 +158,56 @@ public sealed class VirtualMachineTests(PostgresServerFixture postgres, SshServe
         Assert.Contains("stays linked to “pve2”", matched[3].Note, StringComparison.Ordinal);
         Assert.Equal((locked.Id, false), (matched[4].GuestHostId, matched[4].LinkProposed));
         Assert.Equal(((Guid?)null, false), (matched[5].GuestHostId, matched[5].LinkProposed));
+        // Not in NKeeper: it can be added, named like the VM, its name serving as the hostname.
+        Assert.Equal(new ProposedHost("ghost", "ghost", null, null, "Added from a scan of pve1 (Proxmox VM proxmox:lab/400)."), matched[5].NewHost);
         Assert.Contains("“pve9” isn't in NKeeper", matched[6].Note, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NewHosts_AreOnlyProposed_WithAnAddress()
+    {
+        var node = Host("node1");
+        var matched = GuestMatcher.Match(node.Id, [
+            Guest("libvirt", "libvirt:1", "web vm", null, true, mac: "52:54:00:00:00:01", ip: "192.168.122.10"),
+            Guest("libvirt", "libvirt:2", "Windows 11", null, true),
+            Guest("proxmox-lxc", "proxmox:lab/200", "dns01", "pve9", false, ip: "10.0.0.53"),
+        ], [node]);
+
+        // A name with a space isn't a hostname, but the VM's IP address will do.
+        Assert.Equal(new ProposedHost("web vm", null, "192.168.122.10", "52:54:00:00:00:01", "Added from a scan of node1 (libvirt VM libvirt:1)."), matched[0].NewHost);
+        Assert.Null(matched[1].NewHost);
+        Assert.Contains("found no address", matched[1].Note, StringComparison.Ordinal);
+        // Its node isn't in NKeeper, so there's nothing to link it to.
+        Assert.Null(matched[2].NewHost);
+    }
+
+    [Fact]
+    public async Task HostsAreAddedFromAScan_LinkedToTheirNode()
+    {
+        var node = await CreateAsync("node1", "10.0.0.1");
+
+        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts/from-scan", new
+        {
+            hosts = new object[]
+            {
+                new { name = "web vm", ipAddress = "192.168.122.10", macAddress = "52-54-00-00-00-01", hypervisorId = node.Id, virtualMachineId = "libvirt:1", description = "Added from a scan of node1." },
+                new { name = "dns01", hostname = "dns01", hypervisorId = node.Id, virtualMachineId = "proxmox:lab/200" },
+            },
+        }, Ct);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var created = (await response.Content.ReadFromJsonAsync<List<HostResponse>>(Json, Ct))!;
+        Assert.Equal(["dns01", "web vm"], created.Select(h => h.Name));
+        var web = created[1];
+        Assert.Equal(("192.168.122.10", "52:54:00:00:00:01", true, (Guid?)node.Id, "libvirt:1"), (web.IpAddress, web.MacAddress, web.IsVirtualMachine, web.HypervisorId, web.VirtualMachineId));
+        Assert.NotNull(web.HypervisorSeenAtUtc);
+
+        // A host needs an address, and only administrators add hosts.
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts/from-scan", new { hosts = new[] { new { name = "x", hypervisorId = node.Id } } }, Ct)).StatusCode);
+        await _client.SendJsonAsync(HttpMethod.Post, "/api/users", new { userName = "bob", email = "bob@nkeeper.test", role = "User", password = "Bob-Passw0rd-123", mustChangePassword = false }, Ct);
+        using var bob = _factory.CreateClient();
+        (await bob.LoginAsync("bob", "Bob-Passw0rd-123", Ct)).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Forbidden, (await bob.SendJsonAsync(HttpMethod.Post, "/api/hosts/from-scan", new { hosts = new[] { new { name = "y", hostname = "y", hypervisorId = node.Id } } }, Ct)).StatusCode);
     }
 
     [Fact]
@@ -208,6 +266,7 @@ public sealed class VirtualMachineTests(PostgresServerFixture postgres, SshServe
         string name, string? hostname = null, string? mac = null, bool isVm = false, Guid? hypervisor = null, string? vmId = null, bool canManage = true) =>
         new(Guid.NewGuid(), name, hostname, mac, isVm, hypervisor, vmId, canManage);
 
-    private static ScannedGuest Guest(string platform, string id, string name, string? node, bool onScannedHost, string? mac = null, string? state = null) =>
-        new(platform, id, name, state, node, onScannedHost, mac is null ? [] : [mac]);
+    private static ScannedGuest Guest(
+        string platform, string id, string name, string? node, bool onScannedHost, string? mac = null, string? state = null, string? ip = null) =>
+        new(platform, id, name, state, node, onScannedHost, mac is null ? [] : [mac], ip is null ? [] : [ip]);
 }

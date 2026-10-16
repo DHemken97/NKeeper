@@ -654,7 +654,15 @@ export function WorkspacePage() {
         />
       ) : null}
       {scan ? (
-        <ScanDialog host={scan.host} kind={scan.kind} login={scan.login} onClose={() => setScan(null)} onApplied={handleChanged} />
+        <ScanDialog
+          host={scan.host}
+          kind={scan.kind}
+          login={scan.login}
+          canAddHosts={admin}
+          onClose={() => setScan(null)}
+          // A scan can also add hosts (VMs found on a hypervisor), so new ones join the tree.
+          onApplied={(changed) => applyLocally((hosts) => [...hosts.filter((h) => h.id !== changed.id), changed])}
+        />
       ) : null}
       {importing ? <ImportHostsDialog onClose={() => setImporting(false)} onImported={resource.reload} /> : null}
     </div>

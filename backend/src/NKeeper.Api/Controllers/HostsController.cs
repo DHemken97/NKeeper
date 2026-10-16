@@ -73,6 +73,16 @@ public sealed class HostsController(HostManager hosts) : ControllerBase
     public Task<List<HostResponse>> BulkUpdate(BulkHostUpdateRequest request, CancellationToken cancellationToken) =>
         hosts.BulkUpdateAsync(request, RequestUser.From(User), cancellationToken);
 
+    /// <summary>
+    /// Adds hosts for VMs and containers a scan of their hypervisor found, linked to it. Administrators only.
+    /// </summary>
+    [HttpPost("from-scan")]
+    [Authorize(Roles = SystemRoles.Administrator)]
+    [ProducesResponseType<List<HostResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    public Task<List<HostResponse>> CreateFromScan(ScannedHostsRequest request, CancellationToken cancellationToken) =>
+        hosts.CreateFromScanAsync(request.Hosts, RequestUser.From(User), cancellationToken);
+
     /// <summary>Replaces a host. Send the <c>version</c> you read; a stale version returns 409.</summary>
     [HttpPut("{id:guid}")]
     [ProducesResponseType<HostResponse>(StatusCodes.Status200OK)]

@@ -30,11 +30,13 @@ public sealed record ScannedUser(string Username, int Uid, string? FullName, str
 /// <param name="State">libvirt's state ("running", "shut off"…); null for Proxmox.</param>
 /// <param name="Node">The Proxmox node it's on; null for libvirt (the scanned host).</param>
 /// <param name="OnScannedHost">Whether it is on the scanned host itself (always for libvirt; for Proxmox, when its node is the scanned one).</param>
+/// <param name="Addresses">IP addresses it was seen with (libvirt leases and ARP, Proxmox static configuration).</param>
 /// <param name="GuestHostId">The NKeeper host it is, when one matched.</param>
 /// <param name="MatchedBy">"id" (a stored VM identity), "mac" or "name".</param>
 /// <param name="HypervisorHostId">The NKeeper host it runs on: the scanned host, or another node of the cluster.</param>
 /// <param name="LinkProposed">Whether linking the guest to that host would change something.</param>
 /// <param name="Note">Why it can't be linked, or what linking would change.</param>
+/// <param name="NewHost">For a guest that isn't in NKeeper: the host that could be added for it, when there's an address to give it.</param>
 public sealed record ScannedGuest(
     string Platform,
     string VirtualMachineId,
@@ -43,13 +45,18 @@ public sealed record ScannedGuest(
     string? Node,
     bool OnScannedHost,
     IReadOnlyList<string> MacAddresses,
+    IReadOnlyList<string> Addresses,
     Guid? GuestHostId = null,
     string? GuestHostName = null,
     string? MatchedBy = null,
     Guid? HypervisorHostId = null,
     string? HypervisorHostName = null,
     bool LinkProposed = false,
-    string? Note = null);
+    string? Note = null,
+    ProposedHost? NewHost = null);
+
+/// <summary>A host a scan could add for a guest NKeeper doesn't have yet.</summary>
+public sealed record ProposedHost(string Name, string? Hostname, string? IpAddress, string? MacAddress, string Description);
 
 /// <summary>
 /// What a scan found. Nothing is saved: the client shows the findings and applies the ones the user
