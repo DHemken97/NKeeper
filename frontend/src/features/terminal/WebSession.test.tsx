@@ -17,6 +17,10 @@ const router1: Host = {
   ipAddress: '192.168.1.1',
   macAddress: null,
   description: null,
+  isVirtualMachine: false,
+  hypervisorId: null,
+  virtualMachineId: null,
+  hypervisorSeenAtUtc: null,
   tags: [],
   services: [
     { protocol: 'Https', port: null, label: 'Admin UI' },

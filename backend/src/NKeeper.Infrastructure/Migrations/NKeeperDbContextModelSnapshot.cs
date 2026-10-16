@@ -340,9 +340,18 @@ namespace NKeeper.Infrastructure.Migrations
                         .HasMaxLength(253)
                         .HasColumnType("character varying(253)");
 
+                    b.Property<Guid?>("HypervisorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("HypervisorSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("IpAddress")
                         .HasMaxLength(45)
                         .HasColumnType("character varying(45)");
+
+                    b.Property<bool>("IsVirtualMachine")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("MacAddress")
                         .HasMaxLength(17)
@@ -365,17 +374,25 @@ namespace NKeeper.Infrastructure.Migrations
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
 
+                    b.Property<string>("VirtualMachineId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByUserId");
 
                     b.HasIndex("Hostname");
 
+                    b.HasIndex("HypervisorId");
+
                     b.HasIndex("IpAddress");
 
                     b.HasIndex("Name");
 
                     b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("VirtualMachineId");
 
                     b.ToTable("Hosts", null, t =>
                         {
@@ -620,6 +637,11 @@ namespace NKeeper.Infrastructure.Migrations
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
+                        .WithMany()
+                        .HasForeignKey("HypervisorId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)

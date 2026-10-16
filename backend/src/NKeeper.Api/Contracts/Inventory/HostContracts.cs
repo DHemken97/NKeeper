@@ -111,6 +111,12 @@ public sealed record HostRequest : IValidatableObject
     [StringLength(4000)]
     public string? Description { get; init; }
 
+    /// <summary>A virtual machine (guest) rather than physical hardware.</summary>
+    public bool IsVirtualMachine { get; init; }
+
+    /// <summary>For a virtual machine: the host it runs on (a KVM or Proxmox node). Ignored for other hosts.</summary>
+    public Guid? HypervisorId { get; init; }
+
     [MaxLength(50, ErrorMessage = "A host can have at most 50 tags.")]
     public HostTagRequest[] Tags { get; init; } = [];
 
@@ -157,6 +163,26 @@ public sealed record HostRequest : IValidatableObject
     }
 }
 
+/// <summary>Where a virtual machine runs, as a scan of its hypervisor found it.</summary>
+public sealed record HypervisorLinkRequest
+{
+    public Guid GuestId { get; init; }
+
+    public Guid HypervisorId { get; init; }
+
+    /// <summary>The VM's identity on the hypervisor, e.g. libvirt:&lt;uuid&gt;; kept when omitted.</summary>
+    [StringLength(128)]
+    public string? VirtualMachineId { get; init; }
+}
+
+public sealed record HypervisorLinksRequest
+{
+    [Required]
+    [MinLength(1)]
+    [MaxLength(1000, ErrorMessage = "Link at most 1000 virtual machines at a time.")]
+    public HypervisorLinkRequest[] Links { get; init; } = [];
+}
+
 public sealed record HostTagResponse(string Name, string? Value);
 
 /// <summary>A connection method. <see cref="RdpSecurity"/> is set for RDP services only.</summary>
@@ -175,6 +201,9 @@ public sealed record HostCredentialResponse(
 /// <summary>An SSH host key or RDP certificate trusted for one of the host's ports.</summary>
 public sealed record TrustedKeyResponse(ServiceProtocol Protocol, int Port, string Algorithm, string Fingerprint, DateTimeOffset TrustedAtUtc);
 
+/// <param name="HypervisorId">For a virtual machine: the host it runs on, when known.</param>
+/// <param name="VirtualMachineId">The VM's identity on its hypervisor, recorded by scans (e.g. libvirt:&lt;uuid&gt;).</param>
+/// <param name="HypervisorSeenAtUtc">When a scan last found the VM on that host; null when it was linked by hand.</param>
 public sealed record HostResponse(
     Guid Id,
     string Name,
@@ -182,6 +211,10 @@ public sealed record HostResponse(
     string? IpAddress,
     string? MacAddress,
     string? Description,
+    bool IsVirtualMachine,
+    Guid? HypervisorId,
+    string? VirtualMachineId,
+    DateTimeOffset? HypervisorSeenAtUtc,
     IReadOnlyList<HostTagResponse> Tags,
     IReadOnlyList<HostServiceResponse> Services,
     IReadOnlyList<HostCredentialResponse> Credentials,

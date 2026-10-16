@@ -21,6 +21,10 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         h.IpAddress,
         h.MacAddress,
         h.Description,
+        h.IsVirtualMachine,
+        h.HypervisorId,
+        h.VirtualMachineId,
+        h.HypervisorSeenAtUtc,
         h.Tags
             .OrderBy(t => t.Name.ToUpper()).ThenBy(t => t.Value.ToUpper())
             .Select(t => new HostTagResponse(t.Name, t.Value == "" ? null : t.Value))
@@ -71,7 +75,8 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
     public async Task<HostResponse> CreateAsync(HostRequest request, RequestUser user, CancellationToken cancellationToken)
     {
         var userId = user.Id;
-        var host = new Host { CreatedAtUtc = timeProvider.GetUtcNow(), CreatedByUserId = userId };
+        var host = new Host { Id = Guid.NewGuid(), CreatedAtUtc = timeProvider.GetUtcNow(), CreatedByUserId = userId };
+        await CheckHypervisorAsync(host.Id, request.IsVirtualMachine ? request.HypervisorId : null, user, cancellationToken);
         Apply(host, request, userId, await LoadCopySourcesAsync(request, user, cancellationToken));
         db.Hosts.Add(host);
         await db.SaveChangesAsync(cancellationToken);
@@ -106,6 +111,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         }
 
         db.Entry(host).Property(h => h.Version).OriginalValue = version;
+        await CheckHypervisorAsync(id, request.IsVirtualMachine ? request.HypervisorId : null, user, cancellationToken);
         var previousAddress = (host.Hostname, host.IpAddress);
         Apply(host, request, userId, await LoadCopySourcesAsync(request, user, cancellationToken));
         await db.SaveChangesAsync(cancellationToken);
@@ -118,6 +124,48 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
 
         // Editing tags can move a host out of the user's own grants; then it is simply no longer visible.
         return await GetAsync(id, user, cancellationToken);
+    }
+
+    /// <summary>
+    /// Records where virtual machines run, as found by scanning their hypervisors: each guest becomes
+    /// a VM on that host, with its platform identity and the time it was seen there.
+    /// </summary>
+    /// <returns>The updated hosts.</returns>
+    /// <exception cref="HostAccessDeniedException">A guest is missing or the user can't manage it.</exception>
+    public async Task<List<HostResponse>> LinkVirtualMachinesAsync(IReadOnlyList<HypervisorLinkRequest> links, RequestUser user, CancellationToken cancellationToken)
+    {
+        var ids = links.Select(l => l.GuestId).Distinct().ToList();
+        var guests = await access.Manageable(user).Where(h => ids.Contains(h.Id)).ToDictionaryAsync(h => h.Id, cancellationToken);
+        if (guests.Count != ids.Count)
+        {
+            throw new HostAccessDeniedException();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        for (var index = 0; index < links.Count; index++)
+        {
+            var link = links[index];
+            await CheckHypervisorAsync(link.GuestId, link.HypervisorId, user, cancellationToken, $"links[{index}].hypervisorId");
+            var guest = guests[link.GuestId];
+            guest.IsVirtualMachine = true;
+            guest.HypervisorId = link.HypervisorId;
+            guest.VirtualMachineId = InventoryText.TrimToNull(link.VirtualMachineId) ?? guest.VirtualMachineId;
+            guest.HypervisorSeenAtUtc = now;
+            guest.UpdatedAtUtc = now;
+            guest.UpdatedByUserId = user.Id;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        var updated = new List<HostResponse>(ids.Count);
+        foreach (var id in ids)
+        {
+            if (await GetAsync(id, user, cancellationToken) is { } host)
+            {
+                updated.Add(host);
+            }
+        }
+
+        return updated;
     }
 
     /// <summary>Forgets every trusted SSH host key and RDP certificate, so the next connection asks again.</summary>
@@ -148,6 +196,41 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             _ => throw new HostAccessDeniedException(),
         };
 
+    /// <summary>
+    /// A VM's hypervisor must be another host the user can see, and following "runs on" from it
+    /// must not lead back to this host (nested virtualisation is fine; a loop isn't).
+    /// </summary>
+    private async Task CheckHypervisorAsync(Guid hostId, Guid? requested, RequestUser user, CancellationToken cancellationToken, string field = "hypervisorId")
+    {
+        if (requested is not { } hypervisorId)
+        {
+            return;
+        }
+
+        if (hypervisorId == hostId)
+        {
+            throw new InventoryValidationException(field, "A virtual machine can't run on itself.");
+        }
+
+        if (!await access.Visible(user).AnyAsync(h => h.Id == hypervisorId, cancellationToken))
+        {
+            throw new InventoryValidationException(field, "The host it runs on no longer exists. Choose another.");
+        }
+
+        var links = await db.Hosts.AsNoTracking()
+            .Where(h => h.HypervisorId != null)
+            .Select(h => new { h.Id, h.HypervisorId })
+            .ToDictionaryAsync(h => h.Id, h => h.HypervisorId!.Value, cancellationToken);
+        var seen = new HashSet<Guid>();
+        for (Guid? current = hypervisorId; current is { } next && seen.Add(next); current = links.TryGetValue(next, out var parent) ? parent : null)
+        {
+            if (next == hostId)
+            {
+                throw new InventoryValidationException(field, "That host runs on this one, so this one can't run on it.");
+            }
+        }
+    }
+
     /// <summary>The credentials named by CopyFromCredentialId, from hosts the user can manage.</summary>
     private async Task<Dictionary<Guid, HostCredential>> LoadCopySourcesAsync(HostRequest request, RequestUser user, CancellationToken cancellationToken)
     {
@@ -170,12 +253,30 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         host.IpAddress = NetworkAddress.TryNormalizeIp(request.IpAddress ?? string.Empty, out var ip) ? ip : null;
         host.MacAddress = NetworkAddress.TryNormalizeMac(request.MacAddress ?? string.Empty, out var mac) ? mac : null;
         host.Description = InventoryText.TrimToNull(request.Description);
+        ApplyVirtualMachine(host, request);
         host.UpdatedAtUtc = timeProvider.GetUtcNow();
         host.UpdatedByUserId = userId;
 
         ApplyServices(host, request.Services);
         ApplyTags(host, request.Tags);
         ApplyCredentials(host, request.Credentials, copySources);
+    }
+
+    /// <summary>Only virtual machines have a hypervisor. A link chosen by hand has no "seen by a scan" time.</summary>
+    private static void ApplyVirtualMachine(Host host, HostRequest request)
+    {
+        host.IsVirtualMachine = request.IsVirtualMachine;
+        var hypervisor = request.IsVirtualMachine ? request.HypervisorId : null;
+        if (host.HypervisorId != hypervisor)
+        {
+            host.HypervisorId = hypervisor;
+            host.HypervisorSeenAtUtc = null;
+        }
+
+        if (!request.IsVirtualMachine)
+        {
+            host.VirtualMachineId = null;
+        }
     }
 
     private static void ApplyServices(Host host, IEnumerable<HostServiceRequest> services)

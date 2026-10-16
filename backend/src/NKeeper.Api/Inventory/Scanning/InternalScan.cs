@@ -37,6 +37,29 @@ internal static class InternalScan
         s uidmin; sed -n 's/^UID_MIN[[:space:]]*//p' /etc/login.defs 2>/dev/null
         s users; getent passwd 2>/dev/null || cat /etc/passwd 2>/dev/null
         s libvirt; command -v virsh >/dev/null 2>&1 && echo yes
+        s virt; systemd-detect-virt 2>/dev/null
+        s libvirtvms
+        if command -v virsh >/dev/null 2>&1; then
+          v='virsh -r -c qemu:///system'; $v uri >/dev/null 2>&1 || v='virsh -c qemu:///system'
+          for u in $($v list --all --uuid 2>/dev/null); do
+            printf '%s\t%s\t%s\t%s\n' "$u" "$($v domname "$u" 2>/dev/null)" "$($v domstate "$u" 2>/dev/null | head -n 1)" \
+              "$($v domiflist "$u" 2>/dev/null | awk 'NR > 2 && $5 ~ /:/ { printf "%s,", $5 }')"
+          done
+        fi
+        s proxmox
+        if [ -d /etc/pve/nodes ]; then
+          printf 'cluster\t%s\n' "$(sed -n 's/^[[:space:]]*cluster_name:[[:space:]]*//p' /etc/pve/corosync.conf 2>/dev/null | head -n 1)"
+          printf 'node\t%s\n' "$(uname -n | cut -d. -f1)"
+          for f in /etc/pve/nodes/*/qemu-server/*.conf /etc/pve/nodes/*/lxc/*.conf; do
+            [ -e "$f" ] || continue
+            [ -r "$f" ] || { echo unreadable; continue; }
+            n=${f#/etc/pve/nodes/}; n=${n%%/*}; id=${f##*/}; id=${id%.conf}
+            case $f in */lxc/*) kind=lxc ;; *) kind=qemu ;; esac
+            name=$(sed -n '/^\[/q; s/^name:[[:space:]]*//p; s/^hostname:[[:space:]]*//p' "$f" | head -n 1)
+            macs=$(sed -n '/^\[/q; /^net[0-9]*:/p' "$f" | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | tr '\n' ',')
+            printf 'vm\t%s\t%s\t%s\t%s\t%s\n' "$kind" "$n" "$id" "$name" "$macs"
+          done
+        fi
         s end
         """;
 
@@ -128,8 +151,56 @@ internal static class InternalScan
             notes.Add($"libvirt (virsh) is installed, so this can be a KVM host, reached over SSH{(sshPort is { } port ? $" on port {port}" : "")}.");
         }
 
-        return new ScanFindings(hostname, serverIp, mac, os, [.. ports.Select(ScanPorts.Describe)], isKvmHost, users, notes);
+        var virtualization = First(sections, "virt") is { } virt && virt != "none" ? virt : null;
+        var guests = ParseGuests(sections, notes);
+        return new ScanFindings(hostname, serverIp, mac, os, [.. ports.Select(ScanPorts.Describe)], isKvmHost, users, notes, virtualization, guests);
     }
+
+    /// <summary>libvirt domains ("uuid\tname\tstate\tmac,mac,") and Proxmox VMs/containers ("vm\tkind\tnode\tid\tname\tmac,").</summary>
+    private static List<ScannedGuest> ParseGuests(Dictionary<string, List<string>> sections, List<string> notes)
+    {
+        var guests = new List<ScannedGuest>();
+        foreach (var line in Lines(sections, "libvirtvms"))
+        {
+            var fields = line.Split('\t');
+            if (fields.Length >= 3 && Guid.TryParse(fields[0], out var uuid))
+            {
+                guests.Add(new ScannedGuest(
+                    "libvirt", $"libvirt:{uuid:D}", fields[1].Trim(), fields[2].Trim(), null, true, Macs(fields.ElementAtOrDefault(3))));
+            }
+        }
+
+        var proxmox = Lines(sections, "proxmox");
+        string? Value(string key) => proxmox.Select(l => l.Split('\t', 2)).FirstOrDefault(f => f[0] == key && f.Length == 2)?[1].Trim() is { Length: > 0 } v ? v : null;
+        var cluster = Value("cluster");
+        var localNode = Value("node");
+        // Lines are trimmed, so an empty name and MAC list leave only four fields.
+        foreach (var fields in proxmox.Select(l => l.Split('\t')).Where(f => f[0] == "vm" && f.Length >= 4))
+        {
+            var (kind, node, id, name) = (fields[1], fields[2], fields[3], fields.ElementAtOrDefault(4)?.Trim() ?? "");
+            guests.Add(new ScannedGuest(
+                kind == "lxc" ? "proxmox-lxc" : "proxmox-qemu",
+                $"proxmox:{cluster ?? node}/{id}",
+                name.Length > 0 ? name : $"{(kind == "lxc" ? "CT" : "VM")} {id}",
+                null,
+                node,
+                string.Equals(node, localNode, StringComparison.OrdinalIgnoreCase),
+                Macs(fields.ElementAtOrDefault(5))));
+        }
+
+        if (proxmox.Contains("unreadable"))
+        {
+            notes.Add("Some Proxmox VM configurations couldn't be read: scan the node as root to see every VM and container in the cluster.");
+        }
+
+        return guests;
+    }
+
+    private static List<string> Macs(string? list) =>
+        [.. (list ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(m => NetworkAddress.TryNormalizeMac(m, out var mac) ? mac : null)
+            .OfType<string>()
+            .Distinct()];
 
     /// <summary>The MAC address of the interface the SSH connection arrived on (or of the default route's).</summary>
     private static string? FindMac(Dictionary<string, List<string>> sections, string? serverIp, List<string> notes)

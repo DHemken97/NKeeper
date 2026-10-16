@@ -1,5 +1,5 @@
 import { api } from '../../../lib/api'
-import type { Host, HostImportInput, HostImportResult, HostInput, InternalScanLogin, ScanResponse } from '../types'
+import type { Host, HostImportInput, HostImportResult, HostInput, HypervisorLink, InternalScanLogin, ScanResponse } from '../types'
 
 export const hostsApi = {
   /** The whole inventory; searching, grouping and sorting happen client-side. */
@@ -16,4 +16,6 @@ export const hostsApi = {
     api.post<ScanResponse>(`/api/hosts/${id}/scan/internal`, { body: { ...login, trustFingerprint } }),
   /** External scan: the server probes the host's address over the network. Nothing is saved. */
   scanExternal: (id: string) => api.post<ScanResponse>(`/api/hosts/${id}/scan/external`, { body: {} }),
+  /** Record where VMs run (from a scan of their hypervisor); returns the updated guests. */
+  linkVirtualMachines: (links: HypervisorLink[]) => api.post<Host[]>('/api/hosts/hypervisor-links', { body: { links } }),
 }

@@ -36,6 +36,7 @@ A host has:
 - a **name**;
 - a **hostname and/or IP address**. When both are set, NKeeper connects to the IP address, and shows and copies it;
 - an optional **MAC address** and **description**;
+- whether it's a **virtual machine**, and if so, which host it **runs on** (its KVM or Proxmox node). The VM's details link to that host, and the host lists the VMs running on it. Deleting the host keeps its VMs and clears their link;
 - its own **tags**, **services** and **credentials**:
   - **Tags** are `name: value` pairs (the value is optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can have the same tag name twice with different values. Tags are what you group, search and grant access by; hosts don't live in folders.
   - **Services** are the ways to connect: SSH, RDP, VNC, HTTP, HTTPS, KVM, and others stored for later (SSMS, Telnet, SFTP, FTP, WinRM, PowerShell, Other). Each has an optional port and label. The first one is the default.
@@ -93,7 +94,12 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - the operating system, as an `os` tag that you can group by;
   - a service for each open port NKeeper has a service for. Other open ports are listed for information;
   - a **KVM** service when libvirt is installed (internal scans);
-  - each local account as a **credential without a password**. Using it asks for the password; set the password in the host's editor to save it.
+  - each local account as a **credential without a password**. Using it asks for the password; set the password in the host's editor to save it;
+  - **Virtual machine**, when the scan finds the host runs under a hypervisor (it asks `systemd-detect-virt`).
+- **Which VMs run where** (internal scans of hypervisors): scanning a node lists its VMs and containers and matches each to an NKeeper host. A match uses the VM identity recorded by an earlier scan, else a MAC address, else the name (or the hostname's first part). Each match is offered as a link: *app01 runs on node1*.
+  - **KVM / libvirt:** the node's VMs, read with `virsh` (read-only if possible). VMs often move between nodes. A VM moves to the scanned node only if it's **running** there; one that is merely defined there (shared storage) stays linked where it runs. Scan each node to keep the links current.
+  - **Proxmox:** the VM and container configurations are shared by the whole cluster, so scanning **any one node** links every VM in the cluster to the node it's on. Other nodes must be NKeeper hosts named like the Proxmox node (e.g. `pve2`, or `pve2.example.com`). Reading the configurations needs **root**; as another user the scan says which it couldn't read.
+  - A link records when a scan saw the VM there (shown on the VM). A link you set by hand in the editor has no such time.
 
 Changing a host's hostname or IP address forgets its trusted keys too, for the same reason.
 

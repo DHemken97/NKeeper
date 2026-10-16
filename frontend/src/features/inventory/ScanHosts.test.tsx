@@ -17,6 +17,10 @@ const web01: Host = {
   ipAddress: '10.0.0.30',
   macAddress: null,
   description: null,
+  isVirtualMachine: false,
+  hypervisorId: null,
+  virtualMachineId: null,
+  hypervisorSeenAtUtc: null,
   tags: [{ name: 'site', value: 'DC-A' }],
   services: [{ protocol: 'Ssh', port: null, label: null, rdpSecurity: null }],
   credentials: [{ id: 'c-ops', label: null, username: 'ops', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],
@@ -44,6 +48,8 @@ const findings: ScanFindings = {
     { username: 'dana', uid: 1001, fullName: 'Dana Admin', shell: '/bin/bash' },
   ],
   notes: ['libvirt was not found.'],
+  virtualization: null,
+  guests: [],
 }
 
 function renderWorkspace(routesOverride: Parameters<typeof mockFetch>[0], hosts: Host[] = [web01]) {

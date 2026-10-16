@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
+import { Checkbox } from '../../../components/ui/Checkbox'
 import { TextArea } from '../../../components/ui/TextArea'
 import { TextField } from '../../../components/ui/TextField'
 import { toFormErrors } from '../../../lib/formErrors'
@@ -8,6 +9,7 @@ import { hostsApi } from '../api/inventoryApi'
 import { toCloneDraft, toHostDraft, toHostInput, type HostDraft } from '../drafts'
 import type { Host } from '../types'
 import { CredentialsEditor } from './CredentialsEditor'
+import { HypervisorField } from './HypervisorField'
 import styles from './HostPanel.module.css'
 import { ServicesEditor } from './ServicesEditor'
 import { TagEditor } from './TagEditor'
@@ -19,14 +21,16 @@ interface HostEditorProps {
   cloneOf?: Host
   knownTagNames: string[]
   knownTagValues: (name: string) => string[]
+  /** Every host, to choose the one a virtual machine runs on. */
+  allHosts: Host[]
   onSaved: (host: Host) => void
   onCancel: () => void
 }
 
-const FIELDS = ['name', 'hostname', 'ipAddress', 'macAddress', 'description', 'tags', 'services', 'credentials']
+const FIELDS = ['name', 'hostname', 'ipAddress', 'macAddress', 'description', 'hypervisorId', 'tags', 'services', 'credentials']
 
 /** Create or edit a host in the details panel, including its tags, services and credentials. */
-export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, onSaved, onCancel }: HostEditorProps) {
+export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHosts, onSaved, onCancel }: HostEditorProps) {
   const [draft, setDraft] = useState<HostDraft>(() => (!host && cloneOf ? toCloneDraft(cloneOf) : toHostDraft(host)))
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
@@ -152,6 +156,21 @@ export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, onSav
               maxLength={4000}
               rows={2}
             />
+            <Checkbox
+              className={styles.full}
+              label="Virtual machine"
+              checked={draft.isVirtualMachine}
+              onChange={(e) => set('isVirtualMachine', e.target.checked)}
+            />
+            {draft.isVirtualMachine ? (
+              <HypervisorField
+                hosts={allHosts.filter((h) => h.id !== host?.id)}
+                value={draft.hypervisorId}
+                onChange={(id) => set('hypervisorId', id)}
+                error={fieldErrors.hypervisorId}
+                seenAtUtc={host && host.hypervisorId === draft.hypervisorId ? host.hypervisorSeenAtUtc : null}
+              />
+            ) : null}
           </div>
         </section>
 

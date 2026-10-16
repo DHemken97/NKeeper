@@ -45,7 +45,13 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
                 .ResolveAsync(request with { HostId = id }, RequestUser.From(User), ServiceProtocol.Ssh, DefaultSshPort, cancellationToken);
             using var client = await SshCommandConnection.ConnectAsync(
                 target, request.TrustFingerprint, User.GetUserId(), services.GetRequiredService<TrustedKeyStore>(), cancellationToken);
-            return new ScanResponse("ready", await InternalScan.RunAsync(client, cancellationToken), null);
+            var findings = await InternalScan.RunAsync(client, cancellationToken);
+            if (findings.Guests.Count > 0)
+            {
+                findings = findings with { Guests = GuestMatcher.Match(id, findings.Guests, await CandidatesAsync(cancellationToken)) };
+            }
+
+            return new ScanResponse("ready", findings, null);
         }
         catch (HostKeyTrustRequiredException trust)
         {
@@ -79,6 +85,18 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
         {
             return this.SessionFailure(ex);
         }
+    }
+
+    /// <summary>The hosts the user can see, for matching a hypervisor's guests (and its other nodes).</summary>
+    private async Task<List<GuestMatcher.Candidate>> CandidatesAsync(CancellationToken cancellationToken)
+    {
+        var user = RequestUser.From(User);
+        var manageable = await access.ManageableAsync(user, cancellationToken);
+        var hosts = await access.Visible(user).AsNoTracking()
+            .Select(h => new { h.Id, h.Name, h.Hostname, h.MacAddress, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId })
+            .ToListAsync(cancellationToken);
+        return [.. hosts.Select(h => new GuestMatcher.Candidate(
+            h.Id, h.Name, h.Hostname, h.MacAddress, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId, manageable?.Contains(h.Id) ?? true))];
     }
 
     /// <returns>Null when the user may manage the host; otherwise the response to send.</returns>

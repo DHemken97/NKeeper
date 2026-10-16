@@ -105,6 +105,10 @@ const linux01: Host = {
   ipAddress: null,
   macAddress: null,
   description: null,
+  isVirtualMachine: false,
+  hypervisorId: null,
+  virtualMachineId: null,
+  hypervisorSeenAtUtc: null,
   tags: [],
   services: [
     { protocol: 'Ssh', port: null, label: null },

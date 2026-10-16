@@ -426,6 +426,7 @@ export function WorkspacePage() {
               cloneOf={cloneSource}
               knownTagNames={knownTagNames}
               knownTagValues={(name) => tagValues(allHosts ?? [], name)}
+              allHosts={allHosts ?? []}
               onSaved={handleSaved}
               onCancel={() => update(selectedId === NEW_HOST ? { host: cloneSource?.id ?? null, clone: null } : { edit: null })}
             />
@@ -439,6 +440,8 @@ export function WorkspacePage() {
               onTagClick={filterByTag}
               onConnectMenu={(anchor) => setMenu({ hostId: selectedHost.id, x: anchor.left, y: anchor.bottom + 4, connectOnly: true })}
               onChanged={handleChanged}
+              allHosts={allHosts ?? []}
+              onShowHost={(id) => showHost(id)}
             />
           ) : selectedId && allHosts ? (
             <div className={styles.mainState}>

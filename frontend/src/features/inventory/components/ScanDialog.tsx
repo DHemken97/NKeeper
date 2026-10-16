@@ -9,7 +9,7 @@ import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
 import { toHostDraft, toHostInput } from '../drafts'
 import { scanProposals, type ScanProposal } from '../scanProposals'
-import { PROTOCOL_INFO, primaryAddress, type Host, type InternalScanLogin, type ScanFindings } from '../types'
+import { PROTOCOL_INFO, primaryAddress, type Host, type InternalScanLogin, type ScanFindings, type ScannedGuest } from '../types'
 import styles from './ScanDialog.module.css'
 
 interface ScanDialogProps {
@@ -18,7 +18,7 @@ interface ScanDialogProps {
   /** Internal scans: how to log in. */
   login?: InternalScanLogin
   onClose: () => void
-  /** The host after the chosen findings were saved. */
+  /** Each host the chosen findings changed (the scanned host, and VMs linked to it). */
   onApplied: (host: Host) => void
 }
 
@@ -151,9 +151,26 @@ const GROUPS: { group: ScanProposal['group']; title: string }[] = [
 function ScanResults({ title, host, findings, sshPort, onClose, onApplied }: ScanResultsProps) {
   const proposals = useMemo(() => scanProposals(host, findings, sshPort), [host, findings, sshPort])
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set(proposals.filter((p) => p.checked).map((p) => p.key)))
+  const links = useMemo(() => findings.guests.filter((g) => g.linkProposed && g.guestHostId && g.hypervisorHostId), [findings])
+  const [chosenLinks, setChosenLinks] = useState<ReadonlySet<string>>(() => new Set(links.map((g) => g.virtualMachineId)))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const otherPorts = findings.ports.filter((p) => p.protocol === null)
+  const unlinked = findings.guests.filter((g) => !links.includes(g))
+  const changeCount = chosen.size + chosenLinks.size
+  const anything = proposals.length + links.length > 0
+
+  function toggleLink(id: string, on: boolean) {
+    setChosenLinks((current) => {
+      const next = new Set(current)
+      if (on) {
+        next.add(id)
+      } else {
+        next.delete(id)
+      }
+      return next
+    })
+  }
 
   function toggle(key: string, on: boolean) {
     setChosen((current) => {
@@ -173,7 +190,16 @@ function ScanResults({ title, host, findings, sshPort, onClose, onApplied }: Sca
     setSaving(true)
     setError(null)
     try {
-      onApplied(await hostsApi.update(host.id, toHostInput(draft, host.version)))
+      if (chosen.size > 0) {
+        onApplied(await hostsApi.update(host.id, toHostInput(draft, host.version)))
+      }
+      const chosenGuests = links.filter((g) => chosenLinks.has(g.virtualMachineId))
+      if (chosenGuests.length > 0) {
+        const updated = await hostsApi.linkVirtualMachines(
+          chosenGuests.map((g) => ({ guestId: g.guestHostId!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId })),
+        )
+        updated.forEach(onApplied)
+      }
       onClose()
     } catch (failure) {
       const errors = toFormErrors(failure)
@@ -186,17 +212,17 @@ function ScanResults({ title, host, findings, sshPort, onClose, onApplied }: Sca
   return (
     <Dialog
       title={title}
-      description={proposals.length > 0 ? 'Choose what to add to the host. Nothing is saved until you apply.' : undefined}
+      description={anything ? 'Choose what to apply. Nothing is saved until you do.' : undefined}
       size="lg"
       onClose={onClose}
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={saving}>
-            {proposals.length > 0 ? 'Cancel' : 'Close'}
+            {anything ? 'Cancel' : 'Close'}
           </Button>
-          {proposals.length > 0 ? (
-            <Button onClick={() => void apply()} loading={saving} disabled={chosen.size === 0}>
-              {chosen.size === 1 ? 'Apply 1 change' : `Apply ${chosen.size} changes`}
+          {anything ? (
+            <Button onClick={() => void apply()} loading={saving} disabled={changeCount === 0}>
+              {changeCount === 1 ? 'Apply 1 change' : `Apply ${changeCount} changes`}
             </Button>
           ) : null}
         </>
@@ -204,7 +230,7 @@ function ScanResults({ title, host, findings, sshPort, onClose, onApplied }: Sca
     >
       <div className={styles.results}>
         {error ? <Alert>{error}</Alert> : null}
-        {proposals.length === 0 ? <Alert variant="info">The scan found nothing that the host doesn’t already have.</Alert> : null}
+        {!anything ? <Alert variant="info">The scan found nothing that the host doesn’t already have.</Alert> : null}
 
         {GROUPS.map(({ group, title: heading }) => {
           const items = proposals.filter((p) => p.group === group)
@@ -220,6 +246,36 @@ function ScanResults({ title, host, findings, sshPort, onClose, onApplied }: Sca
             </fieldset>
           )
         })}
+
+        {links.length > 0 ? (
+          <fieldset className={styles.group}>
+            <legend className={styles.heading}>Virtual machines</legend>
+            {links.map((guest) => (
+              <div key={guest.virtualMachineId} className={styles.proposal}>
+                <Checkbox
+                  label={`${guest.guestHostName} runs on ${guest.hypervisorHostName}`}
+                  checked={chosenLinks.has(guest.virtualMachineId)}
+                  onChange={(event) => toggleLink(guest.virtualMachineId, event.target.checked)}
+                />
+                <span className={styles.detail}>{guestDetail(guest)}</span>
+              </div>
+            ))}
+          </fieldset>
+        ) : null}
+
+        {unlinked.length > 0 ? (
+          <section className={styles.group} aria-label="Other virtual machines">
+            <h3 className={styles.heading}>{links.length > 0 ? 'Other virtual machines' : 'Virtual machines'}</h3>
+            <ul className={styles.notes}>
+              {unlinked.map((guest) => (
+                <li key={guest.virtualMachineId}>
+                  <strong>{guest.name}</strong>
+                  {guest.node ? ` (on ${guest.node})` : ''}: {guest.note}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         {otherPorts.length > 0 ? (
           <section className={styles.group} aria-label="Other open ports">
@@ -241,4 +297,17 @@ function ScanResults({ title, host, findings, sshPort, onClose, onApplied }: Sca
       </div>
     </Dialog>
   )
+}
+
+const PLATFORMS: Record<ScannedGuest['platform'], string> = { libvirt: 'libvirt VM', 'proxmox-qemu': 'Proxmox VM', 'proxmox-lxc': 'Proxmox container' }
+const MATCHED_BY = { id: 'its VM identity', mac: 'its MAC address', name: 'its name' } as const
+
+function guestDetail(guest: ScannedGuest): string {
+  return [
+    `${PLATFORMS[guest.platform]} “${guest.name}”${guest.state ? ` (${guest.state})` : ''}`,
+    guest.matchedBy ? `matched by ${MATCHED_BY[guest.matchedBy]}` : null,
+    guest.note,
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }

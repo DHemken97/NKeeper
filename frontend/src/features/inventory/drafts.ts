@@ -44,6 +44,9 @@ export interface HostDraft {
   ipAddress: string
   macAddress: string
   description: string
+  isVirtualMachine: boolean
+  /** The host a VM runs on; empty for none. */
+  hypervisorId: string
   tags: TagDraft[]
   services: ServiceDraft[]
   credentials: CredentialDraft[]
@@ -89,6 +92,8 @@ export function toHostDraft(host: Host | null): HostDraft {
     ipAddress: host?.ipAddress ?? '',
     macAddress: host?.macAddress ?? '',
     description: host?.description ?? '',
+    isVirtualMachine: host?.isVirtualMachine ?? false,
+    hypervisorId: host?.hypervisorId ?? '',
     tags: host?.tags.map((t) => newTagDraft(t.name, t.value)) ?? [],
     services: host?.services.map((s) => newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity)) ?? [],
     credentials: host?.credentials.map((c) => newCredentialDraft(c)) ?? [],
@@ -115,6 +120,8 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
     ipAddress: blankToNull(draft.ipAddress),
     macAddress: blankToNull(draft.macAddress),
     description: blankToNull(draft.description),
+    isVirtualMachine: draft.isVirtualMachine,
+    hypervisorId: draft.isVirtualMachine && draft.hypervisorId ? draft.hypervisorId : null,
     // Rows left completely empty are ignored rather than rejected.
     tags: draft.tags
       .filter((t) => t.name.trim() || t.value.trim())

@@ -21,6 +21,10 @@ interface HostDetailsProps {
   onConnectMenu: (anchor: DOMRect) => void
   /** The host changed here (e.g. host keys forgotten). */
   onChanged: (host: Host) => void
+  /** Every host, to show the one this VM runs on and the VMs running on this one. */
+  allHosts: Host[]
+  /** Show another host (e.g. the hypervisor, or a VM on this one). */
+  onShowHost: (id: string) => void
 }
 
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
@@ -35,7 +39,7 @@ function describeKey(key: TrustedKey): string {
 }
 
 /** Read-only overview of a host: addresses, tags, services and credentials (never secrets). */
-export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onConnectMenu, onChanged }: HostDetailsProps) {
+export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onConnectMenu, onChanged, allHosts, onShowHost }: HostDetailsProps) {
   const [deleting, setDeleting] = useState(false)
   const [forgetting, setForgetting] = useState(false)
   const [confirmForget, setConfirmForget] = useState(false)
@@ -73,6 +77,8 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
   }
 
   const addresses = [host.hostname, host.ipAddress].filter(Boolean).join(' · ')
+  const hypervisor = host.hypervisorId ? allHosts.find((h) => h.id === host.hypervisorId) : undefined
+  const guests = allHosts.filter((h) => h.hypervisorId === host.id).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
 
   return (
     <article className={styles.panel} aria-labelledby="host-title">
@@ -131,8 +137,46 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
                 <dd className={styles.description}>{host.description}</dd>
               </>
             ) : null}
+            {host.isVirtualMachine ? (
+              <>
+                <dt>Runs on</dt>
+                <dd>
+                  {hypervisor ? (
+                    <button type="button" className={styles.link} onClick={() => onShowHost(hypervisor.id)}>
+                      {hypervisor.name}
+                    </button>
+                  ) : (
+                    <span className={styles.muted}>{host.hypervisorId ? 'A host you can’t see' : 'Unknown (virtual machine)'}</span>
+                  )}
+                  {host.hypervisorSeenAtUtc ? (
+                    <span className={styles.muted}>
+                      {' '}
+                      · seen there <time dateTime={host.hypervisorSeenAtUtc}>{dateTimeFormat.format(new Date(host.hypervisorSeenAtUtc))}</time>
+                    </span>
+                  ) : null}
+                </dd>
+              </>
+            ) : null}
           </dl>
         </section>
+
+        {guests.length > 0 ? (
+          <section className={styles.section} aria-labelledby="guests-title">
+            <h2 id="guests-title" className={styles.sectionTitle}>
+              Virtual machines <span className={styles.count}>{guests.length}</span>
+            </h2>
+            <ul className={styles.guests}>
+              {guests.map((guest) => (
+                <li key={guest.id}>
+                  <button type="button" className={styles.link} onClick={() => onShowHost(guest.id)}>
+                    {guest.name}
+                  </button>
+                  <span className={`${styles.mono} ${styles.muted}`}> {guest.ipAddress ?? guest.hostname}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <section className={styles.section} aria-labelledby="tags-title">
           <h2 id="tags-title" className={styles.sectionTitle}>

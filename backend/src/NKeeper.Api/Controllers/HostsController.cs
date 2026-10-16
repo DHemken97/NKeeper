@@ -51,6 +51,17 @@ public sealed class HostsController(HostManager hosts) : ControllerBase
     public Task<HostImportResponse> Import(HostImportRequest request, [FromServices] HostImporter importer, CancellationToken cancellationToken) =>
         importer.ImportAsync(request, RequestUser.From(User), cancellationToken);
 
+    /// <summary>
+    /// Records where virtual machines run (from a scan of their hypervisors). Each guest must be a host
+    /// the user can manage. Returns the updated guests.
+    /// </summary>
+    [HttpPost("hypervisor-links")]
+    [ProducesResponseType<List<HostResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    public Task<List<HostResponse>> LinkVirtualMachines(HypervisorLinksRequest request, CancellationToken cancellationToken) =>
+        hosts.LinkVirtualMachinesAsync(request.Links, RequestUser.From(User), cancellationToken);
+
     /// <summary>Replaces a host. Send the <c>version</c> you read; a stale version returns 409.</summary>
     [HttpPut("{id:guid}")]
     [ProducesResponseType<HostResponse>(StatusCodes.Status200OK)]

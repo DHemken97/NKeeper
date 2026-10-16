@@ -70,6 +70,17 @@ export function scanProposals(host: Host, findings: ScanFindings, sshPort: numbe
     })
   }
 
+  if (findings.virtualization && !host.isVirtualMachine) {
+    proposals.push({
+      key: 'vm',
+      group: 'Host',
+      label: 'Virtual machine',
+      detail: `it runs under ${findings.virtualization}`,
+      checked: true,
+      apply: (draft) => void (draft.isVirtualMachine = true),
+    })
+  }
+
   const os = findings.operatingSystem?.slice(0, 255)
   if (os && !host.tags.some((t) => sameText(t.name, OS_TAG) && t.value === os)) {
     const current = host.tags.find((t) => sameText(t.name, OS_TAG))?.value ?? null

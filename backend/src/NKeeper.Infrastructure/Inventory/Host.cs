@@ -23,6 +23,25 @@ public sealed class Host
 
     public string? Description { get; set; }
 
+    /// <summary>A virtual machine (guest) rather than physical hardware.</summary>
+    public bool IsVirtualMachine { get; set; }
+
+    /// <summary>
+    /// The host this virtual machine runs on: a KVM/libvirt or Proxmox node. VMs can move between
+    /// nodes (migration, HA), so scans of the nodes keep it current; null when unknown. Cleared when
+    /// that host is deleted.
+    /// </summary>
+    public Guid? HypervisorId { get; set; }
+
+    /// <summary>
+    /// The VM's identity on its hypervisor platform, recorded by scans, e.g. <c>libvirt:&lt;uuid&gt;</c> or
+    /// <c>proxmox:&lt;cluster&gt;/&lt;vmid&gt;</c>. It survives renames and moves between nodes.
+    /// </summary>
+    public string? VirtualMachineId { get; set; }
+
+    /// <summary>When a scan last found this VM on <see cref="HypervisorId"/>; null when the link was set by hand.</summary>
+    public DateTimeOffset? HypervisorSeenAtUtc { get; set; }
+
     public List<HostService> Services { get; set; } = [];
 
     public List<HostTag> Tags { get; set; } = [];

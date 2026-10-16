@@ -85,6 +85,14 @@ export interface Host {
   ipAddress: string | null
   macAddress: string | null
   description: string | null
+  /** A virtual machine (guest) rather than physical hardware. */
+  isVirtualMachine: boolean
+  /** For a VM: the host it runs on (a KVM or Proxmox node), when known. */
+  hypervisorId: string | null
+  /** The VM's identity on its hypervisor, recorded by scans, e.g. "libvirt:<uuid>" or "proxmox:<cluster>/<vmid>". */
+  virtualMachineId: string | null
+  /** When a scan last found the VM on that host; null when it was linked by hand. */
+  hypervisorSeenAtUtc: string | null
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredential[]
@@ -120,6 +128,8 @@ export interface HostInput {
   ipAddress: string | null
   macAddress: string | null
   description: string | null
+  isVirtualMachine: boolean
+  hypervisorId: string | null
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredentialInput[]
@@ -186,6 +196,27 @@ export interface ScannedUser {
   shell: string
 }
 
+/** A VM or container found on a scanned hypervisor (or its Proxmox cluster), with what NKeeper matched it to. */
+export interface ScannedGuest {
+  platform: 'libvirt' | 'proxmox-qemu' | 'proxmox-lxc'
+  virtualMachineId: string
+  name: string
+  /** libvirt's state ("running", "shut off"…); null for Proxmox. */
+  state: string | null
+  /** The Proxmox node it's on; null for libvirt (the scanned host). */
+  node: string | null
+  onScannedHost: boolean
+  macAddresses: string[]
+  guestHostId: string | null
+  guestHostName: string | null
+  matchedBy: 'id' | 'mac' | 'name' | null
+  hypervisorHostId: string | null
+  hypervisorHostName: string | null
+  /** Linking the guest to that host would change something. */
+  linkProposed: boolean
+  note: string | null
+}
+
 /** What a scan found. Nothing is saved until the user applies findings to the host. */
 export interface ScanFindings {
   hostname: string | null
@@ -198,6 +229,17 @@ export interface ScanFindings {
   /** Internal scans only. */
   users: ScannedUser[]
   notes: string[]
+  /** Internal scans: what the host itself runs under (e.g. "kvm", "vmware"), or null for hardware. */
+  virtualization: string | null
+  /** Internal scans of hypervisors: their VMs and containers. */
+  guests: ScannedGuest[]
+}
+
+/** Where a VM runs, as a scan of its hypervisor found it. */
+export interface HypervisorLink {
+  guestId: string
+  hypervisorId: string
+  virtualMachineId?: string
 }
 
 export interface ScanResponse {
