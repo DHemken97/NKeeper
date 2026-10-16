@@ -17,6 +17,10 @@ public sealed record HostServiceRequest
 
     /// <summary>RDP services only; defaults to <see cref="RdpSecurityMode.Auto"/>.</summary>
     public RdpSecurityMode? RdpSecurity { get; init; }
+
+    /// <summary>iDRAC services only (required there): the iDRAC's own IP address or hostname. Ignored for other services.</summary>
+    [StringLength(253)]
+    public string? Address { get; init; }
 }
 
 /// <summary>A <c>name: value</c> tag. The value is optional.</summary>
@@ -155,6 +159,24 @@ public sealed record HostRequest : IValidatableObject
             yield return new ValidationResult("Enter a MAC address like AA:BB:CC:DD:EE:FF.", ["macAddress"]);
         }
 
+        for (var index = 0; index < Services.Length; index++)
+        {
+            if (Services[index].Protocol != ServiceProtocol.Idrac)
+            {
+                continue;
+            }
+
+            var address = Services[index].Address?.Trim();
+            if (string.IsNullOrEmpty(address))
+            {
+                yield return new ValidationResult("Enter the iDRAC's IP address.", [$"services[{index}].address"]);
+            }
+            else if (!NetworkAddress.TryNormalizeIp(address, out _) && !NetworkAddress.IsValidHostname(address))
+            {
+                yield return new ValidationResult("Enter a valid IP address or hostname for the iDRAC.", [$"services[{index}].address"]);
+            }
+        }
+
         var duplicateIds = Credentials.Where(c => c.Id is not null).GroupBy(c => c.Id).Any(g => g.Count() > 1);
         if (duplicateIds)
         {
@@ -185,8 +207,11 @@ public sealed record HypervisorLinksRequest
 
 public sealed record HostTagResponse(string Name, string? Value);
 
-/// <summary>A connection method. <see cref="RdpSecurity"/> is set for RDP services only.</summary>
-public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity);
+/// <summary>
+/// A connection method. <see cref="RdpSecurity"/> is set for RDP services only, <see cref="Address"/>
+/// for services with their own address (iDRAC) only.
+/// </summary>
+public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity, string? Address = null);
 
 /// <summary>A credential as seen by clients. Secret values are never included.</summary>
 public sealed record HostCredentialResponse(

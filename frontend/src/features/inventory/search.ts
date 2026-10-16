@@ -37,7 +37,7 @@ function searchableText(host: Host): string {
     host.macAddress,
     host.description,
     ...host.tags.flatMap((t) => [t.name, t.value]),
-    ...host.services.flatMap((s) => [PROTOCOL_INFO[s.protocol].label, s.label, s.port?.toString()]),
+    ...host.services.flatMap((s) => [PROTOCOL_INFO[s.protocol].label, s.label, s.port?.toString(), s.address]),
     ...host.credentials.flatMap((c) => [c.label, formatAccount(c)]),
   ]
     .filter(Boolean)

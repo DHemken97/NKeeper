@@ -13,6 +13,7 @@ export const SERVICE_PROTOCOLS = [
   'PowerShell',
   'Rpc',
   'Kvm',
+  'Idrac',
   'Other',
 ] as const
 
@@ -32,6 +33,7 @@ export const PROTOCOL_INFO: Record<ServiceProtocol, { label: string; name: strin
   PowerShell: { label: 'PowerShell', name: 'PowerShell Remoting', defaultPort: 5985 },
   Rpc: { label: 'RPC', name: 'Windows RPC', defaultPort: 135 },
   Kvm: { label: 'KVM', name: 'KVM / libvirt (over SSH)', defaultPort: 22 },
+  Idrac: { label: 'iDRAC', name: 'Dell iDRAC (Redfish, console, RACADM)', defaultPort: 443 },
   Other: { label: 'Other', name: 'Other' },
 }
 
@@ -56,6 +58,8 @@ export interface HostService {
   label: string | null
   /** RDP services only. */
   rdpSecurity?: RdpSecurity | null
+  /** iDRAC services only: the iDRAC's own IP address (or hostname), where it is reached instead of the host's. */
+  address?: string | null
 }
 
 /** A credential as returned by the API. Secrets are never included, only whether they are set. */

@@ -10,6 +10,8 @@ export interface ServiceDraft {
   label: string
   /** Only used for RDP services. */
   rdpSecurity: RdpSecurity
+  /** Only used for iDRAC services: the iDRAC's own address. */
+  address: string
 }
 
 export interface TagDraft {
@@ -60,8 +62,16 @@ export function newServiceDraft(
   port: number | null = null,
   label: string | null = null,
   rdpSecurity: RdpSecurity | null = null,
+  address: string | null = null,
 ): ServiceDraft {
-  return { key: key(), protocol, port: port === null ? '' : String(port), label: label ?? '', rdpSecurity: rdpSecurity ?? 'Auto' }
+  return {
+    key: key(),
+    protocol,
+    port: port === null ? '' : String(port),
+    label: label ?? '',
+    rdpSecurity: rdpSecurity ?? 'Auto',
+    address: address ?? '',
+  }
 }
 
 export function newTagDraft(name = '', value: string | null = ''): TagDraft {
@@ -95,7 +105,7 @@ export function toHostDraft(host: Host | null): HostDraft {
     isVirtualMachine: host?.isVirtualMachine ?? false,
     hypervisorId: host?.hypervisorId ?? '',
     tags: host?.tags.map((t) => newTagDraft(t.name, t.value)) ?? [],
-    services: host?.services.map((s) => newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity)) ?? [],
+    services: host?.services.map((s) => newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity, s.address)) ?? [],
     credentials: host?.credentials.map((c) => newCredentialDraft(c)) ?? [],
   }
 }
@@ -131,6 +141,7 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
       port: s.port === '' ? null : Number(s.port),
       label: blankToNull(s.label),
       ...(s.protocol === 'Rdp' ? { rdpSecurity: s.rdpSecurity } : {}),
+      ...(s.protocol === 'Idrac' ? { address: blankToNull(s.address) } : {}),
     })),
     credentials: draft.credentials.map((c) => ({
       ...(c.id ? { id: c.id } : {}),

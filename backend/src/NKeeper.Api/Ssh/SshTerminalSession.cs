@@ -112,7 +112,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
             // Persist a newly trusted key even when authentication then fails: it identifies the server, not the login.
             if (hostKey.NewlyTrusted is { } trusted)
             {
-                await trustedKeys.TrustAsync(target, ServiceProtocol.Ssh, trusted.Algorithm, trusted.Fingerprint, userId);
+                await trustedKeys.TrustAsync(target, target.KeyProtocol, trusted.Algorithm, trusted.Fingerprint, userId);
             }
         }
     }
@@ -222,7 +222,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
                 Outcome = e.CanTrust ? HostKeyOutcome.Trusted : HostKeyOutcome.Changed;
                 if (!e.CanTrust)
                 {
-                    trustedKeys.LogChanged(target, ServiceProtocol.Ssh, known.Fingerprint, fingerprint);
+                    trustedKeys.LogChanged(target, target.KeyProtocol, known.Fingerprint, fingerprint);
                     socket.SendJsonAsync(
                         new { type = "hostKey", status = "changed", kind = "ssh", port = target.Port, algorithm, fingerprint, trustedFingerprint = known.Fingerprint },
                         cancellationToken).GetAwaiter().GetResult();

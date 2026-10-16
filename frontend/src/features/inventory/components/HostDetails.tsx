@@ -224,6 +224,7 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
                       ) : null}
                     </span>
                     <span className={`${styles.mono} ${styles.muted}`}>
+                      {service.protocol === 'Idrac' && service.address ? `${service.address}, ` : ''}
                       {service.port ? `port ${service.port}` : info.defaultPort ? `port ${info.defaultPort} (default)` : ''}
                     </span>
                   </li>

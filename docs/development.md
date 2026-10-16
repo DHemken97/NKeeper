@@ -69,15 +69,16 @@ backend/
     Access/                             HostAccess: which hosts a user can see or manage
     Configuration/                      settings classes, service registration, health check, SPA hosting (IIS)
     Contracts/                          request/response records (never EF entities)
-    Controllers/                        Auth, Hosts, Users, RemoteSessions (ssh/rdp/vnc WebSockets), WebSessions, Kvm
+    Controllers/                        Auth, Hosts, Users, RemoteSessions (ssh/rdp/vnc WebSockets), WebSessions, Kvm, Idrac
     Desktop/                            RDP/VNC: guacd handshake, Guacamole protocol, instruction filter, RDP certificate probe
+    Idrac/                              Redfish client; iDRAC status, power and virtual console credentials
     Inventory/                          HostManager (hosts, tags, services, credentials, cloning), validation
     Kvm/                                libvirt over SSH (virsh), SPICE and VNC console tunnels
     RemoteSessions/                     shared session plumbing: WebSocket protocol, target resolution, trusted keys, limits, origin check
     Security/                           antiforgery and account-status filters
     Ssh/                                SSH terminal sessions (SSH.NET)
     Users/                              user administration and access grants
-    Web/                                web-session proxy (YARP) and session store
+    Web/                                web-session proxy (YARP), session store, HTTPS certificate trust
   src/NKeeper.Infrastructure/           persistence and identity
     Access/                             access-grant entity
     Identity/                           users, roles, database-backed auth sessions, bootstrap admin
@@ -90,7 +91,7 @@ frontend/
   src/components/                       layout and UI components (Button, Dialog, ContextMenu, …)
   src/features/auth, account, users     sign-in, own password, user administration
   src/features/inventory/               workspace page, host tree, search and grouping, host menu, details and editor
-  src/features/terminal/                session tabs: SSH terminal, RDP/VNC desktop, web session, KVM VM list, SPICE and VNC consoles
+  src/features/terminal/                session tabs: SSH terminal, RDP/VNC desktop, web session, KVM VM list, SPICE and VNC consoles, iDRAC
   src/lib/api.ts                        the single HTTP client (CSRF, errors)
   src/vendor/                           Apache Guacamole client and spice-html5 (vendored, see their READMEs)
   nginx/                                nginx snippets shared by the container and native Linux, HTTPS template, certificate script
@@ -121,6 +122,13 @@ All sessions start from a **target**: a host, one of its services, and a saved c
   - a console opens an SSH local port forward to the VM's SPICE or VNC port (virsh reports VNC as a display number, port 5900 + N);
   - spice-html5 then opens one WebSocket per SPICE channel on `/api/spice/channel/{id}`, and noVNC one on `/api/vnc/channel/{id}`, each relayed raw to that forward. VNC consoles live under `/api/vnc/` so proxies already treat them as WebSockets.
 
+- **iDRAC** (`/api/idrac/overview`, `/api/idrac/power`, `/api/idrac/console`):
+  - an iDRAC service has its own address (`HostService.Address`), which `SessionTargetResolver` connects to instead of the host's;
+  - status and power are Redfish over HTTPS (`RedfishClient`, HTTP Basic, the certificate pinned as for web sessions), finding the system and manager from the service root;
+  - the console calls Dell's `DelliDRACCardService.GetKVMSession` for one-time credentials, then opens a web session to the iDRAC whose launch link lands once on `/console?username=…&tempUsername=…&tempPassword=…`, as Dell's launch scripts do. The HTML5 console's own WebSockets go through the web-session proxy;
+  - RACADM is an ordinary SSH session started on the iDRAC service: the resolver turns it into SSH to port 22 of the iDRAC's address;
+  - identities trusted for the iDRAC (its certificate, its SSH host key) are kept under the `Idrac` protocol, apart from the host's own, and are forgotten when the iDRAC's address changes.
+
 Trusted keys are kept per host, port and protocol (`TrustedKeyStore`). Session lifetimes, per-user limits and "end everything for this user" live in `SessionLimiter`, `WebSessionStore` and `ConsoleSessionStore`.
 
 ## Tests
@@ -140,6 +148,7 @@ cd frontend && npm run build           # type-check and production build
 | OpenSSH server | SSH sessions (password, key, one-off, host key trust and change), access checks, and KVM with a fake `virsh` and an echo server standing in for the SPICE and VNC displays |
 | xrdp, x11vnc and guacd | RDP and VNC end to end, including certificate trust and the instruction filter |
 | An in-process HTTP/HTTPS server | Web sessions: proxying, cookies, framing, certificates, isolation |
+| An in-process fake iDRAC (Redfish over HTTPS) | iDRAC status, power, console credentials and launch, certificate trust |
 
 Without Docker (and without `NKEEPER_TEST_POSTGRES`), these tests are reported as **Skipped** with the reason, never as passed.
 
