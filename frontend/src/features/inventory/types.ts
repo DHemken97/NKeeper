@@ -255,3 +255,14 @@ export interface InternalScanLogin {
   username?: string
   password?: string
 }
+
+/** The same changes to many hosts: tags are removed, then set (replacing every value of the name), then added. */
+export interface BulkHostUpdateInput {
+  hostIds: string[]
+  addTags: HostTag[]
+  setTags: HostTag[]
+  /** A null value removes every value of the tag. */
+  removeTags: HostTag[]
+  /** Set or (with a null id) clear the host the VMs run on; omit to leave it. */
+  hypervisor?: { hypervisorId: string | null }
+}

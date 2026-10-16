@@ -168,6 +168,122 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         return updated;
     }
 
+    /// <summary>
+    /// Applies the same tag and hypervisor changes to many hosts in one transaction. Hosts the
+    /// changes don't affect are left untouched (their update time doesn't move).
+    /// </summary>
+    /// <returns>Every selected host, as it is now.</returns>
+    /// <exception cref="HostAccessDeniedException">A host is missing or the user can't manage it.</exception>
+    public async Task<List<HostResponse>> BulkUpdateAsync(BulkHostUpdateRequest request, RequestUser user, CancellationToken cancellationToken)
+    {
+        var ids = request.HostIds.Distinct().ToHashSet();
+        var hosts = await access.Manageable(user).Where(h => ids.Contains(h.Id)).Include(h => h.Tags).ToListAsync(cancellationToken);
+        if (hosts.Count != ids.Count)
+        {
+            throw new HostAccessDeniedException();
+        }
+
+        if (request.Hypervisor is { HypervisorId: { } hypervisorId })
+        {
+            await CheckBulkHypervisorAsync(hypervisorId, ids, user, cancellationToken);
+        }
+
+        static string Norm(string? value) => value?.Trim() ?? string.Empty;
+        var removals = request.RemoveTags.Select(r => (Name: Norm(r.Name), Value: r.Value is null ? null : Norm(r.Value))).ToList();
+        var sets = request.SetTags.Select(t => (Name: Norm(t.Name), Value: Norm(t.Value))).ToList();
+        var additions = request.AddTags.Select(t => (Name: Norm(t.Name), Value: Norm(t.Value))).ToList();
+        var now = timeProvider.GetUtcNow();
+
+        foreach (var host in hosts)
+        {
+            var changed = false;
+            bool Is(HostTag tag, string name, string? value) =>
+                tag.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && (value is null || tag.Value.Equals(value, StringComparison.OrdinalIgnoreCase));
+
+            foreach (var (name, value) in removals)
+            {
+                changed |= host.Tags.RemoveAll(t => Is(t, name, value)) > 0;
+            }
+
+            foreach (var (name, value) in sets)
+            {
+                if (host.Tags.Count(t => Is(t, name, null)) == 1 && host.Tags.Any(t => Is(t, name, value)))
+                {
+                    continue; // Already exactly this.
+                }
+
+                host.Tags.RemoveAll(t => Is(t, name, null));
+                host.Tags.Add(new HostTag { Name = name, Value = value });
+                changed = true;
+            }
+
+            foreach (var (name, value) in additions)
+            {
+                if (!host.Tags.Any(t => Is(t, name, value)))
+                {
+                    host.Tags.Add(new HostTag { Name = name, Value = value });
+                    changed = true;
+                }
+            }
+
+            if (host.Tags.Count > 50)
+            {
+                throw new InventoryValidationException("addTags", $"“{host.Name}” would have more than 50 tags.");
+            }
+
+            if (request.Hypervisor is { } hypervisor)
+            {
+                var target = hypervisor.HypervisorId;
+                if (host.HypervisorId != target || (target is not null && !host.IsVirtualMachine))
+                {
+                    host.IsVirtualMachine |= target is not null;
+                    host.HypervisorId = target;
+                    host.HypervisorSeenAtUtc = null;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                host.UpdatedAtUtc = now;
+                host.UpdatedByUserId = user.Id;
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        var updated = await access.Visible(user).AsNoTracking().Where(h => ids.Contains(h.Id))
+            .OrderBy(h => h.Name.ToUpper()).ThenBy(h => h.Id)
+            .Select(Projection).AsSplitQuery().ToListAsync(cancellationToken);
+        return [.. updated.Select(h => h with { CanManage = true })];
+    }
+
+    /// <summary>The hypervisor must be visible, not one of the hosts, and not run (eventually) on one of them.</summary>
+    private async Task CheckBulkHypervisorAsync(Guid hypervisorId, HashSet<Guid> hostIds, RequestUser user, CancellationToken cancellationToken)
+    {
+        if (hostIds.Contains(hypervisorId))
+        {
+            throw new InventoryValidationException("hypervisor", "The host they run on can't be one of the selected hosts.");
+        }
+
+        if (!await access.Visible(user).AnyAsync(h => h.Id == hypervisorId, cancellationToken))
+        {
+            throw new InventoryValidationException("hypervisor", "That host no longer exists. Choose another.");
+        }
+
+        var links = await db.Hosts.AsNoTracking()
+            .Where(h => h.HypervisorId != null)
+            .Select(h => new { h.Id, h.HypervisorId })
+            .ToDictionaryAsync(h => h.Id, h => h.HypervisorId!.Value, cancellationToken);
+        var seen = new HashSet<Guid>();
+        for (Guid? current = hypervisorId; current is { } next && seen.Add(next); current = links.TryGetValue(next, out var parent) ? parent : null)
+        {
+            if (hostIds.Contains(next))
+            {
+                throw new InventoryValidationException("hypervisor", "That host runs on one of the selected hosts, so they can't run on it.");
+            }
+        }
+    }
+
     /// <summary>Forgets every trusted SSH host key and RDP certificate, so the next connection asks again.</summary>
     /// <returns>False when the host does not exist or isn't visible to the user.</returns>
     public async Task<bool> ForgetTrustedKeysAsync(Guid id, RequestUser user, CancellationToken cancellationToken)

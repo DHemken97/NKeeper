@@ -28,6 +28,18 @@ On a phone, the two panes show one at a time.
   - Clicking a tag on a host filters by it.
 - **Group by** up to three levels of tag names, or the service type, e.g. *site → role*. A host appears under every value it has. Hosts without the tag collect in a "No site" group.
 - **Sort** by name, address or last update. Names sort naturally, so `srv2` comes before `srv10`.
+- **Select several hosts** to change them together:
+  - **Ctrl+click** (**⌘+click** on a Mac) adds or removes a host, and **Ctrl+Space** does the same from the keyboard;
+  - **Shift+click** selects every host between the last one you clicked and this one, as the tree shows them;
+  - **right-click a group** (or press the Menu key on it) for **Select N hosts** (everything under it, collapsed or not) or **Add to selection**.
+
+  With two or more selected, the right pane lists the changes you can make to all of them at once:
+  - **Add** a tag;
+  - **Set** a tag, replacing every value it has;
+  - **Remove** a tag (one value, or every value when you leave the value empty);
+  - set or clear the host they **run on**, which also marks them as virtual machines.
+
+  Each change says how many hosts it affects. **Apply** saves them all in one go, and hosts you can't manage are left out. A plain click on a host goes back to a single host.
 - The selection, search, grouping and sort are part of the address (e.g. `/?group=site&q=env:prod&host=<id>`), so you can bookmark or share a view. Open sessions are not part of it.
 
 ## Hosts

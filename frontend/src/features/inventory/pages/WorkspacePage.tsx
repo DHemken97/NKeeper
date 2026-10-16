@@ -6,13 +6,25 @@ import { ContextMenu } from '../../../components/ui/ContextMenu'
 import { Spinner } from '../../../components/ui/Spinner'
 import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
+import { BulkEditPanel } from '../components/BulkEditPanel'
 import { GroupByPicker } from '../components/GroupByPicker'
 import { HostDetails } from '../components/HostDetails'
 import { HostEditor } from '../components/HostEditor'
-import { HostTree } from '../components/HostTree'
+import { HostTree, type SelectMode } from '../components/HostTree'
 import { ImportHostsDialog } from '../components/ImportHostsDialog'
 import { ScanDialog } from '../components/ScanDialog'
-import { buildTree, decodeGroupKey, encodeGroupKey, sortHosts, tagNames, tagValues, type GroupKey, type HostSort } from '../grouping'
+import {
+  buildTree,
+  decodeGroupKey,
+  encodeGroupKey,
+  sortHosts,
+  tagNames,
+  tagValues,
+  type GroupKey,
+  type HostSort,
+  type TreeGroup,
+  type TreeNode,
+} from '../grouping'
 import { CredentialPromptDialog } from '../../terminal/components/CredentialPromptDialog'
 import type { VirtualMachine } from '../../terminal/kvm'
 import type { RemoteSession } from '../../terminal/types'
@@ -66,6 +78,37 @@ function sessionProtocol(protocol: ServiceProtocol): RemoteSession['protocol'] {
   return protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : 'ssh'
 }
 
+/** Host ids in the order the tree shows them (skipping collapsed groups), each once. */
+function visibleHostOrder(nodes: TreeNode[], collapsed: ReadonlySet<string>, into: string[] = []): string[] {
+  for (const node of nodes) {
+    if (node.type === 'host') {
+      if (!into.includes(node.host.id)) {
+        into.push(node.host.id)
+      }
+    } else if (!collapsed.has(node.id)) {
+      visibleHostOrder(node.children, collapsed, into)
+    }
+  }
+  return into
+}
+
+function findGroup(nodes: TreeNode[], id: string): TreeGroup | undefined {
+  for (const node of nodes) {
+    if (node.type === 'group') {
+      const found = node.id === id ? node : findGroup(node.children, id)
+      if (found) {
+        return found
+      }
+    }
+  }
+  return undefined
+}
+
+/** Every host under a group, collapsed or not. */
+function groupHostIds(group: TreeGroup): string[] {
+  return [...new Set(group.children.flatMap((child) => (child.type === 'host' ? [child.host.id] : groupHostIds(child))))]
+}
+
 interface MenuState {
   hostId: string
   x: number
@@ -94,6 +137,11 @@ export function WorkspacePage() {
   const [prompt, setPrompt] = useState<{ host: Host; serviceIndex: number; account?: HostCredential; purpose: 'connect' | 'scan' } | null>(null)
   const [scan, setScan] = useState<{ host: Host; kind: 'internal' | 'external'; login?: InternalScanLogin } | null>(null)
   const [importing, setImporting] = useState(false)
+  /** Hosts selected together for bulk changes; two or more replace the details with the bulk panel. */
+  const [bulk, setBulk] = useState<ReadonlySet<string>>(new Set())
+  /** Where a Shift+click range starts. */
+  const [anchor, setAnchor] = useState<string | null>(null)
+  const [groupMenu, setGroupMenu] = useState<{ groupId: string; x: number; y: number } | null>(null)
 
   const allHosts = local.basedOn !== undefined && local.basedOn === resource.data ? local.hosts : resource.data
   const query = params.get('q') ?? ''
@@ -138,6 +186,42 @@ export function WorkspacePage() {
   function showHost(id: string | null, edit = false) {
     update({ host: id, edit: edit ? '1' : null, clone: null })
     setActiveTab(DETAILS_TAB)
+  }
+
+  /** The bulk selection becomes `ids`; one host (or none) is an ordinary selection instead. */
+  function selectMany(ids: ReadonlySet<string>) {
+    setActiveTab(DETAILS_TAB)
+    if (ids.size > 1) {
+      setBulk(ids)
+      return
+    }
+    setBulk(new Set())
+    const [only] = ids
+    showHost(only ?? null)
+  }
+
+  /** A click in the tree: open one host, or add to / extend the bulk selection. */
+  function selectHost(id: string, mode: SelectMode) {
+    const current = bulk.size > 0 ? bulk : new Set(selectedHost ? [selectedHost.id] : [])
+    if (mode === 'single' || (mode === 'range' && !(anchor ?? selectedHost?.id))) {
+      setAnchor(id)
+      selectMany(new Set([id]))
+      return
+    }
+    if (mode === 'toggle') {
+      const next = new Set(current)
+      if (!next.delete(id)) {
+        next.add(id)
+      }
+      setAnchor(id)
+      selectMany(next)
+      return
+    }
+    const order = visibleHostOrder(tree, collapsed)
+    const from = order.indexOf((anchor ?? selectedHost?.id)!)
+    const to = order.indexOf(id)
+    const range = from === -1 || to === -1 ? [id] : order.slice(Math.min(from, to), Math.max(from, to) + 1)
+    selectMany(new Set([...current, ...range]))
   }
 
   /** Opens the editor for a new host prefilled from this one. */
@@ -257,7 +341,8 @@ export function WorkspacePage() {
   }
 
   // On narrow screens one pane shows at a time: the tree, or the details/sessions.
-  const showingPanel = selectedId !== null || activeTab !== DETAILS_TAB
+  const bulkHosts = bulk.size > 1 ? (allHosts ?? []).filter((h) => bulk.has(h.id)) : []
+  const showingPanel = selectedId !== null || activeTab !== DETAILS_TAB || bulkHosts.length > 1
   const menuHost = menu ? allHosts?.find((h) => h.id === menu.hostId) : undefined
 
   return (
@@ -366,11 +451,13 @@ export function WorkspacePage() {
             <HostTree
               nodes={tree}
               selectedHostId={selectedId}
+              bulkIds={bulkHosts.length > 1 ? bulk : new Set()}
               collapsed={collapsed}
               onToggle={toggleGroup}
-              onSelect={(id) => showHost(id)}
+              onSelect={selectHost}
               onActivate={connectWithDefaults}
               onContextMenu={(hostId, x, y) => setMenu({ hostId, x, y })}
+              onGroupContextMenu={(groupId, x, y) => setGroupMenu({ groupId, x, y })}
               menuHostId={menu?.hostId ?? null}
             />
           )}
@@ -419,7 +506,21 @@ export function WorkspacePage() {
         ) : null}
 
         <div className={styles.view} hidden={activeTab !== DETAILS_TAB}>
-          {editing && (selectedId === NEW_HOST || selectedHost) ? (
+          {bulkHosts.length > 1 ? (
+            <BulkEditPanel
+              key={[...bulk].sort().join(',')}
+              selected={bulkHosts}
+              hiddenCount={bulkHosts.filter((h) => !visibleHosts.includes(h)).length}
+              allHosts={allHosts ?? []}
+              knownTagNames={knownTagNames}
+              knownTagValues={(name) => tagValues(allHosts ?? [], name)}
+              onApplied={(updated) => {
+                const byId = new Map(updated.map((h) => [h.id, h]))
+                applyLocally((hosts) => hosts.map((h) => byId.get(h.id) ?? h))
+              }}
+              onClear={() => selectMany(new Set())}
+            />
+          ) : editing && (selectedId === NEW_HOST || selectedHost) ? (
             <HostEditor
               key={`${selectedId}:${cloneSource?.id ?? ''}`}
               host={selectedHost ?? null}
@@ -522,6 +623,8 @@ export function WorkspacePage() {
         </Suspense>
       </main>
 
+      {groupMenu ? <GroupMenu tree={tree} state={groupMenu} bulk={bulk} selectedHost={selectedHost} onSelect={selectMany} onClose={() => setGroupMenu(null)} /> : null}
+
       {menu && menuHost ? (
         <ContextMenu
           label={`Actions for ${menuHost.name}`}
@@ -555,5 +658,44 @@ export function WorkspacePage() {
       ) : null}
       {importing ? <ImportHostsDialog onClose={() => setImporting(false)} onImported={resource.reload} /> : null}
     </div>
+  )
+}
+
+interface GroupMenuProps {
+  tree: TreeNode[]
+  state: { groupId: string; x: number; y: number }
+  bulk: ReadonlySet<string>
+  selectedHost: Host | undefined
+  onSelect: (ids: ReadonlySet<string>) => void
+  onClose: () => void
+}
+
+/** A group's menu: select its hosts for bulk changes, or add them to the selection. */
+function GroupMenu({ tree, state, bulk, selectedHost, onSelect, onClose }: GroupMenuProps) {
+  const group = findGroup(tree, state.groupId)
+  if (!group) {
+    return null
+  }
+  const ids = groupHostIds(group)
+  const current = bulk.size > 0 ? bulk : new Set(selectedHost ? [selectedHost.id] : [])
+  const hosts = (n: number) => (n === 1 ? '1 host' : `${n} hosts`)
+  return (
+    <ContextMenu
+      label={`Actions for ${group.label}`}
+      entries={[
+        { kind: 'header', label: group.label },
+        { kind: 'item', label: `Select ${hosts(ids.length)}`, detail: 'For bulk changes', disabled: ids.length === 0, onSelect: () => onSelect(new Set(ids)) },
+        {
+          kind: 'item',
+          label: 'Add to selection',
+          detail: hosts(ids.length),
+          disabled: current.size === 0 || ids.every((id) => current.has(id)),
+          onSelect: () => onSelect(new Set([...current, ...ids])),
+        },
+      ]}
+      x={state.x}
+      y={state.y}
+      onClose={onClose}
+    />
   )
 }

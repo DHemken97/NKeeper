@@ -137,3 +137,15 @@
   font-weight: 600;
   letter-spacing: 0.03em;
 }
+
+/* Hosts selected together for bulk changes. */
+.host.bulk {
+  background: var(--color-info-bg);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.check {
+  flex-shrink: 0;
+  margin-left: -1rem;
+  color: var(--color-accent-text);
+}

@@ -223,3 +223,53 @@ public sealed record HostResponse(
     DateTimeOffset UpdatedAtUtc,
     uint Version,
     bool CanManage);
+
+/// <summary>A tag to take off: one value of it, or (without <see cref="Value"/>) every value.</summary>
+public sealed record BulkTagRemoval
+{
+    [Required(ErrorMessage = "Enter the tag name to remove.")]
+    [StringLength(HostTag.NameMaxLength)]
+    public string Name { get; init; } = string.Empty;
+
+    [StringLength(HostTag.ValueMaxLength)]
+    public string? Value { get; init; }
+}
+
+/// <summary>Set (or, with no id, clear) the host the selected VMs run on.</summary>
+public sealed record BulkHypervisorChange
+{
+    public Guid? HypervisorId { get; init; }
+}
+
+/// <summary>
+/// The same changes to many hosts at once, applied in this order: <see cref="RemoveTags"/>,
+/// <see cref="SetTags"/> (which replace every value of their names), <see cref="AddTags"/>, then
+/// <see cref="Hypervisor"/>. Other details are left as they are.
+/// </summary>
+public sealed record BulkHostUpdateRequest : IValidatableObject
+{
+    [Required]
+    [MinLength(1, ErrorMessage = "Select at least one host.")]
+    [MaxLength(5000, ErrorMessage = "Change at most 5000 hosts at a time.")]
+    public Guid[] HostIds { get; init; } = [];
+
+    [MaxLength(50)]
+    public HostTagRequest[] AddTags { get; init; } = [];
+
+    [MaxLength(50)]
+    public HostTagRequest[] SetTags { get; init; } = [];
+
+    [MaxLength(50)]
+    public BulkTagRemoval[] RemoveTags { get; init; } = [];
+
+    /// <summary>Set: the hosts become virtual machines running on it. Null leaves them unchanged.</summary>
+    public BulkHypervisorChange? Hypervisor { get; init; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (AddTags.Length + SetTags.Length + RemoveTags.Length == 0 && Hypervisor is null)
+        {
+            yield return new ValidationResult("Choose a change to make.", ["addTags"]);
+        }
+    }
+}
