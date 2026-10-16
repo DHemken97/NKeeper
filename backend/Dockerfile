@@ -18,6 +18,14 @@ ENV ASPNETCORE_HTTP_PORTS=8080 \
     ASPNETCORE_ENVIRONMENT=Production
 COPY --from=build /app/publish .
 
+# Impacket reads Windows hosts over DCOM/WMI for the RPC internal scan (Inventory/Scanning/wmi_scan.py).
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-venv \
+    && python3 -m venv /opt/impacket \
+    && /opt/impacket/bin/pip install --no-cache-dir impacket==0.12.0 \
+    && rm -rf /var/lib/apt/lists/*
+
 # The official image ships a non-root "app" user; never run the API as root.
 USER $APP_UID
 EXPOSE 8080

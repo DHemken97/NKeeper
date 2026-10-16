@@ -11,6 +11,7 @@ export const SERVICE_PROTOCOLS = [
   'Https',
   'WinRm',
   'PowerShell',
+  'Rpc',
   'Kvm',
   'Idrac',
   'Other',
@@ -30,6 +31,7 @@ export const PROTOCOL_INFO: Record<ServiceProtocol, { label: string; name: strin
   Https: { label: 'HTTPS', name: 'Web (HTTPS)', defaultPort: 443 },
   WinRm: { label: 'WinRM', name: 'WinRM', defaultPort: 5985 },
   PowerShell: { label: 'PowerShell', name: 'PowerShell Remoting', defaultPort: 5985 },
+  Rpc: { label: 'RPC', name: 'Windows RPC', defaultPort: 135 },
   Kvm: { label: 'KVM', name: 'KVM / libvirt (over SSH)', defaultPort: 22 },
   Idrac: { label: 'iDRAC', name: 'Dell iDRAC (Redfish, console, RACADM)', defaultPort: 443 },
   Other: { label: 'Other', name: 'Other' },
@@ -277,6 +279,8 @@ export interface InternalScanLogin {
   credentialId?: string
   username?: string
   password?: string
+  /** RPC (Windows) scans only. */
+  domain?: string
 }
 
 /** The same changes to many hosts: tags are removed, then set (replacing every value of the name), then added. */

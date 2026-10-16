@@ -2,7 +2,7 @@ import type { MenuEntry } from '../../components/ui/ContextMenu'
 import { formatAccount, PROTOCOL_INFO, primaryAddress, type Host, type HostCredential, type HostService, type ServiceProtocol } from './types'
 
 /** Protocols NKeeper can open sessions for today. */
-const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp', 'Vnc', 'Http', 'Https', 'Kvm', 'Idrac'])
+const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp', 'Rpc', 'Vnc', 'Http', 'Https', 'Kvm', 'Idrac'])
 
 /** Web services open the host's own web interface; they need no credential from NKeeper. */
 export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https'])
@@ -57,7 +57,7 @@ export function credentialProblem(credential: HostCredential, protocol: ServiceP
 
 /** A usable credential without a stored secret: connecting asks for the password (e.g. users found by a scan). */
 export function credentialNeedsPassword(credential: HostCredential, protocol: ServiceProtocol): boolean {
-  return protocol === 'Vnc' || protocol === 'Rdp' || protocol === 'Idrac' ? !credential.hasPassword : !credential.hasPassword && !credential.hasPrivateKey
+  return protocol === 'Vnc' || protocol === 'Rdp' || protocol === 'Idrac' || protocol === 'Rpc' ? !credential.hasPassword : !credential.hasPassword && !credential.hasPrivateKey
 }
 
 /** The host's right-click menu: Connect ▸ service ▸ credential, then host actions. */
@@ -150,14 +150,14 @@ function credentialEntry(credential: HostCredential, detail?: string): Extract<M
   }
 }
 
-/** Tasks ▸ Scan ▸ Internal (SSH ▸ credential) or External. */
+/** Tasks ▸ Scan ▸ Internal (SSH or RPC service ▸ credential) or External. */
 export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scanInternal' | 'scanExternal'>): MenuEntry[] {
-  const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh')
+  const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh' || service.protocol === 'Rpc')
   const logins = (index: number): MenuEntry[] => [
     ...host.credentials
-      .filter((c) => credentialProblem(c, 'Ssh') === null)
+      .filter((c) => credentialProblem(c, host.services[index].protocol) === null)
       .map((credential): MenuEntry => ({
-        ...credentialEntry(credential, credentialNeedsPassword(credential, 'Ssh') ? 'Asks for password' : undefined),
+        ...credentialEntry(credential, credentialNeedsPassword(credential, host.services[index].protocol) ? 'Asks for password' : undefined),
         onSelect: () => actions.scanInternal(host, index, credential),
       })),
     { kind: 'separator' },
@@ -165,11 +165,11 @@ export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scan
   ]
   const internal: MenuEntry =
     ssh.length === 0
-      ? { kind: 'item', label: 'Internal', detail: 'Needs an SSH service', disabled: true }
+      ? { kind: 'item', label: 'Internal', detail: 'Needs an SSH or RPC service', disabled: true }
       : {
           kind: 'item',
           label: 'Internal',
-          detail: 'Over SSH',
+          detail: ssh.every(({ service }) => service.protocol === 'Rpc') ? 'Over RPC (WMI)' : 'Over SSH',
           // One SSH service: its logins directly; several: pick the service first.
           submenu:
             ssh.length === 1

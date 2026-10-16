@@ -6,6 +6,7 @@ using NKeeper.Api.Configuration;
 using NKeeper.Api.Desktop;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Api.Rpc;
 using NKeeper.Api.Ssh;
 
 namespace NKeeper.Api.Controllers;
@@ -26,6 +27,10 @@ public sealed class RemoteSessionsController(SessionLimiter limiter, IOptions<Co
     [HttpGet("api/rdp/session")]
     public Task<IActionResult> Rdp(CancellationToken cancellationToken) =>
         RunAsync((socket, user, token) => Session<DesktopSession>().RunAsync(socket, user, ServiceProtocol.Rdp, token), cancellationToken);
+
+    [HttpGet("api/rpc/session")]
+    public Task<IActionResult> Rpc(CancellationToken cancellationToken) =>
+        RunAsync((socket, user, token) => Session<RpcSession>().RunAsync(socket, user, token), cancellationToken);
 
     [HttpGet("api/vnc/session")]
     public Task<IActionResult> Vnc(CancellationToken cancellationToken) =>
