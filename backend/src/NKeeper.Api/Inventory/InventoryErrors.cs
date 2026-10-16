@@ -30,6 +30,14 @@ internal sealed class InventoryExceptionFilter(ProblemDetailsFactory problemDeta
                 context.ExceptionHandled = true;
                 break;
 
+            case Access.HostAccessDeniedException denied:
+                var forbidden = problemDetailsFactory.CreateProblemDetails(
+                    context.HttpContext, StatusCodes.Status403Forbidden, title: "Not allowed", detail: denied.Message);
+                forbidden.Extensions["code"] = "forbidden";
+                context.Result = new ObjectResult(forbidden) { StatusCode = StatusCodes.Status403Forbidden };
+                context.ExceptionHandled = true;
+                break;
+
             case DbUpdateConcurrencyException:
                 var conflict = problemDetailsFactory.CreateProblemDetails(
                     context.HttpContext,

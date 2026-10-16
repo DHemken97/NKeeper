@@ -14,6 +14,9 @@ public sealed record HostServiceRequest
 
     [StringLength(100)]
     public string? Label { get; init; }
+
+    /// <summary>RDP services only; defaults to <see cref="RdpSecurityMode.Auto"/>.</summary>
+    public RdpSecurityMode? RdpSecurity { get; init; }
 }
 
 /// <summary>A <c>name: value</c> tag. The value is optional.</summary>
@@ -68,11 +71,23 @@ public sealed record HostCredentialRequest : IValidatableObject
     [StringLength(2000)]
     public string? Notes { get; init; }
 
+    /// <summary>
+    /// For a new credential (no <see cref="Id"/>): start from the stored password and private key of
+    /// this credential on another host the user can manage (cloning a host). Password, PrivateKey and
+    /// the Clear flags still apply on top.
+    /// </summary>
+    public Guid? CopyFromCredentialId { get; init; }
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (string.IsNullOrWhiteSpace(Username) && string.IsNullOrWhiteSpace(Label))
         {
             yield return new ValidationResult("Enter a username or a label.", ["username"]);
+        }
+
+        if (Id is not null && CopyFromCredentialId is not null)
+        {
+            yield return new ValidationResult("An existing credential can't be copied from another one.", ["copyFromCredentialId"]);
         }
     }
 }
@@ -144,7 +159,8 @@ public sealed record HostRequest : IValidatableObject
 
 public sealed record HostTagResponse(string Name, string? Value);
 
-public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label);
+/// <summary>A connection method. <see cref="RdpSecurity"/> is set for RDP services only.</summary>
+public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity);
 
 /// <summary>A credential as seen by clients. Secret values are never included.</summary>
 public sealed record HostCredentialResponse(
@@ -156,6 +172,9 @@ public sealed record HostCredentialResponse(
     bool HasPassword,
     bool HasPrivateKey);
 
+/// <summary>An SSH host key or RDP certificate trusted for one of the host's ports.</summary>
+public sealed record TrustedKeyResponse(ServiceProtocol Protocol, int Port, string Algorithm, string Fingerprint, DateTimeOffset TrustedAtUtc);
+
 public sealed record HostResponse(
     Guid Id,
     string Name,
@@ -166,6 +185,8 @@ public sealed record HostResponse(
     IReadOnlyList<HostTagResponse> Tags,
     IReadOnlyList<HostServiceResponse> Services,
     IReadOnlyList<HostCredentialResponse> Credentials,
+    IReadOnlyList<TrustedKeyResponse> TrustedKeys,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
-    uint Version);
+    uint Version,
+    bool CanManage);

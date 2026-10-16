@@ -1,9 +1,10 @@
 import { Navigate, type RouteObject } from 'react-router'
 import { AppLayout } from '../components/layout/AppLayout'
-import { ProtectedRoute, PublicOnlyRoute } from '../features/auth/components/RouteGuards'
+import { AdminRoute, ProtectedRoute, PublicOnlyRoute } from '../features/auth/components/RouteGuards'
 import { ForgotPasswordPage } from '../features/auth/pages/ForgotPasswordPage'
 import { LoginPage } from '../features/auth/pages/LoginPage'
 import { WorkspacePage } from '../features/inventory/pages/WorkspacePage'
+import { UsersPage } from '../features/users/pages/UsersPage'
 
 /** Route table, kept separate from the router instance so tests can mount it in memory. */
 export const routes: RouteObject[] = [
@@ -19,8 +20,11 @@ export const routes: RouteObject[] = [
     children: [
       {
         element: <AppLayout />,
-        // A single-page workspace; view state (selection, search, grouping) lives in the query string.
-        children: [{ index: true, element: <WorkspacePage /> }],
+        // The workspace is a single page; view state (selection, search, grouping) lives in the query string.
+        children: [
+          { index: true, element: <WorkspacePage /> },
+          { element: <AdminRoute />, children: [{ path: '/users', element: <UsersPage /> }] },
+        ],
       },
     ],
   },

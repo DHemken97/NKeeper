@@ -10,13 +10,21 @@ interface HostTreeProps {
   collapsed: ReadonlySet<string>
   onToggle: (groupId: string) => void
   onSelect: (hostId: string) => void
+  /** Double-click: connect with the first SSH service and credential. */
+  onActivate: (hostId: string) => void
+  /** Right-click, the Menu key or Shift+F10, at viewport coordinates. */
+  onContextMenu: (hostId: string, x: number, y: number) => void
+  /** The host whose context menu is open, highlighted while it is. */
+  menuHostId: string | null
 }
 
 /**
  * The connection tree. Arrow keys move between rows; Left/Right collapse and expand groups.
+ * Right-click (or the Menu key / Shift+F10) opens a host's menu; double-click connects.
  * A host that matches several groups appears under each of them.
  */
-export function HostTree({ nodes, selectedHostId, collapsed, onToggle, onSelect }: HostTreeProps) {
+export function HostTree({ nodes, ...rest }: HostTreeProps) {
+  const { onToggle, onContextMenu } = rest
   function handleKeyDown(event: KeyboardEvent<HTMLUListElement>) {
     const rows = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-tree-row]'))
     const index = rows.indexOf(document.activeElement as HTMLButtonElement)
@@ -27,6 +35,13 @@ export function HostTree({ nodes, selectedHostId, collapsed, onToggle, onSelect 
     const move = (to: number) => {
       event.preventDefault()
       rows[Math.max(0, Math.min(rows.length - 1, to))]?.focus()
+    }
+
+    if (row.dataset.hostId && (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey))) {
+      event.preventDefault()
+      const rect = row.getBoundingClientRect()
+      onContextMenu(row.dataset.hostId, rect.left + 24, rect.bottom)
+      return
     }
 
     switch (event.key) {
@@ -59,7 +74,7 @@ export function HostTree({ nodes, selectedHostId, collapsed, onToggle, onSelect 
 
   return (
     <ul className={styles.tree} onKeyDown={handleKeyDown} aria-label="Hosts">
-      <Nodes nodes={nodes} depth={0} {...{ selectedHostId, collapsed, onToggle, onSelect }} />
+      <Nodes nodes={nodes} depth={0} {...rest} />
     </ul>
   )
 }
@@ -69,19 +84,27 @@ interface NodesProps extends Omit<HostTreeProps, 'nodes'> {
   depth: number
 }
 
-function Nodes({ nodes, depth, selectedHostId, collapsed, onToggle, onSelect }: NodesProps) {
+function Nodes({ nodes, depth, ...rest }: NodesProps) {
+  const { selectedHostId, onSelect, onActivate, onContextMenu, menuHostId } = rest
   return nodes.map((node) =>
     node.type === 'group' ? (
-      <GroupNode key={node.id} group={node} depth={depth} {...{ selectedHostId, collapsed, onToggle, onSelect }} />
+      <GroupNode key={node.id} group={node} depth={depth} {...rest} />
     ) : (
       <li key={node.id}>
         <button
           type="button"
           data-tree-row
-          className={styles.host}
+          data-host-id={node.host.id}
+          className={`${styles.host} ${node.host.id === menuHostId ? styles.menuOpen : ''}`}
           style={{ '--depth': depth } as CSSProperties}
           aria-current={node.host.id === selectedHostId ? 'true' : undefined}
+          aria-haspopup="menu"
           onClick={() => onSelect(node.host.id)}
+          onDoubleClick={() => onActivate(node.host.id)}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            onContextMenu(node.host.id, event.clientX, event.clientY)
+          }}
         >
           <span className={styles.hostText}>
             <span className={styles.hostName}>{node.host.name}</span>

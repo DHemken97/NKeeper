@@ -8,6 +8,8 @@ export interface AuthContextValue {
   logout: () => Promise<void>
   /** Re-checks the session, e.g. after the server was unreachable. */
   refresh: () => Promise<void>
+  /** Records that the user chose a new password (the server already knows). */
+  passwordChanged: () => void
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)

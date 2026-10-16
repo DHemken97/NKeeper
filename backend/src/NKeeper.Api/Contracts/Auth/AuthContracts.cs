@@ -17,6 +17,6 @@ public sealed record LoginRequest
 }
 
 /// <summary>The safe, public view of the signed-in user. Never add Identity internals here.</summary>
-public sealed record CurrentUserResponse(Guid Id, string UserName, string? Email, IReadOnlyList<string> Roles);
+public sealed record CurrentUserResponse(Guid Id, string UserName, string? Email, IReadOnlyList<string> Roles, bool MustChangePassword);
 
 public sealed record AntiforgeryTokenResponse(string Token, string HeaderName);

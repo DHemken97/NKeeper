@@ -7,4 +7,6 @@ export const hostsApi = {
   create: (input: HostInput) => api.post<Host>('/api/hosts', { body: input }),
   update: (id: string, input: HostInput) => api.put<Host>(`/api/hosts/${id}`, { body: input }),
   remove: (id: string) => api.delete(`/api/hosts/${id}`),
+  /** Forget trusted SSH host keys and RDP certificates; the next connection asks again. */
+  forgetTrustedKeys: (id: string) => api.delete(`/api/hosts/${id}/trusted-keys`),
 }

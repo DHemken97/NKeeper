@@ -1,4 +1,4 @@
-import type { Host, HostCredential, HostInput, ServiceProtocol } from './types'
+import type { Host, HostCredential, HostInput, RdpSecurity, ServiceProtocol } from './types'
 
 /** Editor state for a host. Each list item has a `key` so React can track rows while editing. */
 
@@ -8,6 +8,8 @@ export interface ServiceDraft {
   /** Kept as text so the field can be empty while typing. */
   port: string
   label: string
+  /** Only used for RDP services. */
+  rdpSecurity: RdpSecurity
 }
 
 export interface TagDraft {
@@ -20,6 +22,8 @@ export interface CredentialDraft {
   key: number
   /** Set for credentials that already exist on the server. */
   id?: string
+  /** For a cloned host: the original credential whose stored secrets the server copies. */
+  copyFrom?: string
   label: string
   username: string
   domain: string
@@ -48,8 +52,13 @@ export interface HostDraft {
 let nextKey = 1
 const key = () => nextKey++
 
-export function newServiceDraft(protocol: ServiceProtocol = 'Ssh', port: number | null = null, label: string | null = null): ServiceDraft {
-  return { key: key(), protocol, port: port === null ? '' : String(port), label: label ?? '' }
+export function newServiceDraft(
+  protocol: ServiceProtocol = 'Ssh',
+  port: number | null = null,
+  label: string | null = null,
+  rdpSecurity: RdpSecurity | null = null,
+): ServiceDraft {
+  return { key: key(), protocol, port: port === null ? '' : String(port), label: label ?? '', rdpSecurity: rdpSecurity ?? 'Auto' }
 }
 
 export function newTagDraft(name = '', value: string | null = ''): TagDraft {
@@ -81,8 +90,19 @@ export function toHostDraft(host: Host | null): HostDraft {
     macAddress: host?.macAddress ?? '',
     description: host?.description ?? '',
     tags: host?.tags.map((t) => newTagDraft(t.name, t.value)) ?? [],
-    services: host?.services.map((s) => newServiceDraft(s.protocol, s.port, s.label)) ?? [],
+    services: host?.services.map((s) => newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity)) ?? [],
     credentials: host?.credentials.map((c) => newCredentialDraft(c)) ?? [],
+  }
+}
+
+/** A new host prefilled from an existing one: same details, a "(copy)" name, and its credentials'
+ * secrets copied on the server (they never reach the browser). Trusted keys are not copied. */
+export function toCloneDraft(source: Host): HostDraft {
+  const draft = toHostDraft(source)
+  return {
+    ...draft,
+    name: `${source.name} (copy)`,
+    credentials: source.credentials.map((c) => ({ ...newCredentialDraft(c), id: undefined, copyFrom: c.id })),
   }
 }
 
@@ -103,9 +123,11 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
       protocol: s.protocol,
       port: s.port === '' ? null : Number(s.port),
       label: blankToNull(s.label),
+      ...(s.protocol === 'Rdp' ? { rdpSecurity: s.rdpSecurity } : {}),
     })),
     credentials: draft.credentials.map((c) => ({
       ...(c.id ? { id: c.id } : {}),
+      ...(c.copyFrom ? { copyFromCredentialId: c.copyFrom } : {}),
       label: blankToNull(c.label),
       username: blankToNull(c.username),
       domain: blankToNull(c.domain),

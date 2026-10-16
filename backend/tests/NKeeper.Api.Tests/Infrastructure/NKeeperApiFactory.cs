@@ -12,7 +12,8 @@ public sealed class NKeeperApiFactory(
     string connectionString,
     int loginPermitLimit = 100,
     string? adminPassword = null,
-    bool requireSecureCookies = false)
+    bool requireSecureCookies = false,
+    IReadOnlyDictionary<string, string>? settings = null)
     : WebApplicationFactory<Program>
 {
     public const string AdminUserName = "admin";
@@ -33,6 +34,10 @@ public sealed class NKeeperApiFactory(
         builder.UseSetting("BootstrapAdmin:UserName", AdminUserName);
         builder.UseSetting("BootstrapAdmin:Email", AdminEmail);
         builder.UseSetting("BootstrapAdmin:Password", adminPassword ?? AdminPassword);
+        foreach (var (key, value) in settings ?? new Dictionary<string, string>())
+        {
+            builder.UseSetting(key, value);
+        }
     }
 
     public async Task CreateUserAsync(string userName, string email, string password)

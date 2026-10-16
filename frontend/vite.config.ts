@@ -16,6 +16,8 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: env.DEV_API_PROXY_TARGET || 'http://localhost:5080',
           changeOrigin: false,
+          // Terminal sessions (/api/ssh/session) are WebSockets.
+          ws: true,
         },
       },
     },

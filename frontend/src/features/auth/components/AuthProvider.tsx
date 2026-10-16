@@ -63,9 +63,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await checkSession()
   }, [checkSession])
 
+  const passwordChanged = useCallback(() => setUser((current) => (current ? { ...current, mustChangePassword: false } : current)), [])
+
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, logout, refresh }),
-    [status, user, login, logout, refresh],
+    () => ({ status, user, login, logout, refresh, passwordChanged }),
+    [status, user, login, logout, refresh, passwordChanged],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

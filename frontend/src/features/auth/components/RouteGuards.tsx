@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router'
 import { FullPageStatus } from '../../../components/layout/FullPageStatus'
+import { ChangePasswordPage } from '../../account/pages/ChangePasswordPage'
 import { useAuth } from '../context'
+import { isAdministrator } from '../types'
 import { safeRedirect, type RedirectState } from '../redirect'
 
 function SessionGate({ children }: { children: ReactNode }) {
@@ -22,15 +24,22 @@ function SessionGate({ children }: { children: ReactNode }) {
   return children
 }
 
-/** Renders child routes only for authenticated users; others are sent to /login. */
+/**
+ * Renders child routes only for authenticated users; others are sent to /login. A user whose
+ * password was set by an administrator must choose a new one first.
+ */
 export function ProtectedRoute() {
-  const { status } = useAuth()
+  const { status, user } = useAuth()
   const location = useLocation()
 
   return (
     <SessionGate>
       {status === 'authenticated' ? (
-        <Outlet />
+        user?.mustChangePassword ? (
+          <ChangePasswordPage />
+        ) : (
+          <Outlet />
+        )
       ) : (
         <Navigate to="/login" replace state={{ from: location.pathname + location.search } satisfies RedirectState} />
       )}
@@ -47,3 +56,9 @@ export function PublicOnlyRoute() {
   return <SessionGate>{status === 'authenticated' ? <Navigate to={safeRedirect(from)} replace /> : <Outlet />}</SessionGate>
 }
 
+
+/** Administrator-only pages; anyone else is sent to the workspace (the API enforces this too). */
+export function AdminRoute() {
+  const { user } = useAuth()
+  return isAdministrator(user) ? <Outlet /> : <Navigate to="/" replace />
+}

@@ -5,7 +5,7 @@ import { TextArea } from '../../../components/ui/TextArea'
 import { TextField } from '../../../components/ui/TextField'
 import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
-import { toHostDraft, toHostInput, type HostDraft } from '../drafts'
+import { toCloneDraft, toHostDraft, toHostInput, type HostDraft } from '../drafts'
 import type { Host } from '../types'
 import { CredentialsEditor } from './CredentialsEditor'
 import styles from './HostPanel.module.css'
@@ -15,6 +15,8 @@ import { TagEditor } from './TagEditor'
 interface HostEditorProps {
   /** The host to edit, or null to create one. */
   host: Host | null
+  /** When creating: start from a copy of this host. */
+  cloneOf?: Host
   knownTagNames: string[]
   knownTagValues: (name: string) => string[]
   onSaved: (host: Host) => void
@@ -24,8 +26,8 @@ interface HostEditorProps {
 const FIELDS = ['name', 'hostname', 'ipAddress', 'macAddress', 'description', 'tags', 'services', 'credentials']
 
 /** Create or edit a host in the details panel, including its tags, services and credentials. */
-export function HostEditor({ host, knownTagNames, knownTagValues, onSaved, onCancel }: HostEditorProps) {
-  const [draft, setDraft] = useState<HostDraft>(() => toHostDraft(host))
+export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, onSaved, onCancel }: HostEditorProps) {
+  const [draft, setDraft] = useState<HostDraft>(() => (!host && cloneOf ? toCloneDraft(cloneOf) : toHostDraft(host)))
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -73,14 +75,21 @@ export function HostEditor({ host, knownTagNames, knownTagValues, onSaved, onCan
     }
   }
 
-  const title = host ? `Edit ${host.name}` : 'New host'
+  const cloning = !host && cloneOf
+  const title = host ? `Edit ${host.name}` : cloning ? `Clone ${cloneOf.name}` : 'New host'
 
   return (
     <form className={styles.panel} onSubmit={handleSubmit} noValidate aria-label={title}>
       <header className={styles.header}>
         <div className={styles.heading}>
           <h1 className={styles.title}>{title}</h1>
-          {host ? null : <p className={styles.subtitle}>Add a server or device to the inventory.</p>}
+          {host ? null : (
+            <p className={styles.subtitle}>
+              {cloning
+                ? 'A new host with the same details, tags, services and credentials. Change what differs, then create it.'
+                : 'Add a server or device to the inventory.'}
+            </p>
+          )}
         </div>
       </header>
 

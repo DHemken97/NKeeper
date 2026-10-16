@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { describe, expect, it } from 'vitest'
@@ -20,6 +20,8 @@ function makeHost(overrides: Partial<Host>): Host {
     tags: [],
     services: [],
     credentials: [],
+    trustedKeys: [],
+    canManage: true,
     createdAtUtc: '2026-10-01T12:00:00Z',
     updatedAtUtc: '2026-10-01T12:00:00Z',
     version: 1,
@@ -215,6 +217,58 @@ describe('workspace', () => {
 
     await waitFor(() => expect(body).toBeDefined())
     expect(body!.credentials).toEqual([{ id: 'c-admin', label: 'Local admin', username: 'administrator', domain: null, notes: null }])
+  })
+
+  it('clones a host: a prefilled new host whose credentials are copied on the server', async () => {
+    let body: Record<string, unknown> | undefined
+    const created = makeHost({ id: 'h-sql02', name: 'sql02', ipAddress: '10.0.0.16' })
+    const { user, router } = renderAt('/?host=h-sql01', {
+      'POST /api/hosts': (_url, init) => {
+        body = JSON.parse(String(init.body))
+        return jsonResponse(201, created)
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Clone' }))
+    const form = await screen.findByRole('form', { name: 'Clone sql01' })
+    expect(within(form).getByLabelText('Name')).toHaveValue('sql01 (copy)')
+    expect(within(form).getByText('Stored. Leave empty to keep it.')).toBeInTheDocument()
+    await user.clear(within(form).getByLabelText('Name'))
+    await user.type(within(form).getByLabelText('Name'), 'sql02')
+    await user.clear(within(form).getByLabelText('Hostname'))
+    await user.type(within(form).getByLabelText('Hostname'), 'sql02.corp.example.com')
+    await user.clear(within(form).getByLabelText('IP address'))
+    await user.type(within(form).getByLabelText('IP address'), '10.0.0.16')
+    await user.click(within(form).getByRole('button', { name: 'Create host' }))
+
+    await waitFor(() => expect(router.state.location.search).toBe('?host=h-sql02'))
+    expect(body).toEqual({
+      name: 'sql02',
+      hostname: 'sql02.corp.example.com',
+      ipAddress: '10.0.0.16',
+      macAddress: null,
+      description: null,
+      tags: [
+        { name: 'env', value: 'production' },
+        { name: 'site', value: 'DC-A' },
+      ],
+      services: [
+        { protocol: 'Rdp', port: null, label: null, rdpSecurity: 'Auto' },
+        { protocol: 'Ssms', port: 14330, label: 'Named instance' },
+      ],
+      credentials: [{ copyFromCredentialId: 'c-admin', label: 'Local admin', username: 'administrator', domain: null, notes: null }],
+    })
+  })
+
+  it('offers Clone in the host menu, and Cancel returns to the original', async () => {
+    const { user, router } = renderAt('/')
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /web01/ }))
+    await user.click(screen.getByRole('menuitem', { name: /^Clone/ }))
+    expect(await screen.findByRole('form', { name: 'Clone web01' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(router.state.location.search).toBe('?host=h-web01'))
   })
 
   it('shows server validation errors on the matching rows', async () => {

@@ -189,6 +189,10 @@
   color: var(--color-text-muted);
 }
 
+.fingerprint {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 640px) {
   .header,
   .body,

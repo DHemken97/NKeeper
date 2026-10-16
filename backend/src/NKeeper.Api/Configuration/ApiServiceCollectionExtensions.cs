@@ -9,8 +9,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
+using NKeeper.Api.Access;
 using NKeeper.Api.Inventory;
 using NKeeper.Api.Security;
+using NKeeper.Api.Desktop;
+using NKeeper.Api.RemoteSessions;
+using NKeeper.Api.Ssh;
 
 namespace NKeeper.Api.Configuration;
 
@@ -33,6 +37,10 @@ internal static class ApiServiceCollectionExtensions
             .Bind(configuration.GetSection(LoginRateLimitSettings.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
+        services.AddOptions<GuacdSettings>()
+            .Bind(configuration.GetSection(GuacdSettings.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
         services.AddOptions<ForwardedHeadersSettings>()
             .Bind(configuration.GetSection(ForwardedHeadersSettings.SectionName))
             .ValidateDataAnnotations()
@@ -42,13 +50,30 @@ internal static class ApiServiceCollectionExtensions
         services.AddControllers(options =>
             {
                 options.Filters.Add<ValidateAntiforgeryTokenFilter>();
+                options.Filters.Add<AccountStatusFilter>();
                 options.Filters.Add<InventoryExceptionFilter>();
                 // Validation error keys use JSON (camelCase) names so clients can map them to fields.
                 options.ModelMetadataDetailsProviders.Add(new SystemTextJsonValidationMetadataProvider());
             })
             .AddJsonOptions(options =>
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
+        services.AddScoped<HostAccess>();
         services.AddScoped<HostManager>();
+        services.AddScoped<NKeeper.Api.Users.UserAdministration>();
+        services.AddScoped<SessionTargetResolver>();
+        services.AddScoped<TrustedKeyStore>();
+        services.AddScoped<SshTerminalSession>();
+        services.AddScoped<DesktopSession>();
+        services.AddSingleton<SessionLimiter>();
+        services.AddOptions<WebProxySettings>()
+            .Bind(configuration.GetSection(WebProxySettings.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddHttpForwarder();
+        services.AddSingleton<NKeeper.Api.Web.WebSessionStore>();
+        services.AddHostedService<NKeeper.Api.Web.WebSessionSweeper>();
+        services.AddSingleton<NKeeper.Api.Kvm.SpiceSessionStore>();
+        services.AddHostedService<NKeeper.Api.Kvm.SpiceSessionSweeper>();
         services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier));
         services.AddOpenApi();

@@ -29,6 +29,9 @@ public sealed class Host
 
     public List<HostCredential> Credentials { get; set; } = [];
 
+    /// <summary>SSH host keys and RDP certificates the users trusted (trust on first use). Cleared when the address changes.</summary>
+    public List<HostTrustedKey> TrustedKeys { get; set; } = [];
+
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset UpdatedAtUtc { get; set; }
@@ -62,6 +65,25 @@ public sealed class HostService
 
     /// <summary>Preserves the order the user entered services in.</summary>
     public int Position { get; set; }
+
+    /// <summary>RDP only: how the connection is secured. Null means <see cref="RdpSecurityMode.Auto"/>.</summary>
+    public RdpSecurityMode? RdpSecurity { get; set; }
+}
+
+/// <summary>
+/// RDP transport security. Legacy "RDP security" (no TLS, no verifiable certificate) is
+/// deliberately not offered.
+/// </summary>
+public enum RdpSecurityMode
+{
+    /// <summary>Network Level Authentication when the server supports it, otherwise TLS.</summary>
+    Auto,
+
+    /// <summary>Require Network Level Authentication (CredSSP), the Windows default.</summary>
+    Nla,
+
+    /// <summary>TLS only, for servers without NLA (e.g. xrdp). The server shows its own login screen.</summary>
+    Tls,
 }
 
 /// <summary>
@@ -112,6 +134,36 @@ public sealed class HostCredential
     public int Position { get; set; }
 }
 
+/// <summary>
+/// A server identity the users trusted for one protocol and port of a host: an SSH host key or
+/// an RDP TLS certificate. A later connection presenting a different key for the same algorithm
+/// is refused, which is how a man-in-the-middle is detected.
+/// </summary>
+public sealed class HostTrustedKey
+{
+    public Guid Id { get; set; }
+
+    public Guid HostId { get; set; }
+
+    /// <summary><see cref="ServiceProtocol.Ssh"/> or <see cref="ServiceProtocol.Rdp"/>.</summary>
+    public ServiceProtocol Protocol { get; set; }
+
+    public int Port { get; set; }
+
+    /// <summary>SSH: the host key algorithm, e.g. "ssh-ed25519". RDP: "x509".</summary>
+    public string Algorithm { get; set; } = string.Empty;
+
+    /// <summary>
+    /// SHA-256 fingerprint. SSH: unpadded base64 as printed by OpenSSH (without "SHA256:").
+    /// RDP: the certificate's SHA-256 as colon-separated upper-case hex.
+    /// </summary>
+    public string Fingerprint { get; set; } = string.Empty;
+
+    public DateTimeOffset TrustedAtUtc { get; set; }
+
+    public Guid? TrustedByUserId { get; set; }
+}
+
 public enum ServiceProtocol
 {
     Ssh,
@@ -125,5 +177,8 @@ public enum ServiceProtocol
     Https,
     WinRm,
     PowerShell,
+
+    /// <summary>A KVM hypervisor managed with libvirt, reached over SSH: lists VMs and opens their SPICE consoles.</summary>
+    Kvm,
     Other,
 }

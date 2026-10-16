@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
+using NKeeper.Api.Access;
 using NKeeper.Api.Contracts.Inventory;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Infrastructure.Persistence;
@@ -11,7 +12,7 @@ namespace NKeeper.Api.Inventory;
 /// Manages hosts together with the tags, services and credentials they own.
 /// Credential secrets go in encrypted and never come back out.
 /// </summary>
-public sealed class HostManager(NKeeperDbContext db, CredentialProtector protector, TimeProvider timeProvider)
+public sealed class HostManager(NKeeperDbContext db, HostAccess access, CredentialProtector protector, TimeProvider timeProvider)
 {
     private static readonly Expression<Func<Host, HostResponse>> Projection = h => new HostResponse(
         h.Id,
@@ -24,42 +25,70 @@ public sealed class HostManager(NKeeperDbContext db, CredentialProtector protect
             .OrderBy(t => t.Name.ToUpper()).ThenBy(t => t.Value.ToUpper())
             .Select(t => new HostTagResponse(t.Name, t.Value == "" ? null : t.Value))
             .ToList(),
-        h.Services.OrderBy(s => s.Position).Select(s => new HostServiceResponse(s.Protocol, s.Port, s.Label)).ToList(),
+        h.Services
+            .OrderBy(s => s.Position)
+            .Select(s => new HostServiceResponse(
+                s.Protocol, s.Port, s.Label, s.Protocol == ServiceProtocol.Rdp ? s.RdpSecurity ?? RdpSecurityMode.Auto : null))
+            .ToList(),
         h.Credentials
             .OrderBy(c => c.Position)
             .Select(c => new HostCredentialResponse(c.Id, c.Label, c.Username, c.Domain, c.Notes, c.ProtectedPassword != null, c.ProtectedPrivateKey != null))
             .ToList(),
+        h.TrustedKeys
+            .OrderBy(k => k.Protocol).ThenBy(k => k.Port).ThenBy(k => k.Algorithm)
+            .Select(k => new TrustedKeyResponse(k.Protocol, k.Port, k.Algorithm, k.Fingerprint, k.TrustedAtUtc))
+            .ToList(),
         h.CreatedAtUtc,
         h.UpdatedAtUtc,
-        h.Version);
+        h.Version,
+        false);
 
     /// <summary>
-    /// The whole inventory, ordered by name. The client searches, groups and sorts it locally,
-    /// which keeps the connection tree instant (inventories are hundreds to a few thousand hosts).
+    /// Every host the user can see, ordered by name. The client searches, groups and sorts it
+    /// locally, which keeps the connection tree instant (hundreds to a few thousand hosts).
     /// </summary>
-    public Task<List<HostResponse>> ListAsync(CancellationToken cancellationToken) =>
-        db.Hosts.AsNoTracking()
+    public async Task<List<HostResponse>> ListAsync(RequestUser user, CancellationToken cancellationToken)
+    {
+        var hosts = await access.Visible(user).AsNoTracking()
             .OrderBy(h => h.Name.ToUpper()).ThenBy(h => h.Id)
             .Select(Projection)
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
-
-    public Task<HostResponse?> GetAsync(Guid id, CancellationToken cancellationToken) =>
-        db.Hosts.AsNoTracking().Where(h => h.Id == id).Select(Projection).AsSplitQuery().FirstOrDefaultAsync(cancellationToken);
-
-    public async Task<HostResponse> CreateAsync(HostRequest request, Guid userId, CancellationToken cancellationToken)
-    {
-        var host = new Host { CreatedAtUtc = timeProvider.GetUtcNow(), CreatedByUserId = userId };
-        Apply(host, request, userId);
-        db.Hosts.Add(host);
-        await db.SaveChangesAsync(cancellationToken);
-        return (await GetAsync(host.Id, cancellationToken))!;
+        var manageable = await access.ManageableAsync(user, cancellationToken);
+        return [.. hosts.Select(h => h with { CanManage = manageable?.Contains(h.Id) ?? true })];
     }
 
-    /// <returns>The updated host, or null when it does not exist.</returns>
-    /// <exception cref="DbUpdateConcurrencyException">The host changed since <see cref="HostRequest.Version"/>.</exception>
-    public async Task<HostResponse?> UpdateAsync(Guid id, HostRequest request, Guid userId, CancellationToken cancellationToken)
+    /// <returns>The host, or null when it doesn't exist or the user can't see it.</returns>
+    public async Task<HostResponse?> GetAsync(Guid id, RequestUser user, CancellationToken cancellationToken)
     {
+        var host = await access.Visible(user).AsNoTracking().Where(h => h.Id == id).Select(Projection).AsSplitQuery().FirstOrDefaultAsync(cancellationToken);
+        return host is null
+            ? null
+            : host with { CanManage = await access.GetPermissionAsync(id, user, cancellationToken) == HostPermission.Manage };
+    }
+
+    /// <summary>Creates a host. Only administrators may (enforced by the controller).</summary>
+    public async Task<HostResponse> CreateAsync(HostRequest request, RequestUser user, CancellationToken cancellationToken)
+    {
+        var userId = user.Id;
+        var host = new Host { CreatedAtUtc = timeProvider.GetUtcNow(), CreatedByUserId = userId };
+        Apply(host, request, userId, await LoadCopySourcesAsync(request, user, cancellationToken));
+        db.Hosts.Add(host);
+        await db.SaveChangesAsync(cancellationToken);
+        return (await GetAsync(host.Id, user, cancellationToken))!;
+    }
+
+    /// <returns>The updated host, or null when it does not exist or isn't visible to the user.</returns>
+    /// <exception cref="DbUpdateConcurrencyException">The host changed since <see cref="HostRequest.Version"/>.</exception>
+    /// <exception cref="HostAccessDeniedException">The user can see the host but not manage it.</exception>
+    public async Task<HostResponse?> UpdateAsync(Guid id, HostRequest request, RequestUser user, CancellationToken cancellationToken)
+    {
+        if (!await RequireManageAsync(id, user, cancellationToken))
+        {
+            return null;
+        }
+
+        var userId = user.Id;
         if (request.Version is not { } version)
         {
             throw new InventoryValidationException("version", "The version of the host being edited is required.");
@@ -77,16 +106,64 @@ public sealed class HostManager(NKeeperDbContext db, CredentialProtector protect
         }
 
         db.Entry(host).Property(h => h.Version).OriginalValue = version;
-        Apply(host, request, userId);
+        var previousAddress = (host.Hostname, host.IpAddress);
+        Apply(host, request, userId, await LoadCopySourcesAsync(request, user, cancellationToken));
         await db.SaveChangesAsync(cancellationToken);
-        return await GetAsync(id, cancellationToken);
+
+        // A new address may be a different machine: its keys and certificates must be confirmed again.
+        if ((host.Hostname, host.IpAddress) != previousAddress)
+        {
+            await db.HostTrustedKeys.Where(k => k.HostId == id).ExecuteDeleteAsync(cancellationToken);
+        }
+
+        // Editing tags can move a host out of the user's own grants; then it is simply no longer visible.
+        return await GetAsync(id, user, cancellationToken);
     }
 
-    /// <summary>Deletes the host; its tags, services and credentials go with it (cascade).</summary>
-    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken) =>
-        await db.Hosts.Where(h => h.Id == id).ExecuteDeleteAsync(cancellationToken) > 0;
+    /// <summary>Forgets every trusted SSH host key and RDP certificate, so the next connection asks again.</summary>
+    /// <returns>False when the host does not exist or isn't visible to the user.</returns>
+    public async Task<bool> ForgetTrustedKeysAsync(Guid id, RequestUser user, CancellationToken cancellationToken)
+    {
+        if (!await RequireManageAsync(id, user, cancellationToken))
+        {
+            return false;
+        }
 
-    private void Apply(Host host, HostRequest request, Guid userId)
+        await db.HostTrustedKeys.Where(k => k.HostId == id).ExecuteDeleteAsync(cancellationToken);
+        return true;
+    }
+
+    /// <summary>Deletes the host; its tags, services, credentials and access grants go with it (cascade).</summary>
+    /// <returns>False when the host does not exist or isn't visible to the user.</returns>
+    public async Task<bool> DeleteAsync(Guid id, RequestUser user, CancellationToken cancellationToken) =>
+        await RequireManageAsync(id, user, cancellationToken)
+        && await db.Hosts.Where(h => h.Id == id).ExecuteDeleteAsync(cancellationToken) > 0;
+
+    /// <returns>False when the host is not visible; throws when it is visible but not manageable.</returns>
+    private async Task<bool> RequireManageAsync(Guid id, RequestUser user, CancellationToken cancellationToken) =>
+        await access.GetPermissionAsync(id, user, cancellationToken) switch
+        {
+            HostPermission.None => false,
+            HostPermission.Manage => true,
+            _ => throw new HostAccessDeniedException(),
+        };
+
+    /// <summary>The credentials named by CopyFromCredentialId, from hosts the user can manage.</summary>
+    private async Task<Dictionary<Guid, HostCredential>> LoadCopySourcesAsync(HostRequest request, RequestUser user, CancellationToken cancellationToken)
+    {
+        var ids = request.Credentials.Select(c => c.CopyFromCredentialId).OfType<Guid>().Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        return await access.Manageable(user).AsNoTracking()
+            .SelectMany(h => h.Credentials)
+            .Where(c => ids.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, cancellationToken);
+    }
+
+    private void Apply(Host host, HostRequest request, Guid userId, Dictionary<Guid, HostCredential> copySources)
     {
         host.Name = request.Name.Trim();
         host.Hostname = InventoryText.TrimToNull(request.Hostname);
@@ -98,7 +175,7 @@ public sealed class HostManager(NKeeperDbContext db, CredentialProtector protect
 
         ApplyServices(host, request.Services);
         ApplyTags(host, request.Tags);
-        ApplyCredentials(host, request.Credentials);
+        ApplyCredentials(host, request.Credentials, copySources);
     }
 
     private static void ApplyServices(Host host, IEnumerable<HostServiceRequest> services)
@@ -110,6 +187,7 @@ public sealed class HostManager(NKeeperDbContext db, CredentialProtector protect
             Port = s.Port,
             Label = InventoryText.TrimToNull(s.Label),
             Position = index,
+            RdpSecurity = s.Protocol == ServiceProtocol.Rdp && s.RdpSecurity is not RdpSecurityMode.Auto ? s.RdpSecurity : null,
         }));
     }
 
@@ -133,7 +211,7 @@ public sealed class HostManager(NKeeperDbContext db, CredentialProtector protect
         }
     }
 
-    private void ApplyCredentials(Host host, HostCredentialRequest[] credentials)
+    private void ApplyCredentials(Host host, HostCredentialRequest[] credentials, Dictionary<Guid, HostCredential> copySources)
     {
         var kept = new List<HostCredential>(credentials.Length);
         for (var index = 0; index < credentials.Length; index++)
@@ -145,6 +223,14 @@ public sealed class HostManager(NKeeperDbContext db, CredentialProtector protect
                 credential = host.Credentials.FirstOrDefault(c => c.Id == id)
                     ?? throw new InventoryValidationException(
                         $"credentials[{index}].id", "This credential no longer exists on the host. Reload and try again.");
+            }
+            else if (request.CopyFromCredentialId is { } sourceId)
+            {
+                // Hidden and missing credentials look the same, so nothing leaks about other hosts.
+                var source = copySources.GetValueOrDefault(sourceId)
+                    ?? throw new InventoryValidationException(
+                        $"credentials[{index}].copyFromCredentialId", "The credential to copy no longer exists. Reload and try again.");
+                credential = new HostCredential { ProtectedPassword = source.ProtectedPassword, ProtectedPrivateKey = source.ProtectedPrivateKey };
             }
             else
             {

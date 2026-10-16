@@ -45,3 +45,6 @@ Thumbs.db
 
 # --- Docker ---
 docker-compose.override.yml
+
+# --- Setup scripts ---
+/nkeeper-ca.crt

@@ -1,8 +1,10 @@
-# NKeeper: full stack (PostgreSQL + API + web frontend).
+# NKeeper: full stack (PostgreSQL + API + guacd + web frontend).
+#   scripts/setup.sh (Linux) or scripts/setup.ps1 (Windows) writes .env and starts it; or by hand:
 #   cp .env.example .env   # then set POSTGRES_PASSWORD
 #   docker compose up -d --build
-# The app is served on http://localhost:${NKEEPER_HTTP_PORT:-8080}. Only the frontend publishes a port;
-# PostgreSQL and the API are reachable solely on the internal Compose network.
+# The app is served on http://localhost:${NKEEPER_HTTP_PORT:-8080} and https://<name>:${NKEEPER_HTTPS_PORT:-8443}.
+# Only the frontend publishes ports; PostgreSQL, the API and guacd are reachable solely on the
+# internal Compose network.
 name: nkeeper
 
 services:
@@ -21,6 +23,15 @@ services:
       timeout: 5s
       retries: 10
 
+  # Apache Guacamole's connection daemon: the API hands it RDP sessions (with pinned
+  # certificates) and relays the result to the browser. It has no authentication of its own,
+  # so it must never be published or reachable by anything but the API.
+  guacd:
+    image: guacamole/guacd:1.6.0
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
   backend:
     build:
       context: ./backend
@@ -29,14 +40,19 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      guacd:
+        condition: service_started
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       # "postgres" is the service name; never localhost inside a container.
       ConnectionStrings__NKeeper: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-nkeeper};Username=${POSTGRES_USER:-nkeeper};Password=${POSTGRES_PASSWORD}"
       Database__MigrateOnStartup: ${NKEEPER_MIGRATE_ON_STARTUP:-true}
       Authentication__RequireSecureCookies: ${NKEEPER_REQUIRE_SECURE_COOKIES:-true}
+      Guacd__Host: guacd
+      Guacd__Port: "4822"
       # The API is only reachable through the frontend's nginx, so its forwarded headers can be trusted.
       ForwardedHeaders__Enabled: "true"
+      WebProxy__BaseDomain: ${NKEEPER_WEB_BASE_DOMAIN:-}
       BootstrapAdmin__Enabled: ${NKEEPER_BOOTSTRAP_ADMIN_ENABLED:-false}
       BootstrapAdmin__AllowOutsideDevelopment: ${NKEEPER_BOOTSTRAP_ADMIN_ALLOW_OUTSIDE_DEVELOPMENT:-false}
       BootstrapAdmin__UserName: ${NKEEPER_BOOTSTRAP_ADMIN_USERNAME:-}
@@ -52,8 +68,20 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+    environment:
+      # Names and addresses clients use to open NKeeper; the HTTPS certificate covers them.
+      NKEEPER_SERVER_NAMES: ${NKEEPER_SERVER_NAMES:-localhost}
+      NKEEPER_WEB_BASE_DOMAIN: ${NKEEPER_WEB_BASE_DOMAIN:-}
+      NKEEPER_HTTPS_PORT: ${NKEEPER_HTTPS_PORT:-8443}
+    volumes:
+      - tls:/etc/nginx/tls
     ports:
       - "${NKEEPER_HTTP_BIND:-127.0.0.1}:${NKEEPER_HTTP_PORT:-8080}:8080"
+      - "${NKEEPER_HTTPS_BIND:-127.0.0.1}:${NKEEPER_HTTPS_PORT:-8443}:8443"
+      # Plain HTTP that redirects to HTTPS (e.g. port 80 on a server).
+      - "${NKEEPER_HTTPS_BIND:-127.0.0.1}:${NKEEPER_HTTP_REDIRECT_PORT:-8081}:8081"
 
 volumes:
   postgres-data:
+  # HTTPS certificate: NKeeper's private CA and server certificate, or your own (custom.crt/.key).
+  tls:

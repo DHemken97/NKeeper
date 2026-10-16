@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using NKeeper.Infrastructure.Access;
 using NKeeper.Infrastructure.Identity;
 using NKeeper.Infrastructure.Inventory;
 
@@ -20,6 +21,10 @@ public sealed class NKeeperDbContext(DbContextOptions<NKeeperDbContext> options)
     public DbSet<HostTag> HostTags => Set<HostTag>();
 
     public DbSet<HostCredential> HostCredentials => Set<HostCredential>();
+
+    public DbSet<HostTrustedKey> HostTrustedKeys => Set<HostTrustedKey>();
+
+    public DbSet<HostAccessGrant> HostAccessGrants => Set<HostAccessGrant>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

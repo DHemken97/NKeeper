@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using NKeeper.Infrastructure.Access;
 using NKeeper.Infrastructure.Identity;
 using NKeeper.Infrastructure.Inventory;
 
@@ -24,6 +25,7 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
         builder.HasMany(h => h.Services).WithOne().HasForeignKey(s => s.HostId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(h => h.Tags).WithOne().HasForeignKey(t => t.HostId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(h => h.Credentials).WithOne().HasForeignKey(c => c.HostId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(h => h.TrustedKeys).WithOne().HasForeignKey(k => k.HostId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(h => h.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(h => h.UpdatedByUserId).OnDelete(DeleteBehavior.SetNull);
@@ -37,6 +39,7 @@ internal sealed class HostServiceConfiguration : IEntityTypeConfiguration<HostSe
         builder.ToTable("HostServices", t => t.HasCheckConstraint("CK_HostServices_Port", "\"Port\" IS NULL OR (\"Port\" BETWEEN 1 AND 65535)"));
         builder.Property(s => s.Protocol).HasConversion<string>().HasMaxLength(32);
         builder.Property(s => s.Label).HasMaxLength(100);
+        builder.Property(s => s.RdpSecurity).HasConversion<string>().HasMaxLength(16);
         builder.HasIndex(s => new { s.HostId, s.Position });
         builder.HasIndex(s => s.Protocol);
     }
@@ -55,6 +58,19 @@ internal sealed class HostTagConfiguration : IEntityTypeConfiguration<HostTag>
     }
 }
 
+internal sealed class HostTrustedKeyConfiguration : IEntityTypeConfiguration<HostTrustedKey>
+{
+    public void Configure(EntityTypeBuilder<HostTrustedKey> builder)
+    {
+        builder.ToTable("HostTrustedKeys");
+        builder.Property(k => k.Protocol).HasConversion<string>().HasMaxLength(32);
+        builder.Property(k => k.Algorithm).HasMaxLength(64).IsRequired();
+        builder.Property(k => k.Fingerprint).HasMaxLength(128).IsRequired();
+        builder.HasIndex(k => new { k.HostId, k.Protocol, k.Port, k.Algorithm }).IsUnique();
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(k => k.TrustedByUserId).OnDelete(DeleteBehavior.SetNull);
+    }
+}
+
 internal sealed class HostCredentialConfiguration : IEntityTypeConfiguration<HostCredential>
 {
     public void Configure(EntityTypeBuilder<HostCredential> builder)
@@ -65,5 +81,22 @@ internal sealed class HostCredentialConfiguration : IEntityTypeConfiguration<Hos
         builder.Property(c => c.Domain).HasMaxLength(256);
         builder.Property(c => c.Notes).HasMaxLength(2000);
         builder.HasIndex(c => new { c.HostId, c.Position });
+    }
+}
+
+internal sealed class HostAccessGrantConfiguration : IEntityTypeConfiguration<HostAccessGrant>
+{
+    public void Configure(EntityTypeBuilder<HostAccessGrant> builder)
+    {
+        builder.ToTable("HostAccessGrants", t => t.HasCheckConstraint(
+            "CK_HostAccessGrants_Target",
+            "(\"HostId\" IS NOT NULL AND \"TagName\" IS NULL AND \"TagValue\" IS NULL) OR (\"HostId\" IS NULL AND \"TagName\" IS NOT NULL)"));
+        builder.Property(g => g.TagName).HasMaxLength(HostTag.NameMaxLength);
+        builder.Property(g => g.TagValue).HasMaxLength(HostTag.ValueMaxLength);
+        builder.Property(g => g.Level).HasConversion<string>().HasMaxLength(16);
+        builder.HasIndex(g => g.UserId);
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(g => g.UserId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<Host>().WithMany().HasForeignKey(g => g.HostId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(g => g.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
     }
 }
