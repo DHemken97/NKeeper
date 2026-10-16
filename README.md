@@ -4,7 +4,7 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
 
 ## Features
 
-- **Host inventory** with services (SSH, RDP, VNC, HTTP/HTTPS, KVM, …), credentials and Zabbix-style `name: value` tags. There are no folders: you **group by** any tag, e.g. site → role, and search by text or tags (`env:prod`). **Clone** a host to add similar ones quickly, or **import** your mRemoteNG connections (add, update and/or delete, with a preview first).
+- **Host inventory** with services (SSH, RDP, VNC, HTTP/HTTPS, KVM, …), credentials and Zabbix-style `name: value` tags. There are no folders: you **group by** any tag, e.g. site → role, and search by text or tags (`env:prod`). **Clone** a host to add similar ones quickly, or **import** your mRemoteNG connections (add, update and/or delete, with a preview first). **Scan** a host to fill in its MAC address, OS, services and users: internally over one SSH login, or externally over the network.
 - **Sessions in tabs**: right-click a host, then **Connect ▸ service ▸ credential**.
   - **SSH** terminal (xterm.js).
   - **RDP** and **VNC** desktops through Apache Guacamole's guacd, with clipboard sync, Ctrl+Alt+Del and full screen.

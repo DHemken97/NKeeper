@@ -3,6 +3,7 @@
 - [The workspace](#the-workspace)
 - [Hosts](#hosts)
 - [Importing from mRemoteNG](#importing-from-mremoteng)
+- [Scanning hosts](#scanning-hosts)
 - [Connecting](#connecting)
 - [SSH](#ssh)
 - [RDP](#rdp)
@@ -69,6 +70,31 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
 - **Skipped:** connections without a valid hostname or IP address, a second connection with the same name but a different address, and names shared by several NKeeper hosts (it's unclear which one to update).
 - **Supported files:** mRemoteNG's current format (2.6) with its default AES-GCM encryption. Older files, or other encryption settings, are explained when you try them: re-save them in a current mRemoteNG.
 
+## Scanning hosts
+
+**Tasks ▸ Scan** (in a host's right-click menu) gathers inventory details. You need *Manage* access to the host. A scan only reports what it found: you then tick what to add, and **Apply** saves it as a normal edit of the host. Values that fill an empty field start ticked. Values that would replace one start unticked.
+
+- **Internal** (**Tasks ▸ Scan ▸ Internal ▸ credential**) logs in to the host over SSH and reads its own settings. It reads:
+  - the hostname and operating system;
+  - the MAC address of the network interface NKeeper reached;
+  - the TCP ports it listens on, except those that only listen on localhost;
+  - the local accounts that can log in (a real shell; root and regular users).
+
+  **On the network, an internal scan is a single SSH login**, like an administrator's, so it suits places that don't allow scanning. The commands only read local state and contact no other machines. It needs Linux or another Unix with `sh`. Windows isn't supported yet.
+- **External** (**Tasks ▸ Scan ▸ External**) is run by the NKeeper server against the host's saved address, after you confirm. It reads:
+  - which common ports are open (SSH, RDP, VNC, web, file sharing, mail, directory and database ports);
+  - the SSH banner, which often names the operating system;
+  - the reverse-DNS name;
+  - the MAC address, but only when the host is on the same network segment as the NKeeper server (not through a router, VPN or container network).
+
+  **Network monitoring will see it as a port scan.** It only ever scans that one host.
+- **What can be added:**
+  - the hostname, IP address and MAC address;
+  - the operating system, as an `os` tag that you can group by;
+  - a service for each open port NKeeper has a service for. Other open ports are listed for information;
+  - a **KVM** service when libvirt is installed (internal scans);
+  - each local account as a **credential without a password**. Using it asks for the password; set the password in the host's editor to save it.
+
 Changing a host's hostname or IP address forgets its trusted keys too, for the same reason.
 
 ## Connecting
@@ -81,7 +107,7 @@ Right-click a host in the tree, or press the Menu key or Shift+F10 on it, then c
 - When a session ends normally (e.g. `exit`, or signing out of Windows), its tab closes. A session that fails stays open to show why, with **Try again** or **Reconnect**.
 - Close a tab with its **×**, or middle-click it.
 
-A credential that can't work for the service is shown greyed out with the reason, for example "No password".
+A credential that can't work for the service is shown greyed out with the reason, for example "No username". A credential without a stored password (or SSH key) shows **Asks for password**: choosing it asks for the password, with its username filled in, and uses it once. To stop being asked, edit the host and set the password.
 
 **The NKeeper server makes every connection**, not your PC. Hosts must be reachable and resolvable from the server. Your passwords and keys are decrypted only there, never sent to your browser.
 

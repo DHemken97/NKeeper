@@ -69,6 +69,7 @@ Proxying a device's web interface means running someone else's web app, so each 
   - nginx sets the policy, or the API sets it under IIS. Also sent: `X-Content-Type-Options`, `Referrer-Policy` and `Permissions-Policy`.
 - **CORS** is off unless origins are listed explicitly.
 - **Errors** are RFC 7807 problem details with a trace ID. Stack traces are never returned outside development.
+- **Scans** need *Manage* access to the host. An internal scan is one SSH login, with the host key verified like any SSH session, running read-only commands. An external scan probes about 35 well-known TCP ports, plus the host's own service ports, on that host's saved address only. At most four external scans run at once. Neither saves anything: findings are applied by the user as a normal host edit.
 - **mRemoteNG imports** are for administrators. The file is parsed on the server with DTDs and external entities disabled. Its passwords are decrypted there and stored like any other credential, so they never come back to the browser.
 - **Third-party browser code:** the Guacamole client and spice-html5 are vendored from official releases, with provenance recorded. The Guacamole release's signature was verified. noVNC (VNC consoles) is installed from npm, where it's published by the noVNC project itself.
 
