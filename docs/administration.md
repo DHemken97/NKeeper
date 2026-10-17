@@ -54,6 +54,29 @@ Account changes are logged with who made them.
 
 **Limits per user:** 20 open SSH/RDP/VNC sessions, 20 web sessions and 10 VM consoles. The interface shows one console at a time.
 
+## Active Directory sign-in
+
+With `ActiveDirectory__Enabled`, people can sign in to NKeeper with their domain account as `jdoe`, `CORP\jdoe` or `jdoe@corp.example.com`. NKeeper checks the password with an LDAP bind to a domain controller, over LDAPS or StartTLS. At their first sign-in it creates an NKeeper account for them, marked **AD** under **Users**. The [settings](configuration.md#api-settings) are the `ActiveDirectory__*` rows.
+
+```yaml
+# docker-compose.override.yml
+services:
+  backend:
+    environment:
+      ActiveDirectory__Enabled: "true"
+      ActiveDirectory__Domain: CORP
+      ActiveDirectory__DnsDomain: corp.example.com
+      ActiveDirectory__RequiredGroup: CN=NKeeper Users,OU=Groups,DC=corp,DC=example,DC=com
+      ActiveDirectory__AdministratorsGroup: CN=NKeeper Admins,OU=Groups,DC=corp,DC=example,DC=com
+```
+
+- **Who can sign in.** Without `RequiredGroup`, any enabled account in the domain can sign in. It sees no hosts until you grant some.
+- **Roles.** With `AdministratorsGroup`, membership is checked at every sign-in, and the Administrator role is granted or removed to match. Without it, you assign roles under **Users** as usual.
+- **Passwords stay in Active Directory.** Domain accounts can't change their password in NKeeper, and administrators can't reset it there. Disabling an account in NKeeper still blocks it. NKeeper locks an account for 15 minutes after 5 failed sign-ins, before Active Directory's own lockout threshold is reached.
+- **Local accounts keep working.** A local account keeps its own password. A domain account with the same name can't take it over, so keep the bootstrap administrator local as a way in if the directory is down.
+- **Certificates.** The domain controller's certificate must be trusted by the NKeeper server. In Docker, mount your CA certificate into the backend container and point OpenLDAP at it with the `LDAPTLS_CACERT` environment variable, e.g. `LDAPTLS_CACERT: /certs/corp-ca.pem`.
+- **RDP with the user's own login.** With `PassCredentialsToRemoteSessions` (the default), RDP services offer **My sign-in** (`CORP\jdoe`). The domain password is kept encrypted with the user's server-side session and deleted when they sign out or the session expires or is revoked. Set it to `false` to keep no passwords; users then type their login or use host credentials.
+
 ## Backups and restores
 
 > Backups aren't automated yet. Schedule one of the commands below (cron, systemd timer or Task Scheduler), keep copies off the server, and test a restore.

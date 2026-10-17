@@ -19,9 +19,10 @@ ENV ASPNETCORE_HTTP_PORTS=8080 \
 COPY --from=build /app/publish .
 
 # Impacket reads Windows hosts over DCOM/WMI for the RPC internal scan (Inventory/Scanning/wmi_scan.py).
+# OpenLDAP's client library carries Active Directory sign-in (System.DirectoryServices.Protocols).
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-venv \
+    && apt-get install -y --no-install-recommends python3 python3-venv libldap2 \
     && python3 -m venv /opt/impacket \
     && /opt/impacket/bin/pip install --no-cache-dir impacket==0.12.0 \
     && rm -rf /var/lib/apt/lists/*

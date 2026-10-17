@@ -167,6 +167,7 @@ Windows desktops through Apache Guacamole's guacd.
 - **Sound** plays.
 - **Off:** file transfer, drives, printing, microphone and recording.
 - **Requirements:** RDP needs a credential with a username and password; the credential's domain is used as the Windows domain.
+- **My sign-in:** if you signed in to NKeeper with your Active Directory account, RDP services also offer **My sign-in** (`CORP\you`), which logs in to the desktop as you. Your password stays on the NKeeper server. Double-clicking a host with an RDP service and no saved credential uses it too. If you changed your domain password since signing in, sign out of NKeeper and back in.
 - **Security setting** (per RDP service): *Automatic* uses NLA when offered, otherwise TLS. You can also choose *NLA only* or *TLS only*. Insecure legacy RDP security is never used.
 
 ## VNC
@@ -258,6 +259,6 @@ The figures come from the hosts' hardware fields: scan the hypervisors (internal
 
 ## Your account
 
-The account menu (top right) has **Change password** and **Sign out**. Changing your password signs out your other sessions.
+The account menu (top right) has **Change password** and **Sign out**. Changing your password signs out your other sessions. If you sign in with your Active Directory account, change your password in Windows instead.
 
 If an administrator set a temporary password, NKeeper asks you to choose your own at your first sign-in. There's no self-service password reset; ask an administrator.
