@@ -281,3 +281,24 @@
     grid-column: 1 / -1;
   }
 }
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* A service's health: its own line in the service row. */
+.status {
+  flex-basis: 100%;
+  font-size: 0.8125rem;
+}
+
+.up {
+  color: #86efac;
+}
+
+.down {
+  color: var(--color-danger);
+}

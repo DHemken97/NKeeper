@@ -710,6 +710,59 @@ namespace NKeeper.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.ServiceCheck", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)");
+
+                    b.Property<DateTimeOffset?>("CertificateExpiresUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CertificateSubject")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("CheckedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DownSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("HostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsUp")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("LatencyMs")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Protocol")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HostId", "Protocol", "Port", "Address")
+                        .IsUnique();
+
+                    b.ToTable("ServiceChecks", (string)null);
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
                 {
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationRole", null)
@@ -854,6 +907,15 @@ namespace NKeeper.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("LockedByUserId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.ServiceCheck", b =>
+                {
+                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
+                        .WithMany()
+                        .HasForeignKey("HostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Host", b =>

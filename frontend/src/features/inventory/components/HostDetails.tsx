@@ -4,8 +4,22 @@ import { Badge } from '../../../components/ui/Badge'
 import { Button } from '../../../components/ui/Button'
 import { ApiError } from '../../../lib/api'
 import { toFormErrors } from '../../../lib/formErrors'
-import { hostsApi } from '../api/inventoryApi'
-import { formatAccount, formatMemory, formatTag, isSupportedProtocol, PROTOCOL_INFO, RDP_SECURITY_INFO, type Host, type HostTag, type TrustedKey } from '../types'
+import { healthApi, hostsApi } from '../api/inventoryApi'
+import {
+  CERTIFICATE_WARNING_DAYS,
+  checkFor,
+  daysUntil,
+  formatAccount,
+  formatMemory,
+  formatTag,
+  isSupportedProtocol,
+  PROTOCOL_INFO,
+  RDP_SECURITY_INFO,
+  type Host,
+  type HostTag,
+  type ServiceCheck,
+  type TrustedKey,
+} from '../types'
 import { DeleteButton } from './DeleteButton'
 import styles from './HostPanel.module.css'
 
@@ -25,6 +39,10 @@ interface HostDetailsProps {
   allHosts: Host[]
   /** Show another host (e.g. the hypervisor, or a VM on this one). */
   onShowHost: (id: string) => void
+  /** The latest checks of the host's services. */
+  checks?: ServiceCheck[]
+  /** Fetch the latest checks again (after checking now). */
+  onHealthChanged?: () => void
 }
 
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
@@ -39,7 +57,42 @@ function describeKey(key: TrustedKey): string {
 }
 
 /** Read-only overview of a host: addresses, tags, services and credentials (never secrets). */
-export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onConnectMenu, onChanged, allHosts, onShowHost }: HostDetailsProps) {
+export function HostDetails({
+  host,
+  onEdit,
+  onClone,
+  onDeleted,
+  onTagClick,
+  onConnectMenu,
+  onChanged,
+  allHosts,
+  onShowHost,
+  checks,
+  onHealthChanged,
+}: HostDetailsProps) {
+  const [checking, setChecking] = useState(false)
+  const [wake, setWake] = useState<{ busy: boolean; message?: string; error?: boolean }>({ busy: false })
+
+  async function checkNow() {
+    setChecking(true)
+    try {
+      await healthApi.check(host.id)
+      onHealthChanged?.()
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  async function sendWake() {
+    setWake({ busy: true })
+    try {
+      const result = await hostsApi.wake(host.id)
+      setWake({ busy: false, message: `Wake-on-LAN sent to ${host.macAddress} (via ${result.sentTo.join(', ')}). The host may take a minute to come up.` })
+    } catch (err) {
+      setWake({ busy: false, error: true, message: err instanceof ApiError ? err.message : 'The Wake-on-LAN packet couldn’t be sent.' })
+    }
+  }
+
   const [deleting, setDeleting] = useState(false)
   const [forgetting, setForgetting] = useState(false)
   const [confirmForget, setConfirmForget] = useState(false)
@@ -101,6 +154,11 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
           {onClone ? (
             <Button variant="secondary" onClick={onClone} disabled={deleting}>
               Clone
+            </Button>
+          ) : null}
+          {host.macAddress ? (
+            <Button variant="secondary" onClick={() => void sendWake()} loading={wake.busy} disabled={deleting} title="Send a Wake-on-LAN packet">
+              Wake
             </Button>
           ) : null}
           <Button
@@ -224,9 +282,17 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
         </section>
 
         <section className={styles.section} aria-labelledby="services-title">
-          <h2 id="services-title" className={styles.sectionTitle}>
-            Services
-          </h2>
+          <div className={styles.sectionHeader}>
+            <h2 id="services-title" className={styles.sectionTitle}>
+              Services
+            </h2>
+            {host.services.length > 0 ? (
+              <Button variant="ghost" size="sm" onClick={() => void checkNow()} loading={checking}>
+                Check now
+              </Button>
+            ) : null}
+          </div>
+          {wake.message ? <Alert variant={wake.error ? 'error' : 'info'}>{wake.message}</Alert> : null}
           {host.services.length === 0 ? (
             <p className={styles.muted}>No services. Edit the host to add SSH, RDP, VNC and more.</p>
           ) : (
@@ -249,6 +315,7 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
                       {service.protocol === 'Idrac' && service.address ? `${service.address}, ` : ''}
                       {service.port ? `port ${service.port}` : info.defaultPort ? `port ${info.defaultPort} (default)` : ''}
                     </span>
+                    <ServiceStatus check={checkFor(checks, service)} />
                   </li>
                 )
               })}
@@ -323,5 +390,33 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
         ) : null}
       </div>
     </article>
+  )
+}
+
+const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+/** A service's latest health check: up (and how fast), or down since when, plus its certificate's expiry. */
+function ServiceStatus({ check }: { check: ServiceCheck | undefined }) {
+  if (!check) {
+    return null
+  }
+  const days = check.certificateExpiresUtc ? daysUntil(check.certificateExpiresUtc) : null
+  return (
+    <span className={styles.status} title={`Checked ${timeFormat.format(new Date(check.checkedAtUtc))}`}>
+      {check.isUp ? (
+        <span className={styles.up}>Up{check.latencyMs !== null ? ` · ${check.latencyMs} ms` : ''}</span>
+      ) : (
+        <span className={styles.down}>
+          Down{check.downSinceUtc ? ` since ${timeFormat.format(new Date(check.downSinceUtc))}` : ''}
+          {check.error ? ` · ${check.error}` : ''}
+        </span>
+      )}
+      {days !== null ? (
+        <span className={days <= CERTIFICATE_WARNING_DAYS ? styles.down : styles.muted} title={check.certificateSubject ?? undefined}>
+          {' · '}
+          {days < 0 ? `Certificate expired ${-days} days ago` : `Certificate expires in ${days} days`}
+        </span>
+      ) : null}
+    </span>
   )
 }

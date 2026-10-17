@@ -178,6 +178,48 @@ export function formatMemory(mib: number): string {
   return `${Number.isInteger(gib) ? gib : gib.toFixed(gib < 10 ? 2 : 1).replace(/\.?0+$/, '')} GiB`
 }
 
+/** The latest check of one of a host's services, from the NKeeper server. */
+export interface ServiceCheck {
+  hostId: string
+  protocol: ServiceProtocol
+  port: number
+  /** The address checked when it isn't the host's (an iDRAC's). */
+  address: string | null
+  isUp: boolean
+  latencyMs: number | null
+  error: string | null
+  checkedAtUtc: string
+  /** When it went down, in the current run of failed checks. */
+  downSinceUtc: string | null
+  certificateExpiresUtc: string | null
+  certificateSubject: string | null
+}
+
+/** All of a host's checked services up, some down, or all down. */
+export type HostHealth = 'up' | 'partial' | 'down'
+
+export function hostHealth(checks: ServiceCheck[] | undefined): HostHealth | undefined {
+  if (!checks || checks.length === 0) {
+    return undefined
+  }
+  const up = checks.filter((c) => c.isUp).length
+  return up === checks.length ? 'up' : up === 0 ? 'down' : 'partial'
+}
+
+/** The check of a service, matched by protocol, port (or its default) and address. */
+export function checkFor(checks: ServiceCheck[] | undefined, service: HostService): ServiceCheck | undefined {
+  const port = service.port ?? PROTOCOL_INFO[service.protocol].defaultPort
+  return checks?.find((c) => c.protocol === service.protocol && c.port === port && (c.address ?? null) === (service.address ?? null))
+}
+
+/** Certificates expiring within this many days are flagged. */
+export const CERTIFICATE_WARNING_DAYS = 30
+
+/** Whole days until a certificate expires (negative once it has). */
+export function daysUntil(date: string, now = Date.now()): number {
+  return Math.floor((new Date(date).getTime() - now) / (24 * 3600 * 1000))
+}
+
 /** "env: production", or just "backup" for a tag without a value. */
 export function formatTag(tag: HostTag): string {
   return tag.value ? `${tag.name}: ${tag.value}` : tag.name

@@ -346,3 +346,15 @@
     cursor: pointer;
   }
 }
+
+/* A notice above the panel, e.g. after sending Wake-on-LAN. */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4) 0;
+}
+
+.notice > :first-child {
+  flex: 1;
+}

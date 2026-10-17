@@ -31,7 +31,7 @@ export function AuditLogReport() {
 
   // Typing settles for a moment before the search runs.
   useEffect(() => {
-    const timer = setTimeout(() => setFilters((current) => (current.q === search ? current : { ...current, q: search })), 300)
+    const timer = setTimeout(() => setFilters((current) => ((current.q ?? '') === search ? current : { ...current, q: search })), 300)
     return () => clearTimeout(timer)
   }, [search])
 

@@ -44,6 +44,10 @@ The API reads `appsettings.json`, `appsettings.{Environment}.json`, user secrets
 | `Auditing__MaxRecordingMegabytes` | `50` | A recording stops growing at this size (the session goes on) |
 | `Auditing__RetentionDays` | `365` | Audit events older than this are deleted (daily) |
 | `Auditing__RecordingRetentionDays` | `90` | Recordings older than this are deleted (daily) |
+| `Health__Enabled` | `true` | Check every host's services in the background; see the [User guide](user-guide.md#health-and-wake-on-lan) |
+| `Health__Interval` | `00:05:00` | Time between checks (1 minute to 1 day) |
+| `Health__Timeout` | `00:00:05` | A service that hasn't answered by then counts as down |
+| `Health__Parallelism` | `32` | Hosts checked at the same time |
 | `ASPNETCORE_ENVIRONMENT` | `Production` in every install | `Development` enables the OpenAPI document and the developer error page |
 | `ASPNETCORE_URLS` / `ASPNETCORE_HTTP_PORTS` | `8080` in the container; `http://127.0.0.1:5080` in native Linux | Where the API listens (behind nginx) |
 | `Logging__LogLevel__Default` | `Information` | Log level (`Microsoft.AspNetCore` is `Warning`) |

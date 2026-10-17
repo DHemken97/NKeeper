@@ -80,6 +80,12 @@ internal static class ApiServiceCollectionExtensions
             .ValidateOnStart();
         services.AddSingleton<NKeeper.Api.Auditing.AuditLog>();
         services.AddHostedService<NKeeper.Api.Auditing.AuditRetention>();
+        services.AddOptions<NKeeper.Api.Health.HealthSettings>()
+            .Bind(configuration.GetSection(NKeeper.Api.Health.HealthSettings.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddSingleton<NKeeper.Api.Health.HostHealthChecker>();
+        services.AddHostedService<NKeeper.Api.Health.HealthMonitor>();
         services.AddOptions<WebProxySettings>()
             .Bind(configuration.GetSection(WebProxySettings.SectionName))
             .ValidateDataAnnotations()

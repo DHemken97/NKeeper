@@ -14,6 +14,7 @@
 - [KVM virtual machines (SPICE and VNC consoles)](#kvm-virtual-machines-spice-and-vnc-consoles)
 - [Dell iDRAC (virtual console, status and power, RACADM)](#dell-idrac-virtual-console-status-and-power-racadm)
 - [Trusting servers](#trusting-servers)
+- [Health and Wake-on-LAN](#health-and-wake-on-lan)
 - [Reports](#reports)
 - [Your account](#your-account)
 
@@ -246,6 +247,21 @@ NKeeper verifies whom it connects to, using **trust on first use**:
 - **What you're asked:** the first connection to a server shows its identity. That's an SSH host key fingerprint (`SHA256:…`, as `ssh-keygen -lf` prints it), or an RDP or HTTPS certificate fingerprint. Compare it with the server's real one, then choose **Trust and connect**.
 - **Where it's kept:** trusted keys are stored per host and listed in its details. SSH sessions and KVM share SSH keys.
 - **If it changes:** NKeeper **refuses to connect** and says so, because a reinstalled server looks exactly like an attacker in the middle. When the change is expected (a rebuild, or a renewed certificate), an administrator or anyone with *Manage* access uses **Forget trusted keys…** in the host details, then connects again.
+
+## Health and Wake-on-LAN
+
+The NKeeper server checks every host's services every 5 minutes, the way a session would reach them:
+- **How:** a TCP connection to each service's port. For HTTPS, iDRAC and RDP services, it also reads the TLS certificate, to track when it expires. It never signs in, and uses no credentials.
+- **In the tree:** a dot before each host's name: green when every service answers, amber when some don't, red when none do. Hosts not checked yet have no dot.
+- **In the details:** each service shows *Up · 12 ms*, or *Down since …* with the reason, and its certificate's expiry. Expiries within 30 days are in red. **Check now** checks the host again at once.
+- **Reports ▸ Health:** what's down, longest first, and every certificate, soonest to expire first.
+
+The checks come from the server, so a host can be up for you but down for NKeeper (or the other way round) when firewalls differ. Change the interval, or turn checks off, with `Health__*` in [Configuration](configuration.md#api-settings).
+
+**Wake-on-LAN:** for a host with a MAC address, **Wake** (in its details or its menu) sends a magic packet from the NKeeper server, to UDP port 9. It goes to the local broadcast address, to the host's /24 broadcast address and to the host's own address. It's recorded in the audit log.
+- **Same network:** it works when the server is on the host's network.
+- **Routed networks:** the router must forward directed broadcasts.
+- **Docker:** a container's default network doesn't carry broadcasts onto your LAN. Run the backend with host networking, or wake hosts across a router that forwards directed broadcasts.
 
 ## Reports
 

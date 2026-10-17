@@ -13,6 +13,7 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
   - **Dell iDRAC**: the HTML5 virtual console in a tab, the server's status and power buttons over Redfish, and RACADM over SSH.
 - **Windows scans** over RPC (WMI): hostname, model, Windows version, adapters, listening ports and local accounts.
 - **Hardware inventory**: CPU cores, memory and serial numbers, filled in by scans (Linux, Windows, iDRAC), with each VM's vCPUs and memory read from its hypervisor.
+- **Health**: every service is checked from the server every few minutes, with status dots in the tree, a report of what's down and of TLS certificates about to expire, and **Wake-on-LAN** for hosts with a MAC address.
 - **Audit log**: who signed in, opened which session to which host, and changed what, searchable and exportable. SSH and Telnet sessions are recorded and can be played back.
 - **Reports**: an IP address map of every /24 subnet in use, and each VM host's capacity with what its VMs use. Both download as CSV.
 - **Trust on first use**: SSH host keys, RDP certificates and self-signed HTTPS certificates are confirmed once, then pinned. A changed key or certificate is refused.

@@ -33,6 +33,8 @@ public sealed class NKeeperDbContext(DbContextOptions<NKeeperDbContext> options)
 
     public DbSet<SessionRecording> SessionRecordings => Set<SessionRecording>();
 
+    public DbSet<ServiceCheck> ServiceChecks => Set<ServiceCheck>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);

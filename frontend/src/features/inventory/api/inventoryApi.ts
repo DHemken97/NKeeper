@@ -9,6 +9,7 @@ import type {
   InternalScanLogin,
   ScannedHostInput,
   ScanResponse,
+  ServiceCheck,
 } from '../types'
 
 export const hostsApi = {
@@ -32,4 +33,13 @@ export const hostsApi = {
   bulkUpdate: (input: BulkHostUpdateInput) => api.post<Host[]>('/api/hosts/bulk', { body: input }),
   /** Add hosts for VMs a scan found, linked to their hypervisor. Administrators only. */
   createFromScan: (hosts: ScannedHostInput[]) => api.post<Host[]>('/api/hosts/from-scan', { body: { hosts } }),
+  /** Send a Wake-on-LAN packet to the host's MAC address, from the server. */
+  wake: (id: string) => api.post<{ sentTo: string[] }>(`/api/hosts/${id}/wake`),
+}
+
+export const healthApi = {
+  /** The latest checks of every service the user can see. */
+  list: (signal?: AbortSignal) => api.get<ServiceCheck[]>('/api/health', { signal }),
+  /** Check one host's services now. */
+  check: (hostId: string) => api.post<ServiceCheck[]>(`/api/health/hosts/${hostId}/check`),
 }

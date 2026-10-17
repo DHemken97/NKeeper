@@ -46,6 +46,8 @@ export interface HostMenuActions {
   /** Tasks ▸ Scan ▸ External: probe the host over the network from the NKeeper server. */
   scanExternal: (host: Host) => void
   copyAddress: (host: Host) => void
+  /** Send a Wake-on-LAN packet (hosts with a MAC address). */
+  wake?: (host: Host) => void
 }
 
 export function serviceLabel(service: HostService): string {
@@ -86,6 +88,7 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
     ...(host.canManage ? [{ kind: 'item', label: 'Edit', onSelect: () => actions.edit(host) } as const] : []),
     ...(actions.clone ? [{ kind: 'item', label: 'Clone', detail: 'New host from this one', onSelect: () => actions.clone!(host) } as const] : []),
     ...(host.canManage ? [{ kind: 'item', label: 'Tasks', submenu: taskMenuEntries(host, actions) } as const] : []),
+    ...(host.macAddress && actions.wake ? [{ kind: 'item', label: 'Wake', detail: 'Wake-on-LAN', onSelect: () => actions.wake!(host) } as const] : []),
     { kind: 'item', label: 'Copy address', detail: primaryAddress(host), onSelect: () => actions.copyAddress(host) },
   ]
 }

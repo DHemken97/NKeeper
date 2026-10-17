@@ -1,11 +1,11 @@
-import { lazy, Suspense, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
 import { ContextMenu } from '../../../components/ui/ContextMenu'
 import { Spinner } from '../../../components/ui/Spinner'
 import { toFormErrors } from '../../../lib/formErrors'
-import { hostsApi } from '../api/inventoryApi'
+import { healthApi, hostsApi } from '../api/inventoryApi'
 import { BulkEditPanel } from '../components/BulkEditPanel'
 import { GroupByPicker } from '../components/GroupByPicker'
 import { HostDetails } from '../components/HostDetails'
@@ -42,7 +42,17 @@ import {
   type IdracMode,
 } from '../hostMenu'
 import { matchesSearch, parseSearch, tagSearchTerm } from '../search'
-import { formatAccount, primaryAddress, type Host, type HostCredential, type HostTag, type InternalScanLogin, type ServiceProtocol } from '../types'
+import {
+  formatAccount,
+  hostHealth,
+  primaryAddress,
+  type Host,
+  type HostCredential,
+  type HostTag,
+  type InternalScanLogin,
+  type ServiceCheck,
+  type ServiceProtocol,
+} from '../types'
 import { useAuth } from '../../auth/context'
 import { isAdministrator } from '../../auth/types'
 import styles from './WorkspacePage.module.css'
@@ -144,6 +154,25 @@ export function WorkspacePage() {
   const { user } = useAuth()
   const admin = isAdministrator(user)
   const resource = useResource((signal) => hostsApi.list(signal))
+  // Service health, refreshed every minute (the server checks every few minutes).
+  const health = useResource((signal) => healthApi.list(signal))
+  const reloadHealth = health.reload
+  useEffect(() => {
+    const timer = setInterval(reloadHealth, 60_000)
+    return () => clearInterval(timer)
+  }, [reloadHealth])
+  const checksByHost = useMemo(() => {
+    const byHost = new Map<string, ServiceCheck[]>()
+    for (const check of health.data ?? []) {
+      byHost.set(check.hostId, [...(byHost.get(check.hostId) ?? []), check])
+    }
+    return byHost
+  }, [health.data])
+  const healthByHost = useMemo(
+    () => new Map([...checksByHost].flatMap(([id, checks]) => (hostHealth(checks) ? [[id, hostHealth(checks)!] as const] : []))),
+    [checksByHost],
+  )
+  const [wakeNotice, setWakeNotice] = useState<{ text: string; error: boolean } | null>(null)
   const [local, setLocal] = useState<LocalChanges>({ basedOn: undefined, hosts: [] })
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const [sessions, setSessions] = useState<RemoteSession[]>([])
@@ -332,6 +361,11 @@ export function WorkspacePage() {
     edit: (host) => showHost(host.id, true),
     clone: admin ? cloneHost : undefined,
     copyAddress: (host) => void navigator.clipboard?.writeText(primaryAddress(host)),
+    wake: (host) =>
+      void hostsApi.wake(host.id).then(
+        () => setWakeNotice({ text: `Wake-on-LAN sent to ${host.name} (${host.macAddress}).`, error: false }),
+        (err: unknown) => setWakeNotice({ text: toFormErrors(err).message ?? 'The Wake-on-LAN packet couldn’t be sent.', error: true }),
+      ),
     scanInternal: (host, serviceIndex, credential) =>
       credential && !credentialNeedsPassword(credential, host.services[serviceIndex].protocol)
         ? setScan({ host, kind: 'internal', login: { serviceIndex, credentialId: credential.id } })
@@ -527,12 +561,21 @@ export function WorkspacePage() {
               onContextMenu={(hostId, x, y) => setMenu({ hostId, x, y })}
               onGroupContextMenu={(groupId, x, y) => setGroupMenu({ groupId, x, y })}
               menuHostId={menu?.hostId ?? null}
+              health={healthByHost}
             />
           )}
         </div>
       </aside>
 
       <main className={styles.main}>
+        {wakeNotice ? (
+          <div className={styles.notice}>
+            <Alert variant={wakeNotice.error ? 'error' : 'info'}>{wakeNotice.text}</Alert>
+            <Button variant="ghost" size="sm" onClick={() => setWakeNotice(null)}>
+              Dismiss
+            </Button>
+          </div>
+        ) : null}
         {showingPanel ? (
           <button type="button" className={styles.back} onClick={() => showHost(null)}>
             ‹ All hosts
@@ -613,6 +656,8 @@ export function WorkspacePage() {
               onChanged={handleChanged}
               allHosts={allHosts ?? []}
               onShowHost={(id) => showHost(id)}
+              checks={checksByHost.get(selectedHost.id)}
+              onHealthChanged={reloadHealth}
             />
           ) : selectedId && allHosts ? (
             <div className={styles.mainState}>
