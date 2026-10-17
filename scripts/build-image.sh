@@ -18,7 +18,7 @@ BUILDER=nkeeper-builder
 name=nkeeper version="" platforms=linux/amd64 push="" load=false archive=true out="$REPO/dist"
 
 usage() {
-    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
     cat <<EOF
 
 Options:
