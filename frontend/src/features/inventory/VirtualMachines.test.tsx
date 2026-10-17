@@ -222,6 +222,9 @@ describe('virtual machines', () => {
     expect(router.state.location.search).toBe('?group=%40runs-on')
     const node = screen.getByRole('button', { name: /runs on:\s*node2/, expanded: true })
     expect(within(node.closest('li')!).getByRole('button', { name: /^app01/ })).toBeInTheDocument()
+    // The node itself heads its group: it runs on its own hardware.
+    const group = within(node.closest('li')!).getAllByRole('button').filter((b) => b !== node)
+    expect(group[0]).toHaveAccessibleName(/^node2/)
     expect(screen.getByRole('button', { name: /Not on a known host/ })).toBeInTheDocument()
   })
 
