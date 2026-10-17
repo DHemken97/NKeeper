@@ -77,7 +77,8 @@ internal sealed class InstanceExporter(NKeeperDbContext db, CredentialProtector 
         return new BundleV1(
             [.. users.Select(u => new BundleUser(
                 u.Id, u.UserName!, u.Email, u.EmailConfirmed, u.PasswordHash, u.SecurityStamp, u.LockoutEnabled, u.LockoutEnd,
-                u.AccessFailedCount, u.IsDisabled, u.MustChangePassword, u.CreatedAtUtc, [.. rolesByUser[u.Id]], u.IsDirectoryAccount))],
+                u.AccessFailedCount, u.IsDisabled, u.MustChangePassword, u.CreatedAtUtc, [.. rolesByUser[u.Id]], u.IsDirectoryAccount,
+                u.WorkspaceGroupBy, u.WorkspaceSort))],
             [.. grants.Select(g => new BundleGrant(g.Id, g.UserId, g.HostId, g.TagName, g.TagValue, g.Level, g.CreatedAtUtc, g.CreatedByUserId))],
             [.. hosts.Select(h => new BundleHost(
                 h.Id, h.Name, h.Hostname, h.IpAddress, h.MacAddress, h.Description, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId,

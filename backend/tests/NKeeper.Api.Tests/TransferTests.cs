@@ -58,7 +58,7 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
         await using (var seed = _source.Services.CreateAsyncScope())
         {
             var users = seed.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<NKeeper.Infrastructure.Identity.ApplicationUser>>();
-            Assert.True((await users.CreateAsync(new NKeeper.Infrastructure.Identity.ApplicationUser { UserName = "carol", Email = "carol@corp.example.com", IsDirectoryAccount = true })).Succeeded);
+            Assert.True((await users.CreateAsync(new NKeeper.Infrastructure.Identity.ApplicationUser { UserName = "carol", Email = "carol@corp.example.com", IsDirectoryAccount = true, WorkspaceGroupBy = ["site", "role"], WorkspaceSort = "address" })).Succeeded);
         }
 
         var bundle = await ExportAsync();
@@ -108,6 +108,9 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
         // The domain account is still one, so Active Directory sign-in can take it over.
         var carol = await scope.ServiceProvider.GetRequiredService<NKeeperDbContext>().Users.SingleAsync(u => u.UserName == "carol", Ct);
         Assert.True(carol.IsDirectoryAccount);
+        // Her saved workspace comes along too.
+        Assert.Equal(["site", "role"], carol.WorkspaceGroupBy);
+        Assert.Equal("address", carol.WorkspaceSort);
         Assert.Null(carol.PasswordHash);
 
         // The old key ring stayed behind: the new instance has only its own keys.

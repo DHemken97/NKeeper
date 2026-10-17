@@ -62,12 +62,13 @@ Account changes are logged with who made them.
 Move a whole instance (Docker, native Linux or IIS, to any of them) from the UI. Use this, not a database dump: a dump also carries the old server's encryption keys, and needs the same database tools on both sides.
 
 **What moves:**
-- user accounts, with their roles, passwords (as hashes), lockouts and access grants. [Active Directory](#active-directory-sign-in) accounts stay domain accounts: configure `ActiveDirectory__*` on the new server the same way before importing;
-- hosts, with their tags, services, credentials, hardware details, VM links and trusted keys.
+- user accounts, with their roles, passwords (as hashes), lockouts, access grants and saved workspace grouping and sort. [Active Directory](#active-directory-sign-in) accounts stay domain accounts: configure `ActiveDirectory__*` on the new server the same way before importing;
+- hosts, with their tags, services, credentials, hardware details, VM links, jump hosts and trusted keys.
 
 **What doesn't move:**
 - sign-in sessions: everyone signs in again on the new server;
 - open sessions;
+- the audit log and session recordings: keep the old server's database if you need them;
 - the old server's encryption keys: the new server re-encrypts every stored password with its own;
 - configuration (`.env`, `/etc/nkeeper/nkeeper.env` or `state.json`, including `WebProxy:BaseDomain`), TLS certificates and logs. Set those up on the new server as for any install.
 

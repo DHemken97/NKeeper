@@ -121,6 +121,8 @@ internal sealed class InstanceImporter(
                 IsDisabled = user.IsDisabled,
                 MustChangePassword = user.MustChangePassword,
                 IsDirectoryAccount = user.IsDirectoryAccount,
+                WorkspaceGroupBy = [.. user.WorkspaceGroupBy ?? []],
+                WorkspaceSort = user.WorkspaceSort ?? "name",
                 CreatedAtUtc = user.CreatedAtUtc,
             });
 
