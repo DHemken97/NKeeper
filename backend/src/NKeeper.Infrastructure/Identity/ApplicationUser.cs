@@ -15,4 +15,10 @@ public sealed class ApplicationUser : IdentityUser<Guid>
 
     /// <summary>Set when an administrator assigns a password; the user must choose their own before doing anything else.</summary>
     public bool MustChangePassword { get; set; }
+
+    /// <summary>
+    /// An Active Directory account: it has no local password and signs in against the directory.
+    /// Created at the user's first sign-in.
+    /// </summary>
+    public bool IsDirectoryAccount { get; set; }
 }

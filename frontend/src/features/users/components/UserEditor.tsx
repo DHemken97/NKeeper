@@ -109,7 +109,8 @@ export function UserEditor({ user, hosts, currentUserId, onChanged, onDeleted }:
             {user.userName}
           </h1>
           <p className={panel.subtitle}>
-            {user.role === 'Administrator' ? 'Administrator' : 'User'} · created {dateFormat.format(new Date(user.createdAtUtc))}
+            {user.role === 'Administrator' ? 'Administrator' : 'User'}
+            {user.isDirectoryAccount ? ' · Active Directory' : ''} · created {dateFormat.format(new Date(user.createdAtUtc))}
             {user.isDisabled ? ' · disabled' : ''}
             {user.isLockedOut ? ' · locked out after failed sign-ins' : ''}
             {user.mustChangePassword ? ' · must change password' : ''}
@@ -147,15 +148,24 @@ export function UserEditor({ user, hosts, currentUserId, onChanged, onDeleted }:
           <h2 id="password-title" className={panel.sectionTitle}>
             Password
           </h2>
-          <p className={panel.muted}>
-            {user.isLockedOut ? 'The account is locked after too many failed sign-ins. Resetting the password unlocks it. ' : null}
-            Set a new password and give it to the user; they can be asked to change it at their next sign-in.
-          </p>
-          <div>
-            <Button variant="secondary" onClick={() => setResetting(true)}>
-              Reset password…
-            </Button>
-          </div>
+          {user.isDirectoryAccount ? (
+            <p className={panel.muted}>
+              {user.isLockedOut ? 'The account is locked after too many failed sign-ins and unlocks itself after 15 minutes. ' : null}
+              This account signs in with Active Directory, so its password is managed there.
+            </p>
+          ) : (
+            <>
+              <p className={panel.muted}>
+                {user.isLockedOut ? 'The account is locked after too many failed sign-ins. Resetting the password unlocks it. ' : null}
+                Set a new password and give it to the user; they can be asked to change it at their next sign-in.
+              </p>
+              <div>
+                <Button variant="secondary" onClick={() => setResetting(true)}>
+                  Reset password…
+                </Button>
+              </div>
+            </>
+          )}
         </section>
 
         <section className={panel.section} aria-labelledby="access-title">

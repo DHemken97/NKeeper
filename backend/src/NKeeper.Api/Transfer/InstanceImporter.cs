@@ -120,6 +120,7 @@ internal sealed class InstanceImporter(
                 AccessFailedCount = user.AccessFailedCount,
                 IsDisabled = user.IsDisabled,
                 MustChangePassword = user.MustChangePassword,
+                IsDirectoryAccount = user.IsDirectoryAccount,
                 CreatedAtUtc = user.CreatedAtUtc,
             });
 
@@ -215,16 +216,23 @@ internal sealed class InstanceImporter(
             throw new BundleException("The file refers to users or hosts it doesn't contain, so it wasn't imported.");
         }
 
-        if (!data.Users.Any(u => u.Roles.Contains(SystemRoles.Administrator) && !u.IsDisabled && u.PasswordHash is not null))
+        // Domain accounts have no local password: they sign in against Active Directory.
+        if (!data.Users.Any(u => u.Roles.Contains(SystemRoles.Administrator) && !u.IsDisabled && (u.PasswordHash is not null || u.IsDirectoryAccount)))
         {
             throw new BundleException("The file has no enabled administrator who can sign in, so nobody could manage the new instance.");
         }
 
         var warnings = new List<string>();
-        var noPassword = data.Users.Count(u => u.PasswordHash is null);
+        var noPassword = data.Users.Count(u => u.PasswordHash is null && !u.IsDirectoryAccount);
         if (noPassword > 0)
         {
             warnings.Add($"{noPassword} account{(noPassword == 1 ? " has" : "s have")} no password; an administrator must set one before they can sign in.");
+        }
+
+        var directory = data.Users.Count(u => u.IsDirectoryAccount);
+        if (directory > 0)
+        {
+            warnings.Add($"{directory} account{(directory == 1 ? " signs" : "s sign")} in with Active Directory: set up ActiveDirectory__* on this server the same way first, or {(directory == 1 ? "it" : "they")} can't sign in.");
         }
 
         var locked = data.Users.Count(u => u.LockoutEnd > DateTimeOffset.UtcNow);

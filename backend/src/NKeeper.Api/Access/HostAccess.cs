@@ -12,6 +12,9 @@ namespace NKeeper.Api.Access;
 /// <summary>Who is making a request, as far as host access is concerned.</summary>
 public sealed record RequestUser(Guid Id, bool IsAdministrator)
 {
+    /// <summary>The request's server-side sign-in session, when known; it can hold the user's domain login.</summary>
+    public string? SessionKey { get; init; }
+
     public static RequestUser From(ClaimsPrincipal principal) =>
         new(principal.GetUserId(), principal.IsInRole(SystemRoles.Administrator));
 }

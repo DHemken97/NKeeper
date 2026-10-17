@@ -30,6 +30,13 @@ public static class DependencyInjection
                 "BootstrapAdmin:UserName, BootstrapAdmin:Email and BootstrapAdmin:Password are required when BootstrapAdmin:Enabled is true.")
             .ValidateOnStart();
 
+        services.AddOptions<ActiveDirectoryOptions>()
+            .Bind(configuration.GetSection(ActiveDirectoryOptions.SectionName))
+            .Validate(
+                o => o.IsValid(),
+                "ActiveDirectory:Domain and ActiveDirectory:DnsDomain are required when ActiveDirectory:Enabled is true, and ActiveDirectory:Transport None needs ActiveDirectory:AllowInsecureTransport.")
+            .ValidateOnStart();
+
         // The connection string is validated at startup; tooling such as 'dotnet ef migrations add' runs without one.
         services.AddDbContext<NKeeperDbContext>(options => options.UseNpgsql(connectionString));
 
@@ -54,6 +61,8 @@ public static class DependencyInjection
         services.AddSingleton<DatabaseTicketStore>();
         services.AddSingleton<IConfigureOptions<CookieAuthenticationOptions>, ConfigureSessionStore>();
         services.AddScoped<CredentialValidator>();
+        services.AddSingleton<IDirectoryAuthenticator, LdapDirectoryAuthenticator>();
+        services.AddScoped<SignInCredentialStore>();
         services.AddScoped<SessionRevoker>();
         services.AddScoped<DatabaseInitializer>();
         services.AddSingleton<CredentialProtector>();

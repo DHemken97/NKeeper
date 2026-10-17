@@ -21,6 +21,8 @@ public sealed class AuthController(
     IAntiforgery antiforgery,
     IOptions<AntiforgeryOptions> antiforgeryOptions,
     IOptions<AuthenticationSettings> authenticationSettings,
+    IOptions<ActiveDirectoryOptions> directoryOptions,
+    SignInCredentialStore signInCredentials,
     TimeProvider timeProvider) : ControllerBase
 {
     public const string InvalidCredentialsCode = "invalid_credentials";
@@ -68,8 +70,16 @@ public sealed class AuthController(
             AllowRefresh = true,
         };
 
+        // The session store keeps a directory account's password, encrypted, for RDP sessions.
+        var directory = directoryOptions.Value;
+        var passOn = user.IsDirectoryAccount && directory.Enabled && directory.PassCredentialsToRemoteSessions;
+        if (passOn)
+        {
+            SignInCredentialStore.Attach(properties, request.Password);
+        }
+
         await signInManager.SignInAsync(user, properties);
-        return await ToResponseAsync(user);
+        return await ToResponseAsync(user, passOn ? $"{directory.Domain}\\{user.UserName}" : null);
     }
 
     /// <summary>Ends the current session. Idempotent: succeeds even when not signed in.</summary>
@@ -99,12 +109,13 @@ public sealed class AuthController(
         }
 
         Response.Headers.CacheControl = "no-store";
-        return await ToResponseAsync(user);
+        return await ToResponseAsync(user, await signInCredentials.DescribeAsync(CurrentSession.Key(HttpContext), user.Id, HttpContext.RequestAborted));
     }
 
-    private async Task<CurrentUserResponse> ToResponseAsync(ApplicationUser user)
+    private async Task<CurrentUserResponse> ToResponseAsync(ApplicationUser user, string? signInAccount)
     {
         var roles = await userManager.GetRolesAsync(user);
-        return new CurrentUserResponse(user.Id, user.UserName!, user.Email, [.. roles.Order(StringComparer.Ordinal)], user.MustChangePassword);
+        return new CurrentUserResponse(
+            user.Id, user.UserName!, user.Email, [.. roles.Order(StringComparer.Ordinal)], user.MustChangePassword, user.IsDirectoryAccount, signInAccount);
     }
 }

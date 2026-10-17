@@ -54,6 +54,13 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
     public async Task WholeInstance_MovesToAFreshOne_WithSecretsReEncryptedThere()
     {
         var (node, vm) = await SeedSourceAsync();
+        // A domain account: no local password, signs in against Active Directory.
+        await using (var seed = _source.Services.CreateAsyncScope())
+        {
+            var users = seed.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<NKeeper.Infrastructure.Identity.ApplicationUser>>();
+            Assert.True((await users.CreateAsync(new NKeeper.Infrastructure.Identity.ApplicationUser { UserName = "carol", Email = "carol@corp.example.com", IsDirectoryAccount = true })).Succeeded);
+        }
+
         var bundle = await ExportAsync();
 
         // A fresh instance can import; the preview says what's in the file without changing anything.
@@ -61,7 +68,9 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
         var preview = await PostImportAsync(_targetAdmin, "import/preview", bundle, Passphrase);
         Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
         var summary = await preview.Content.ReadFromJsonAsync<JsonElement>(Ct);
-        Assert.Equal((2, 2, 1, 1, false), (summary.GetProperty("users").GetInt32(), summary.GetProperty("hosts").GetInt32(), summary.GetProperty("grants").GetInt32(), summary.GetProperty("credentials").GetInt32(), summary.GetProperty("imported").GetBoolean()));
+        Assert.Contains(summary.GetProperty("warnings").EnumerateArray(), w => w.GetString()!.Contains("Active Directory", StringComparison.Ordinal));
+        Assert.DoesNotContain(summary.GetProperty("warnings").EnumerateArray(), w => w.GetString()!.Contains("no password", StringComparison.Ordinal));
+        Assert.Equal((3, 2, 1, 1, false), (summary.GetProperty("users").GetInt32(), summary.GetProperty("hosts").GetInt32(), summary.GetProperty("grants").GetInt32(), summary.GetProperty("credentials").GetInt32(), summary.GetProperty("imported").GetBoolean()));
         Assert.Equal(0, await CountHostsAsync(_target));
 
         var imported = await PostImportAsync(_targetAdmin, "import", bundle, Passphrase, confirm: true);
@@ -93,6 +102,11 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
             22,
             Ct);
         Assert.Equal(SecretPassword, target.Password);
+
+        // The domain account is still one, so Active Directory sign-in can take it over.
+        var carol = await scope.ServiceProvider.GetRequiredService<NKeeperDbContext>().Users.SingleAsync(u => u.UserName == "carol", Ct);
+        Assert.True(carol.IsDirectoryAccount);
+        Assert.Null(carol.PasswordHash);
 
         // The old key ring stayed behind: the new instance has only its own keys.
         var sourceKeys = await KeyIdsAsync(_source);

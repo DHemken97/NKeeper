@@ -16,6 +16,8 @@ export interface UserSummary {
   isDisabled: boolean
   mustChangePassword: boolean
   isLockedOut: boolean
+  /** Signs in with Active Directory; its password is managed there. */
+  isDirectoryAccount: boolean
   grantCount: number
   createdAtUtc: string
 }

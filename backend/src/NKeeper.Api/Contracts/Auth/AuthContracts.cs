@@ -17,6 +17,15 @@ public sealed record LoginRequest
 }
 
 /// <summary>The safe, public view of the signed-in user. Never add Identity internals here.</summary>
-public sealed record CurrentUserResponse(Guid Id, string UserName, string? Email, IReadOnlyList<string> Roles, bool MustChangePassword);
+/// <param name="IsDirectoryAccount">An Active Directory account: its password is changed in Windows, not NKeeper.</param>
+/// <param name="SignInAccount">The domain login (CORP\jdoe) this session can pass on to RDP sessions, or null when it has none.</param>
+public sealed record CurrentUserResponse(
+    Guid Id,
+    string UserName,
+    string? Email,
+    IReadOnlyList<string> Roles,
+    bool MustChangePassword,
+    bool IsDirectoryAccount,
+    string? SignInAccount);
 
 public sealed record AntiforgeryTokenResponse(string Token, string HeaderName);

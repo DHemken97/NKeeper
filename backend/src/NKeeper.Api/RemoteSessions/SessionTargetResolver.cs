@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NKeeper.Api.Access;
+using NKeeper.Infrastructure.Identity;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Infrastructure.Persistence;
 
@@ -27,7 +28,7 @@ internal sealed record SessionTarget(
 }
 
 /// <summary>Turns a start message into a <see cref="SessionTarget"/>, enforcing that only inventory data is used.</summary>
-internal sealed class SessionTargetResolver(HostAccess access, CredentialProtector protector)
+internal sealed class SessionTargetResolver(HostAccess access, CredentialProtector protector, SignInCredentialStore signInCredentials)
 {
     /// <param name="user">Only hosts this user can see can be connected to.</param>
     /// <param name="oneOffDomain">Domain typed for one-off credentials (RDP only).</param>
@@ -67,7 +68,24 @@ internal sealed class SessionTargetResolver(HostAccess access, CredentialProtect
         var port = racadm ? defaultPort : service.Port ?? defaultPort;
         string? username, domain, password, privateKey = null;
         string credentialSource;
-        if (start.CredentialId is { } credentialId)
+        if (start.UseSignInCredentials)
+        {
+            // RDP only: the user's own domain login goes nowhere they didn't ask for it to.
+            if (protocol != ServiceProtocol.Rdp || racadm)
+            {
+                throw new SessionException(SessionErrorCodes.BadRequest, "Your sign-in can only be passed on to RDP sessions.");
+            }
+
+            var signIn = await signInCredentials.GetAsync(user.SessionKey, user.Id, cancellationToken)
+                ?? throw new SessionException(
+                    SessionErrorCodes.SignInCredentialsUnavailable,
+                    "Your NKeeper sign-in has no domain login to pass on. Sign out, then sign in with your Active Directory account.");
+            username = signIn.UserName;
+            domain = signIn.Domain;
+            password = signIn.Password;
+            credentialSource = $"the signed-in user's domain account {signIn.Display}";
+        }
+        else if (start.CredentialId is { } credentialId)
         {
             var credential = host.Credentials.FirstOrDefault(c => c.Id == credentialId)
                 ?? throw new SessionException(SessionErrorCodes.CredentialNotFound, "This credential no longer exists on the host.");

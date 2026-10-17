@@ -86,6 +86,7 @@ export function DesktopSession({ session, active, onShowHost, onEnded }: Desktop
           hostId: request.hostId,
           serviceIndex: request.serviceIndex,
           credentialId: request.credentialId,
+          useSignInCredentials: request.useSignIn,
           username: request.oneOff?.username,
           password: request.oneOff?.password,
           domain: request.oneOff?.domain,

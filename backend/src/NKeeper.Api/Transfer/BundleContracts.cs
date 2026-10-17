@@ -17,6 +17,7 @@ public sealed record BundleV1(
     IReadOnlyList<BundleGrant> Grants,
     IReadOnlyList<BundleHost> Hosts);
 
+/// <param name="IsDirectoryAccount">An Active Directory account (no local password). Absent from files written before AD sign-in, which means false.</param>
 public sealed record BundleUser(
     Guid Id,
     string UserName,
@@ -30,7 +31,8 @@ public sealed record BundleUser(
     bool IsDisabled,
     bool MustChangePassword,
     DateTimeOffset CreatedAtUtc,
-    IReadOnlyList<string> Roles);
+    IReadOnlyList<string> Roles,
+    bool IsDirectoryAccount = false);
 
 public sealed record BundleGrant(
     Guid Id,

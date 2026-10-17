@@ -19,10 +19,12 @@ NKeeper holds credentials for the machines it connects to, so it's built to keep
 - **Server-side sessions.** The cookie is `HttpOnly`, `SameSite=Strict` and `Secure` (outside development), and holds only an encrypted session key. The session itself is a database row, so signing out deletes it and a copied cookie stops working immediately. Nothing authentication-related is kept in `localStorage` or `sessionStorage`.
 - **Accounts are re-checked on every request.** Disabling a user, changing their role or resetting their password takes effect at once. It signs them out everywhere and ends their open sessions.
 - **No public sign-up.** The first administrator comes from a guarded, create-only bootstrap step, and the setup scripts remove its password from the configuration afterwards.
+- **Active Directory sign-in** (optional) binds to a domain controller as the user over LDAPS or StartTLS. Clear-text LDAP is refused unless explicitly allowed. Empty passwords are rejected, so an unauthenticated bind never counts as a sign-in. A domain account can never take over a local account of the same name.
 
 ## Stored secrets
 
 - **Write-only encryption.** Credential passwords and private keys are encrypted with ASP.NET Core Data Protection before they reach the database. The API never returns them: responses only say `hasPassword` / `hasPrivateKey`.
+- **Domain sign-in passwords** (when RDP pass-through is on) are encrypted the same way and stored on the user's server-side session row, never in the cookie or the browser. Signing out, expiry and revocation delete them with the session. They are used only for RDP sessions the user opens with **My sign-in**.
 - **Server-side use only.** Secrets are decrypted in memory at the moment of connecting. **Cloning** a host copies the encrypted values on the server, so they never reach the browser either.
 - **Key storage.** The Data Protection keys are stored in PostgreSQL, so restarts keep working. They are **not** themselves encrypted, so the database and its backups are as sensitive as the passwords (see [Known gaps](#known-gaps)).
 - **Moving to a new server.** The export file contains every stored password in plain text, inside an encryption layer:

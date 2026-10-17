@@ -260,9 +260,10 @@ export function WorkspacePage() {
     credential?: HostCredential,
     oneOff?: { username: string; password: string; domain?: string },
     mode?: OpenMode,
+    useSignIn?: boolean,
   ) {
     const id = `session-${nextSessionId++}`
-    const account = credential ? (formatAccount(credential) ?? credential.label) : oneOff?.username
+    const account = credential ? (formatAccount(credential) ?? credential.label) : useSignIn ? user?.signInAccount : oneOff?.username
     const sameHost = sessions.filter((s) => s.hostId === host.id).length
     const service = host.services[serviceIndex]
     const modeLabel = service.protocol !== 'Idrac' ? null : mode === 'web' ? 'Web interface' : IDRAC_MODES[mode ?? 'console'].label
@@ -274,7 +275,7 @@ export function WorkspacePage() {
         protocol: sessionProtocol(service.protocol, mode),
         title: sameHost > 0 ? `${host.name} (${sameHost + 1})` : host.name,
         detail: [serviceLabel(service), modeLabel, account].filter(Boolean).join(' · '),
-        request: { hostId: host.id, serviceIndex, credentialId: credential?.id, oneOff },
+        request: { hostId: host.id, serviceIndex, credentialId: credential?.id, oneOff, ...(useSignIn ? { useSignIn } : {}) },
       },
     ])
     setActiveTab(id)
@@ -323,6 +324,9 @@ export function WorkspacePage() {
     connectWithPrompt: (host, serviceIndex, account, mode) => setPrompt({ host, serviceIndex, account, purpose: 'connect', mode }),
     connectWithoutLogin: (host, serviceIndex) => openSession(host, serviceIndex),
     connectWeb: (host, serviceIndex) => openSession(host, serviceIndex, undefined, undefined, 'web'),
+    signIn: user?.signInAccount
+      ? { account: user.signInAccount, connect: (host, serviceIndex) => openSession(host, serviceIndex, undefined, undefined, undefined, true) }
+      : undefined,
     // Called from the menu click itself, so the browser allows the new tab.
     openDirect: (host, serviceIndex) => void window.open(directWebUrl(host, host.services[serviceIndex]), '_blank', 'noopener,noreferrer'),
     edit: (host) => showHost(host.id, true),
@@ -345,6 +349,9 @@ export function WorkspacePage() {
       openSession(host, connection.serviceIndex)
     } else if (connection.credential && !credentialNeedsPassword(connection.credential, host.services[connection.serviceIndex].protocol)) {
       openSession(host, connection.serviceIndex, connection.credential)
+    } else if (!connection.credential && host.services[connection.serviceIndex].protocol === 'Rdp' && user?.signInAccount) {
+      // No saved login for this desktop: the user's own domain sign-in rather than a prompt.
+      openSession(host, connection.serviceIndex, undefined, undefined, undefined, true)
     } else if (host.services[connection.serviceIndex].protocol === 'Telnet') {
       // No saved login: the device asks for it in the terminal.
       openSession(host, connection.serviceIndex)

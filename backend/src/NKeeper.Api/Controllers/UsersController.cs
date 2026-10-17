@@ -1,9 +1,7 @@
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.Extensions.Options;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.Contracts.Users;
 using NKeeper.Api.Security;
@@ -76,8 +74,7 @@ public sealed class UsersController(UserAdministration users) : ControllerBase
 [Authorize]
 public sealed class AccountController(
     UserManager<ApplicationUser> userManager,
-    SessionRevoker sessions,
-    IOptionsMonitor<CookieAuthenticationOptions> cookieOptions) : ControllerBase
+    SessionRevoker sessions) : ControllerBase
 {
     /// <summary>
     /// Changes the caller's password. Other sessions of the account are signed out; this one stays.
@@ -96,6 +93,11 @@ public sealed class AccountController(
             return Unauthorized();
         }
 
+        if (user.IsDirectoryAccount)
+        {
+            throw new Inventory.InventoryValidationException("currentPassword", "Your password is managed by Active Directory. Change it in Windows.");
+        }
+
         if (request.CurrentPassword == request.NewPassword)
         {
             throw new Inventory.InventoryValidationException("newPassword", "Choose a password different from your current one.");
@@ -107,19 +109,7 @@ public sealed class AccountController(
         user.MustChangePassword = false;
         UserAdministration.ThrowOnFailure(await userManager.UpdateAsync(user), defaultField: "newPassword");
         // Sign out the account's other sessions; this one continues.
-        await sessions.RevokeAllAsync(user.Id, cancellationToken, exceptSessionKey: CurrentSessionKey());
+        await sessions.RevokeAllAsync(user.Id, cancellationToken, exceptSessionKey: CurrentSession.Key(HttpContext));
         return NoContent();
-    }
-
-    /// <summary>
-    /// The server-side session key of this request. The cookie handler keeps it inside the
-    /// encrypted cookie (not on the principal), so read it the way the handler does.
-    /// </summary>
-    private string? CurrentSessionKey()
-    {
-        const string sessionIdClaim = "Microsoft.AspNetCore.Authentication.Cookies-SessionId";
-        var options = cookieOptions.Get(IdentityConstants.ApplicationScheme);
-        var cookie = options.CookieManager.GetRequestCookie(HttpContext, options.Cookie.Name!);
-        return cookie is null ? null : options.TicketDataFormat.Unprotect(cookie)?.Principal.FindFirst(sessionIdClaim)?.Value;
     }
 }

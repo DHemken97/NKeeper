@@ -239,6 +239,9 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<bool>("EmailConfirmed")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsDirectoryAccount")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsDisabled")
                         .HasColumnType("boolean");
 
@@ -303,6 +306,9 @@ namespace NKeeper.Infrastructure.Migrations
 
                     b.Property<DateTimeOffset>("LastRenewedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("ProtectedSignInPassword")
+                        .HasColumnType("bytea");
 
                     b.Property<byte[]>("ProtectedTicket")
                         .IsRequired()

@@ -30,6 +30,16 @@ The API reads `appsettings.json`, `appsettings.{Environment}.json`, user secrets
 | `WebProxy__IdleTimeout` | `00:30:00` | A web session ends after this long without requests |
 | `WebProxy__MaxLifetime` | `12:00:00` | A web session ends this long after it started |
 | `BootstrapAdmin__Enabled`, `__AllowOutsideDevelopment`, `__UserName`, `__Email`, `__Password` | disabled | First administrator; see [Administration](administration.md#the-first-administrator) |
+| `ActiveDirectory__Enabled` | `false` | Let users sign in with their domain account; see [Administration](administration.md#active-directory-sign-in) |
+| `ActiveDirectory__Domain` | — (**required** when enabled) | NetBIOS domain name, e.g. `CORP`. Accepted as `CORP\user` at sign-in, and sent as the domain of RDP sessions that use the user's sign-in. |
+| `ActiveDirectory__DnsDomain` | — (**required** when enabled) | DNS domain name, e.g. `corp.example.com`. Sign-in binds as `user@DnsDomain`. |
+| `ActiveDirectory__Server` / `__Port` | the DNS domain / `636` (LDAPS) or `389` | Domain controller to query |
+| `ActiveDirectory__Transport` | `Ldaps` | `Ldaps`, `StartTls`, or `None` (clear text; refused unless `ActiveDirectory__AllowInsecureTransport` is `true`) |
+| `ActiveDirectory__SearchBase` | from the DNS domain (`DC=corp,DC=example,DC=com`) | Where user accounts are looked up |
+| `ActiveDirectory__RequiredGroup` | empty (any enabled domain user) | Distinguished name of the group allowed to sign in. Nested membership counts. |
+| `ActiveDirectory__AdministratorsGroup` | empty (roles are assigned in NKeeper) | Distinguished name of a group whose members become NKeeper administrators. It's checked at every sign-in. |
+| `ActiveDirectory__PassCredentialsToRemoteSessions` | `true` | Keep the user's domain password, encrypted, with their NKeeper session, so RDP can log in as them (**My sign-in**) |
+| `ActiveDirectory__Timeout` | `00:00:10` | LDAP timeout |
 | `ASPNETCORE_ENVIRONMENT` | `Production` in every install | `Development` enables the OpenAPI document and the developer error page |
 | `ASPNETCORE_URLS` / `ASPNETCORE_HTTP_PORTS` | `8080` in the container; `http://127.0.0.1:5080` in native Linux | Where the API listens (behind nginx) |
 | `Logging__LogLevel__Default` | `Information` | Log level (`Microsoft.AspNetCore` is `Warning`) |
