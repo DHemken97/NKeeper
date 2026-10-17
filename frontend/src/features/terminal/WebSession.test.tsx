@@ -24,6 +24,8 @@ const router1: Host = {
   cpuCores: null,
   memoryMiB: null,
   serialNumber: null,
+  jumpHostId: null,
+  jumpCredentialId: null,
   tags: [],
   services: [
     { protocol: 'Https', port: null, label: 'Admin UI' },

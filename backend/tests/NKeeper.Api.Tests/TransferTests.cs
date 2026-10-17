@@ -70,7 +70,7 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
         var summary = await preview.Content.ReadFromJsonAsync<JsonElement>(Ct);
         Assert.Contains(summary.GetProperty("warnings").EnumerateArray(), w => w.GetString()!.Contains("Active Directory", StringComparison.Ordinal));
         Assert.DoesNotContain(summary.GetProperty("warnings").EnumerateArray(), w => w.GetString()!.Contains("no password", StringComparison.Ordinal));
-        Assert.Equal((3, 2, 1, 1, false), (summary.GetProperty("users").GetInt32(), summary.GetProperty("hosts").GetInt32(), summary.GetProperty("grants").GetInt32(), summary.GetProperty("credentials").GetInt32(), summary.GetProperty("imported").GetBoolean()));
+        Assert.Equal((3, 3, 1, 1, false), (summary.GetProperty("users").GetInt32(), summary.GetProperty("hosts").GetInt32(), summary.GetProperty("grants").GetInt32(), summary.GetProperty("credentials").GetInt32(), summary.GetProperty("imported").GetBoolean()));
         Assert.Equal(0, await CountHostsAsync(_target));
 
         var imported = await PostImportAsync(_targetAdmin, "import", bundle, Passphrase, confirm: true);
@@ -88,6 +88,8 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
         var movedVm = hosts.Single(h => h.Id == vm.Id);
         Assert.Equal((node.Id, 4, 8192, "libvirt:1"), (movedVm.HypervisorId!.Value, movedVm.CpuCores!.Value, movedVm.MemoryMiB!.Value, movedVm.VirtualMachineId!));
         var movedNode = hosts.Single(h => h.Id == node.Id);
+        var behind = hosts.Single(h => h.Name == "behind01");
+        Assert.Equal((node.Id, movedNode.Credentials.Single().Id), (behind.JumpHostId!.Value, behind.JumpCredentialId!.Value));
         Assert.Equal(("ABC1234", "env", "production"), (movedNode.SerialNumber!, movedNode.Tags.Single().Name, movedNode.Tags.Single().Value!));
         Assert.Equal(("SHA256-OF-KEY", ServiceProtocol.Ssh), (movedNode.TrustedKeys.Single().Fingerprint, movedNode.TrustedKeys.Single().Protocol));
         // Bob's grant came along: he sees exactly the host he was given.
@@ -225,6 +227,8 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
             isVirtualMachine = true,
             hypervisorId = node.Id,
         });
+        // A host reached through node1, with node1's credential.
+        await CreateAsync(_sourceAdmin, new { name = "behind01", ipAddress = "10.9.0.5", jumpHostId = node.Id, jumpCredentialId = node.Credentials[0].Id });
         await _sourceAdmin.SendJsonAsync(HttpMethod.Post, "/api/hosts/hypervisor-links", new
         {
             links = new[] { new { guestId = vm.Id, hypervisorId = node.Id, virtualMachineId = "libvirt:1", cpuCores = 4, memoryMiB = 8192 } },

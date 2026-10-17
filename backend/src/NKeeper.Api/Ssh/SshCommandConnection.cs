@@ -1,5 +1,4 @@
 using NKeeper.Api.RemoteSessions;
-using NKeeper.Infrastructure.Inventory;
 using Renci.SshNet;
 
 namespace NKeeper.Api.Ssh;
@@ -12,9 +11,36 @@ public sealed class HostKeyTrustRequiredException(string algorithm, string finge
     public string Fingerprint { get; } = fingerprint;
 }
 
+/// <summary>An SSH client that also closes the jump-host tunnel it was opened through.</summary>
+internal sealed class TunneledSshClient(Renci.SshNet.ConnectionInfo info, JumpTunnel tunnel) : SshClient(info)
+{
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            tunnel.Dispose();
+        }
+    }
+}
+
+/// <summary>An SFTP client that also closes the jump-host tunnel it was opened through.</summary>
+internal sealed class TunneledSftpClient(Renci.SshNet.ConnectionInfo info, JumpTunnel tunnel) : SftpClient(info)
+{
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            tunnel.Dispose();
+        }
+    }
+}
+
 /// <summary>
-/// An SSH connection for running commands on a host (KVM hosts, internal scans), with the host key
-/// checked against the inventory exactly like SSH sessions do (trust on first use, shared keys).
+/// An SSH connection for running commands on a host (KVM hosts, internal scans) or transferring
+/// files (SFTP), with the host key checked against the inventory exactly like SSH sessions do (trust
+/// on first use, shared keys), through the host's jump host when it has one.
 /// </summary>
 internal static class SshCommandConnection
 {
@@ -25,8 +51,23 @@ internal static class SshCommandConnection
     /// <paramref name="trustFingerprint"/> (then recorded as trusted); otherwise
     /// <see cref="HostKeyTrustRequiredException"/> is thrown. A changed key is refused.
     /// </summary>
-    public static async Task<SshClient> ConnectAsync(
-        SessionTarget target, string? trustFingerprint, Guid userId, TrustedKeyStore trustedKeys, CancellationToken cancellationToken)
+    public static Task<SshClient> ConnectAsync(
+        SessionTarget target, string? trustFingerprint, Guid userId, TrustedKeyStore trustedKeys, CancellationToken cancellationToken) =>
+        ConnectAsync<SshClient>(target, trustFingerprint, userId, trustedKeys, (info, tunnel) => new TunneledSshClient(info, tunnel), cancellationToken);
+
+    /// <summary>The same, for file transfers.</summary>
+    public static Task<SftpClient> ConnectSftpAsync(
+        SessionTarget target, string? trustFingerprint, Guid userId, TrustedKeyStore trustedKeys, CancellationToken cancellationToken) =>
+        ConnectAsync<SftpClient>(target, trustFingerprint, userId, trustedKeys, (info, tunnel) => new TunneledSftpClient(info, tunnel), cancellationToken);
+
+    private static async Task<TClient> ConnectAsync<TClient>(
+        SessionTarget target,
+        string? trustFingerprint,
+        Guid userId,
+        TrustedKeyStore trustedKeys,
+        Func<Renci.SshNet.ConnectionInfo, JumpTunnel, TClient> create,
+        CancellationToken cancellationToken)
+        where TClient : BaseClient
     {
         if (target.Password is null && target.PrivateKey is null)
         {
@@ -35,11 +76,11 @@ internal static class SshCommandConnection
 
         var username = SshAuthentication.UserName(target);
         var methods = SshAuthentication.CreateMethods(username, target);
-        var client = new SshClient(new Renci.SshNet.ConnectionInfo(target.Address, target.Port, username, [.. methods]) { Timeout = ConnectTimeout })
-        {
-            KeepAliveInterval = TimeSpan.FromSeconds(30),
-        };
+        var tunnel = await JumpTunnel.OpenAsync(target.Jump, target.Address, target.Port, cancellationToken);
+        var client = create(new Renci.SshNet.ConnectionInfo(tunnel.Address, tunnel.Port, username, [.. methods]) { Timeout = ConnectTimeout }, tunnel);
+        client.KeepAliveInterval = TimeSpan.FromSeconds(30);
 
+        // Checked against the target's own keys, even through a tunnel.
         (string Algorithm, string Fingerprint)? unknown = null, newlyTrusted = null;
         string? changedFrom = null;
         client.HostKeyReceived += (_, e) =>

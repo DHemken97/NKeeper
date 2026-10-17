@@ -155,6 +155,8 @@ internal sealed class InstanceImporter(
                 CpuCores = host.CpuCores,
                 MemoryMiB = host.MemoryMiB,
                 SerialNumber = host.SerialNumber,
+                JumpHostId = host.JumpHostId,
+                JumpCredentialId = host.JumpCredentialId,
                 CreatedAtUtc = host.CreatedAtUtc,
                 UpdatedAtUtc = host.UpdatedAtUtc,
                 CreatedByUserId = host.CreatedByUserId,
@@ -210,7 +212,9 @@ internal sealed class InstanceImporter(
             throw new BundleException("The file lists the same user or host twice, so it wasn't imported.");
         }
 
+        var credentialsByHost = data.Hosts.ToDictionary(h => h.Id, h => h.Credentials.Select(c => c.Id).ToHashSet());
         if (data.Hosts.Any(h => h.HypervisorId is { } id && !hosts.Contains(id))
+            || data.Hosts.Any(h => h.JumpHostId is { } jump && (!hosts.Contains(jump) || (h.JumpCredentialId is { } c && !credentialsByHost[jump].Contains(c))))
             || data.Grants.Any(g => !users.Contains(g.UserId) || (g.HostId is { } id && !hosts.Contains(id))))
         {
             throw new BundleException("The file refers to users or hosts it doesn't contain, so it wasn't imported.");

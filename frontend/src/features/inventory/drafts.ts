@@ -54,6 +54,10 @@ export interface HostDraft {
   /** In GiB; decimals allowed. */
   memoryGiB: string
   serialNumber: string
+  /** The jump host, or empty to connect directly. */
+  jumpHostId: string
+  /** The jump host's credential, or empty for its first usable one. */
+  jumpCredentialId: string
   tags: TagDraft[]
   services: ServiceDraft[]
   credentials: CredentialDraft[]
@@ -112,6 +116,8 @@ export function toHostDraft(host: Host | null): HostDraft {
     cpuCores: host?.cpuCores ? String(host.cpuCores) : '',
     memoryGiB: host?.memoryMiB ? String(Math.round((host.memoryMiB / 1024) * 100) / 100) : '',
     serialNumber: host?.serialNumber ?? '',
+    jumpHostId: host?.jumpHostId ?? '',
+    jumpCredentialId: host?.jumpCredentialId ?? '',
     tags: host?.tags.map((t) => newTagDraft(t.name, t.value)) ?? [],
     // Services of types NKeeper can't connect with can't be saved; the editor says they'll go.
     services:
@@ -153,6 +159,8 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
     cpuCores: draft.cpuCores.trim() === '' ? null : Number(draft.cpuCores),
     memoryMiB: memoryMiB(draft.memoryGiB),
     serialNumber: blankToNull(draft.serialNumber),
+    jumpHostId: draft.jumpHostId || null,
+    jumpCredentialId: draft.jumpHostId && draft.jumpCredentialId ? draft.jumpCredentialId : null,
     // Rows left completely empty are ignored rather than rejected.
     tags: draft.tags
       .filter((t) => t.name.trim() || t.value.trim())

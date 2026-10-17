@@ -52,7 +52,8 @@ internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolv
                 user.Id, target.HostId, target.Address, target.Port, target.CredentialSource);
 
             await socket.SendJsonAsync(new { type = "status", status = "connecting", target = target.Display }, cancellationToken);
-            using var tcp = await ConnectAsync(target, cancellationToken);
+            using var tunnel = await JumpTunnel.OpenAsync(target.Jump, target.Address, target.Port, cancellationToken);
+            using var tcp = await ConnectAsync(target, tunnel, cancellationToken);
             await socket.SendJsonAsync(new { type = "connected", target = target.Display }, cancellationToken);
 
             await audited.ConnectedAsync(target.Display, start.Cols, start.Rows);
@@ -75,14 +76,14 @@ internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolv
         }
     }
 
-    private static async Task<TcpClient> ConnectAsync(SessionTarget target, CancellationToken cancellationToken)
+    private static async Task<TcpClient> ConnectAsync(SessionTarget target, JumpTunnel tunnel, CancellationToken cancellationToken)
     {
         var tcp = new TcpClient { NoDelay = true };
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(ConnectTimeout);
         try
         {
-            await tcp.ConnectAsync(target.Address, target.Port, timeout.Token);
+            await tcp.ConnectAsync(tunnel.Address, tunnel.Port, timeout.Token);
             return tcp;
         }
         catch (SocketException ex)

@@ -44,6 +44,7 @@ public sealed record BundleGrant(
     DateTimeOffset CreatedAtUtc,
     Guid? CreatedByUserId);
 
+/// <param name="JumpHostId">The host it's reached through; absent from older files.</param>
 public sealed record BundleHost(
     Guid Id,
     string Name,
@@ -65,7 +66,9 @@ public sealed record BundleHost(
     IReadOnlyList<BundleService> Services,
     IReadOnlyList<BundleTag> Tags,
     IReadOnlyList<BundleCredential> Credentials,
-    IReadOnlyList<BundleTrustedKey> TrustedKeys);
+    IReadOnlyList<BundleTrustedKey> TrustedKeys,
+    Guid? JumpHostId = null,
+    Guid? JumpCredentialId = null);
 
 public sealed record BundleService(Guid Id, ServiceProtocol Protocol, int? Port, string? Label, int Position, RdpSecurityMode? RdpSecurity, string? Address);
 

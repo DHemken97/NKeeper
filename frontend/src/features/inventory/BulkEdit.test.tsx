@@ -24,6 +24,8 @@ function makeHost(name: string, overrides: Partial<Host> = {}): Host {
     cpuCores: null,
     memoryMiB: null,
     serialNumber: null,
+    jumpHostId: null,
+    jumpCredentialId: null,
     tags: [],
     services: [],
     credentials: [],

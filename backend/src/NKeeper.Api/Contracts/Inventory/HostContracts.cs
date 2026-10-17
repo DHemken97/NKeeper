@@ -121,6 +121,12 @@ public sealed record HostRequest : IValidatableObject
     /// <summary>For a virtual machine: the host it runs on (a KVM or Proxmox node). Ignored for other hosts.</summary>
     public Guid? HypervisorId { get; init; }
 
+    /// <summary>A host with an SSH service to reach this one through (a bastion).</summary>
+    public Guid? JumpHostId { get; init; }
+
+    /// <summary>The jump host's credential to use; null means its first usable one.</summary>
+    public Guid? JumpCredentialId { get; init; }
+
     /// <summary>Logical processors, or a VM's vCPUs.</summary>
     [Range(1, 100_000, ErrorMessage = "CPU cores must be between 1 and 100000.")]
     public int? CpuCores { get; init; }
@@ -269,6 +275,8 @@ public sealed record HostResponse(
     int? CpuCores,
     int? MemoryMiB,
     string? SerialNumber,
+    Guid? JumpHostId,
+    Guid? JumpCredentialId,
     IReadOnlyList<HostTagResponse> Tags,
     IReadOnlyList<HostServiceResponse> Services,
     IReadOnlyList<HostCredentialResponse> Credentials,

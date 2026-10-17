@@ -25,6 +25,8 @@ const r750: Host = {
   cpuCores: 64,
   memoryMiB: 262144,
   serialNumber: 'ABC1234',
+  jumpHostId: null,
+  jumpCredentialId: null,
   tags: [],
   services: [],
   credentials: [],

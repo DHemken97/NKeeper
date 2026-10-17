@@ -88,6 +88,8 @@ const hypervisor: Host = {
   cpuCores: null,
   memoryMiB: null,
   serialNumber: null,
+  jumpHostId: null,
+  jumpCredentialId: null,
   tags: [],
   services: [{ protocol: 'Kvm', port: null, label: null }],
   credentials: [{ id: 'c1', label: null, username: 'virt', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],

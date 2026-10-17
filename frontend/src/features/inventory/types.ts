@@ -115,6 +115,10 @@ export interface Host {
   memoryMiB: number | null
   /** The hardware's serial number (a Dell service tag). */
   serialNumber: string | null
+  /** The host this one is reached through (a bastion), over SSH. */
+  jumpHostId: string | null
+  /** Which of the jump host's credentials to sign in to it with; null means its first usable one. */
+  jumpCredentialId: string | null
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredential[]
@@ -155,6 +159,8 @@ export interface HostInput {
   cpuCores: number | null
   memoryMiB: number | null
   serialNumber: string | null
+  jumpHostId: string | null
+  jumpCredentialId: string | null
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredentialInput[]

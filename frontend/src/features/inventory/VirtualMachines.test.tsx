@@ -25,6 +25,8 @@ function makeHost(overrides: Partial<Host>): Host {
     cpuCores: null,
     memoryMiB: null,
     serialNumber: null,
+    jumpHostId: null,
+    jumpCredentialId: null,
     tags: [],
     services: [{ protocol: 'Ssh', port: null, label: null, rdpSecurity: null }],
     credentials: [{ id: 'c-root', label: null, username: 'root', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],
@@ -49,6 +51,8 @@ const app01 = makeHost({
   cpuCores: null,
   memoryMiB: null,
   serialNumber: null,
+  jumpHostId: null,
+  jumpCredentialId: null,
 })
 const printer = makeHost({ id: 'h-printer', name: 'printer', ipAddress: '10.0.0.90' })
 

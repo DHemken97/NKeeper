@@ -22,6 +22,8 @@ const switch01: Host = {
   cpuCores: null,
   memoryMiB: null,
   serialNumber: null,
+  jumpHostId: null,
+  jumpCredentialId: null,
   tags: [],
   // FTP was stored by an older version (or an import).
   services: [

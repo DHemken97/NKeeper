@@ -69,23 +69,28 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
     public async Task<ActionResult<OpenWebSessionResponse>> OpenConsole(IdracRequest request, CancellationToken cancellationToken)
     {
         var user = RequestUser.From(User);
+        JumpTunnel? tunnel = null;
         try
         {
             var target = await Resolver.ResolveAsync(request, user, ServiceProtocol.Idrac, DefaultHttpsPort, cancellationToken);
             var uri = WebSessionsController.TargetUri(https: true, target.Address, target.Port);
-            var trust = await CheckCertificateAsync(target, request, cancellationToken);
+            tunnel = await JumpTunnel.OpenAsync(target.Jump, target.Address, target.Port, cancellationToken);
+            var trust = await CheckCertificateAsync(target, request, tunnel, cancellationToken);
             if (trust.Prompt is { } certificate)
             {
+                tunnel.Dispose();
                 return WebSessionsController.TrustRequired(uri, certificate);
             }
 
             string startPath;
-            using (var client = new RedfishClient(target, trust.PinnedFingerprint))
+            using (var client = new RedfishClient(target, trust.PinnedFingerprint, tunnel))
             {
                 startPath = await IdracRedfish.CreateConsoleLoginAsync(client, target.Username, cancellationToken);
             }
 
-            var session = sessions.TryCreate(user.Id, target.HostId, uri, trust.PinnedFingerprint, WebSessionsController.EmbedderOrigin(Request), startPath);
+            // The console's web session owns the tunnel from here on.
+            var session = sessions.TryCreate(user.Id, target.HostId, uri, trust.PinnedFingerprint, WebSessionsController.EmbedderOrigin(Request), startPath, tunnel);
+            tunnel = null;
             if (session is null)
             {
                 throw new SessionException(
@@ -104,6 +109,10 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
         {
             return this.SessionFailure(ex);
         }
+        finally
+        {
+            tunnel?.Dispose();
+        }
     }
 
     private async Task<ActionResult<IdracOverviewResponse>> WithRedfishAsync(
@@ -112,14 +121,15 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
         try
         {
             var target = await Resolver.ResolveAsync(request, RequestUser.From(User), ServiceProtocol.Idrac, DefaultHttpsPort, cancellationToken);
-            var trust = await CheckCertificateAsync(target, request, cancellationToken);
+            using var tunnel = await JumpTunnel.OpenAsync(target.Jump, target.Address, target.Port, cancellationToken);
+            var trust = await CheckCertificateAsync(target, request, tunnel, cancellationToken);
             if (trust.Prompt is { } certificate)
             {
                 return new IdracOverviewResponse(
                     "trustRequired", null, Display(target), new WebCertificateResponse(certificate.Fingerprint, certificate.Subject, certificate.Issuer, certificate.NotAfter));
             }
 
-            using var client = new RedfishClient(target, trust.PinnedFingerprint);
+            using var client = new RedfishClient(target, trust.PinnedFingerprint, tunnel);
             return await action(client, target);
         }
         catch (CertificateChangedException ex)
@@ -132,7 +142,7 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
         }
     }
 
-    private Task<CertificateTrustResult> CheckCertificateAsync(SessionTarget target, IdracRequest request, CancellationToken cancellationToken)
+    private Task<CertificateTrustResult> CheckCertificateAsync(SessionTarget target, IdracRequest request, JumpTunnel tunnel, CancellationToken cancellationToken)
     {
         if (target.Password is null)
         {
@@ -140,7 +150,7 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
         }
 
         return CertificateTrust.CheckAsync(
-            target.HostId, target.Address, target.Port, target.KeyProtocol, target.KnownKeys, request.TrustFingerprint, User.GetUserId(), HttpContext.RequestServices.GetRequiredService<TrustedKeyStore>(), cancellationToken);
+            target.HostId, target.Address, target.Port, target.KeyProtocol, target.KnownKeys, request.TrustFingerprint, User.GetUserId(), HttpContext.RequestServices.GetRequiredService<TrustedKeyStore>(), cancellationToken, tunnel);
     }
 
     private Auditing.AuditLog Audit => HttpContext.RequestServices.GetRequiredService<Auditing.AuditLog>();

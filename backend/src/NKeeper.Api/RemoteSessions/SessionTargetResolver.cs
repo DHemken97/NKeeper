@@ -11,6 +11,8 @@ namespace NKeeper.Api.RemoteSessions;
 /// the duration of the connection attempt and is never serialized.
 /// </summary>
 /// <param name="KeyProtocol">The protocol the server's identities (host keys, certificates) are trusted under.</param>
+/// <param name="Jump">The jump host to tunnel through (its own SSH target), when the host has one.</param>
+/// <param name="HostName">The host's name, for messages.</param>
 internal sealed record SessionTarget(
     Guid HostId,
     string Address,
@@ -22,7 +24,9 @@ internal sealed record SessionTarget(
     string? PrivateKey,
     string CredentialSource,
     IReadOnlyList<HostTrustedKey> KnownKeys,
-    ServiceProtocol KeyProtocol)
+    ServiceProtocol KeyProtocol,
+    SessionTarget? Jump = null,
+    string HostName = "")
 {
     public string Display => Username.Length > 0 ? $"{Username}@{Address}:{Port}" : $"{Address}:{Port}";
 }
@@ -129,6 +133,51 @@ internal sealed class SessionTargetResolver(HostAccess access, CredentialProtect
             string.IsNullOrEmpty(privateKey) ? null : privateKey,
             credentialSource,
             host.TrustedKeys.Where(k => k.Protocol == keyProtocol && k.Port == port).ToList(),
-            keyProtocol);
+            keyProtocol,
+            host.JumpHostId is { } jumpId ? await ResolveJumpAsync(jumpId, host.JumpCredentialId, user, cancellationToken) : null,
+            host.Name);
+    }
+
+    /// <summary>
+    /// The SSH target of a jump host: its first SSH service, with the chosen credential (or its first
+    /// with a username and a secret). The user must have access to the jump host too, so a jump can't
+    /// lend out the credentials of a host they can't see.
+    /// </summary>
+    public async Task<SessionTarget> ResolveJumpAsync(Guid jumpHostId, Guid? credentialId, RequestUser user, CancellationToken cancellationToken)
+    {
+        var jump = await access.Visible(user).AsNoTracking()
+            .Include(h => h.Services)
+            .Include(h => h.Credentials)
+            .Include(h => h.TrustedKeys)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(h => h.Id == jumpHostId, cancellationToken)
+            ?? throw new SessionException(
+                SessionErrorCodes.HostNotFound,
+                "This host is reached through a jump host you don't have access to. Ask an administrator for access to the jump host too.");
+
+        var service = jump.Services.OrderBy(s => s.Position).FirstOrDefault(s => s.Protocol == ServiceProtocol.Ssh)
+            ?? throw new SessionException(SessionErrorCodes.WrongService, $"The jump host “{jump.Name}” has no SSH service any more.");
+        var credential = credentialId is { } id
+            ? jump.Credentials.FirstOrDefault(c => c.Id == id)
+            : jump.Credentials.OrderBy(c => c.Position).FirstOrDefault(c => c.Username is not null && (c.ProtectedPassword is not null || c.ProtectedPrivateKey is not null));
+        if (credential?.Username is null)
+        {
+            throw new SessionException(SessionErrorCodes.CredentialNotFound, $"The jump host “{jump.Name}” has no credential to sign in with. Edit it to add one.");
+        }
+
+        var port = service.Port ?? 22;
+        return new SessionTarget(
+            jump.Id,
+            jump.IpAddress ?? jump.Hostname!,
+            port,
+            service,
+            credential.Username,
+            credential.Domain,
+            credential.ProtectedPassword is null ? null : protector.Unprotect(credential.ProtectedPassword),
+            credential.ProtectedPrivateKey is null ? null : protector.Unprotect(credential.ProtectedPrivateKey),
+            $"jump host credential {credential.Id}",
+            jump.TrustedKeys.Where(k => k.Protocol == ServiceProtocol.Ssh && k.Port == port).ToList(),
+            ServiceProtocol.Ssh,
+            HostName: jump.Name);
     }
 }

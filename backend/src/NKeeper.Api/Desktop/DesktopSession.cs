@@ -73,6 +73,7 @@ internal sealed partial class DesktopSession(
                 ? await resolver.ResolveAsync(start, user, protocol, 3389, cancellationToken, start.Domain)
                 // VNC servers usually ask for a password only.
                 : await resolver.ResolveAsync(start, user, protocol, 5900, cancellationToken, requireUsername: false);
+            SessionChecks.RefuseJumpHost(target, name);
             if (protocol == ServiceProtocol.Rdp && target.Password is null)
             {
                 throw new SessionException(SessionErrorCodes.MissingSecret, "Remote Desktop needs a password, and this credential has none.");

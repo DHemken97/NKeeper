@@ -26,7 +26,8 @@ internal sealed class RedfishClient : IDisposable
     private readonly HttpClient _http;
     private readonly string _display;
 
-    public RedfishClient(SessionTarget target, string? pinnedFingerprint)
+    /// <param name="tunnel">A jump-host tunnel to dial instead of the iDRAC's address.</param>
+    public RedfishClient(SessionTarget target, string? pinnedFingerprint, JumpTunnel? tunnel = null)
     {
         if (target.Password is null)
         {
@@ -40,6 +41,7 @@ internal sealed class RedfishClient : IDisposable
             UseCookies = false,
             AllowAutoRedirect = false,
             ConnectTimeout = TimeSpan.FromSeconds(15),
+            ConnectCallback = tunnel is { IsTunnel: true } ? (_, token) => JumpTunnel.ConnectStreamAsync(tunnel, token) : null,
             SslOptions = new SslClientAuthenticationOptions
             {
                 RemoteCertificateValidationCallback = (_, certificate, _, errors) =>

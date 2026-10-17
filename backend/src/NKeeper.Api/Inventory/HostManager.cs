@@ -28,6 +28,8 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         h.CpuCores,
         h.MemoryMiB,
         h.SerialNumber,
+        h.JumpHostId,
+        h.JumpCredentialId,
         h.Tags
             .OrderBy(t => t.Name.ToUpper()).ThenBy(t => t.Value.ToUpper())
             .Select(t => new HostTagResponse(t.Name, t.Value == "" ? null : t.Value))
@@ -80,6 +82,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         var userId = user.Id;
         var host = new Host { Id = Guid.NewGuid(), CreatedAtUtc = timeProvider.GetUtcNow(), CreatedByUserId = userId };
         await CheckHypervisorAsync(host.Id, request.IsVirtualMachine ? request.HypervisorId : null, user, cancellationToken);
+        await CheckJumpHostAsync(host.Id, request, user, cancellationToken);
         Apply(host, request, userId, await LoadCopySourcesAsync(request, user, cancellationToken));
         db.Hosts.Add(host);
         await db.SaveChangesAsync(cancellationToken);
@@ -115,6 +118,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
 
         db.Entry(host).Property(h => h.Version).OriginalValue = version;
         await CheckHypervisorAsync(id, request.IsVirtualMachine ? request.HypervisorId : null, user, cancellationToken);
+        await CheckJumpHostAsync(id, request, user, cancellationToken);
         var previousAddress = (host.Hostname, host.IpAddress);
         var previousIdracAddresses = IdracAddresses(host);
         Apply(host, request, userId, await LoadCopySourcesAsync(request, user, cancellationToken));
@@ -430,6 +434,49 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         }
     }
 
+    /// <summary>
+    /// A jump host must be another host the user can see, with an SSH service, and not reached
+    /// through a jump host itself (one hop); hosts that are jump hosts can't get one. Its credential,
+    /// when given, must be one of its own.
+    /// </summary>
+    private async Task CheckJumpHostAsync(Guid hostId, HostRequest request, RequestUser user, CancellationToken cancellationToken)
+    {
+        if (request.JumpHostId is not { } jumpId)
+        {
+            return;
+        }
+
+        if (jumpId == hostId)
+        {
+            throw new InventoryValidationException("jumpHostId", "A host can't be reached through itself.");
+        }
+
+        var jump = await access.Visible(user).AsNoTracking()
+            .Where(h => h.Id == jumpId)
+            .Select(h => new { h.JumpHostId, HasSsh = h.Services.Any(s => s.Protocol == ServiceProtocol.Ssh), Credentials = h.Credentials.Select(c => c.Id).ToList() })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InventoryValidationException("jumpHostId", "The jump host no longer exists. Choose another.");
+        if (!jump.HasSsh)
+        {
+            throw new InventoryValidationException("jumpHostId", "The jump host needs an SSH service.");
+        }
+
+        if (jump.JumpHostId is not null)
+        {
+            throw new InventoryValidationException("jumpHostId", "That host is itself reached through a jump host. Choose one NKeeper reaches directly.");
+        }
+
+        if (await db.Hosts.AnyAsync(h => h.JumpHostId == hostId, cancellationToken))
+        {
+            throw new InventoryValidationException("jumpHostId", "Other hosts are reached through this one, so it can't use a jump host itself.");
+        }
+
+        if (request.JumpCredentialId is { } credentialId && !jump.Credentials.Contains(credentialId))
+        {
+            throw new InventoryValidationException("jumpCredentialId", "That credential isn't one of the jump host's. Choose another.");
+        }
+    }
+
     /// <summary>The credentials named by CopyFromCredentialId, from hosts the user can manage.</summary>
     private async Task<Dictionary<Guid, HostCredential>> LoadCopySourcesAsync(HostRequest request, RequestUser user, CancellationToken cancellationToken)
     {
@@ -455,6 +502,8 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         host.CpuCores = request.CpuCores;
         host.MemoryMiB = request.MemoryMiB;
         host.SerialNumber = InventoryText.TrimToNull(request.SerialNumber);
+        host.JumpHostId = request.JumpHostId;
+        host.JumpCredentialId = request.JumpHostId is null ? null : request.JumpCredentialId;
         ApplyVirtualMachine(host, request);
         host.UpdatedAtUtc = timeProvider.GetUtcNow();
         host.UpdatedByUserId = userId;

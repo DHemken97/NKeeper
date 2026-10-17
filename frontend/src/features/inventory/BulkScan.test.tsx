@@ -24,6 +24,8 @@ function makeHost(name: string, overrides: Partial<Host> = {}): Host {
     cpuCores: null,
     memoryMiB: null,
     serialNumber: null,
+    jumpHostId: null,
+    jumpCredentialId: null,
     tags: [],
     services: [{ protocol: 'Ssh', port: null, label: null, rdpSecurity: null }],
     credentials: [{ id: `c-${name}`, label: null, username: 'root', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],

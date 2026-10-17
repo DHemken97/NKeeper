@@ -19,6 +19,8 @@ function host(name: string, tags: HostTag[] = [], options: Partial<Host> & { pro
     cpuCores: null,
     memoryMiB: null,
     serialNumber: null,
+    jumpHostId: null,
+    jumpCredentialId: null,
     tags,
     services: protocols.map((protocol) => ({ protocol, port: null, label: null })),
     credentials: [],

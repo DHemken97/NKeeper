@@ -475,6 +475,12 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<bool>("IsVirtualMachine")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("JumpCredentialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("JumpHostId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("MacAddress")
                         .HasMaxLength(17)
                         .HasColumnType("character varying(17)");
@@ -516,6 +522,10 @@ namespace NKeeper.Infrastructure.Migrations
                     b.HasIndex("HypervisorId");
 
                     b.HasIndex("IpAddress");
+
+                    b.HasIndex("JumpCredentialId");
+
+                    b.HasIndex("JumpHostId");
 
                     b.HasIndex("Name");
 
@@ -852,6 +862,16 @@ namespace NKeeper.Infrastructure.Migrations
                     b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
                         .WithMany()
                         .HasForeignKey("HypervisorId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("NKeeper.Infrastructure.Inventory.HostCredential", null)
+                        .WithMany()
+                        .HasForeignKey("JumpCredentialId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
+                        .WithMany()
+                        .HasForeignKey("JumpHostId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)

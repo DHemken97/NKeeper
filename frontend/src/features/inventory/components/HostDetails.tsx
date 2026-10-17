@@ -214,6 +214,21 @@ export function HostDetails({
                 <dd className={styles.description}>{host.description}</dd>
               </>
             ) : null}
+            {host.jumpHostId ? (
+              <>
+                <dt>Reached through</dt>
+                <dd>
+                  {allHosts.find((h) => h.id === host.jumpHostId) ? (
+                    <button type="button" className={styles.link} onClick={() => onShowHost(host.jumpHostId!)}>
+                      {allHosts.find((h) => h.id === host.jumpHostId)!.name}
+                    </button>
+                  ) : (
+                    <span className={styles.muted}>A jump host you can’t see</span>
+                  )}
+                  <span className={styles.muted}> · over SSH</span>
+                </dd>
+              </>
+            ) : null}
             {host.isVirtualMachine ? (
               <>
                 <dt>Runs on</dt>

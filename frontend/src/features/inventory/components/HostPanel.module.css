@@ -302,3 +302,10 @@
 .down {
   color: var(--color-danger);
 }
+
+/* "Reach through": the jump host and its credential side by side. */
+.jump {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-3);
+}

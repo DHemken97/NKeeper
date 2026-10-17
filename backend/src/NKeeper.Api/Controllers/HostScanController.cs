@@ -51,6 +51,7 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
             if (protocol == ServiceProtocol.Rpc)
             {
                 var windowsTarget = await resolver.ResolveAsync(request with { HostId = id }, user, ServiceProtocol.Rpc, 135, cancellationToken, request.Domain);
+                SessionChecks.RefuseJumpHost(windowsTarget, "Windows (RPC) scans");
                 if (windowsTarget.Password is null)
                 {
                     throw new SessionException(SessionErrorCodes.MissingSecret, "This credential has no password.");
@@ -99,6 +100,12 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
         }
 
         var host = await access.Manageable(RequestUser.From(User)).AsNoTracking().Include(h => h.Services).FirstAsync(h => h.Id == id, cancellationToken);
+        if (host.JumpHostId is not null)
+        {
+            return this.SessionFailure(new SessionException(
+                SessionErrorCodes.ConnectionFailed, "External scans probe the host's address from the NKeeper server directly, and this host is reached through a jump host. Use an internal scan."));
+        }
+
         try
         {
             var scanner = HttpContext.RequestServices.GetRequiredService<ExternalScan>();

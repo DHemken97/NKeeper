@@ -11,7 +11,7 @@ internal static class SessionProblemResults
         var status = ex.Code switch
         {
             SessionErrorCodes.HostNotFound or SessionErrorCodes.CredentialNotFound => StatusCodes.Status404NotFound,
-            SessionErrorCodes.HostKeyChanged => StatusCodes.Status409Conflict,
+            SessionErrorCodes.HostKeyChanged or SessionErrorCodes.FileExists => StatusCodes.Status409Conflict,
             SessionErrorCodes.TooManySessions => StatusCodes.Status429TooManyRequests,
             SessionErrorCodes.ConnectionFailed or SessionErrorCodes.Timeout => StatusCodes.Status502BadGateway,
             _ => StatusCodes.Status400BadRequest,

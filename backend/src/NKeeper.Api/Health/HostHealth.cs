@@ -59,7 +59,9 @@ public sealed class HostHealthChecker(IServiceScopeFactory scopes, IOptions<Heal
         List<Host> hosts;
         await using (var scope = scopes.CreateAsyncScope())
         {
+            // Hosts reached through a jump host aren't reachable from here, so they aren't checked.
             hosts = await scope.ServiceProvider.GetRequiredService<NKeeperDbContext>().Hosts.AsNoTracking()
+                .Where(h => h.JumpHostId == null)
                 .Include(h => h.Services).AsSplitQuery().ToListAsync(cancellationToken);
         }
 
@@ -81,7 +83,7 @@ public sealed class HostHealthChecker(IServiceScopeFactory scopes, IOptions<Heal
                 .Include(h => h.Services).AsSplitQuery().FirstOrDefaultAsync(h => h.Id == hostId, cancellationToken);
         }
 
-        return host is null ? [] : await CheckAsync(host, cancellationToken);
+        return host is null || host.JumpHostId is not null ? [] : await CheckAsync(host, cancellationToken);
     }
 
     private async Task<List<ServiceCheck>> CheckAsync(Host host, CancellationToken cancellationToken)

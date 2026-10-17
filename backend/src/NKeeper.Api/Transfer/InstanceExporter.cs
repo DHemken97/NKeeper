@@ -89,7 +89,9 @@ internal sealed class InstanceExporter(NKeeperDbContext db, CredentialProtector 
                     c.ProtectedPassword is null ? null : protector.Unprotect(c.ProtectedPassword),
                     c.ProtectedPrivateKey is null ? null : protector.Unprotect(c.ProtectedPrivateKey),
                     c.Notes, c.Position))],
-                [.. h.TrustedKeys.Select(k => new BundleTrustedKey(k.Id, k.Protocol, k.Port, k.Algorithm, k.Fingerprint, k.TrustedAtUtc, k.TrustedByUserId))]))]);
+                [.. h.TrustedKeys.Select(k => new BundleTrustedKey(k.Id, k.Protocol, k.Port, k.Algorithm, k.Fingerprint, k.TrustedAtUtc, k.TrustedByUserId))],
+                h.JumpHostId,
+                h.JumpCredentialId))]);
     }
 }
 

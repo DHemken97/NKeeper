@@ -65,11 +65,31 @@ public static class SessionErrorCodes
     public const string ConnectionFailed = "connection_failed";
     public const string Timeout = "timeout";
 
+    /// <summary>SFTP: the server refused a file operation (missing, not allowed, not empty…).</summary>
+    public const string FileOperationFailed = "file_operation_failed";
+
+    /// <summary>SFTP: an upload would replace a file that exists.</summary>
+    public const string FileExists = "file_exists";
+
     /// <summary>RDP: the server's security does not match the service's setting, or is insecure.</summary>
     public const string SecurityNegotiationFailed = "security_negotiation_failed";
 
     /// <summary>RDP: the connection gateway (guacd) is not reachable.</summary>
     public const string GatewayUnavailable = "gateway_unavailable";
+}
+
+/// <summary>Checks shared by session types.</summary>
+internal static class SessionChecks
+{
+    internal static void RefuseJumpHost(SessionTarget target, string what)
+    {
+        if (target.Jump is not null)
+        {
+            throw new SessionException(
+                SessionErrorCodes.ConnectionFailed,
+                $"{what} can't go through a jump host yet, and “{target.HostName}” is reached through “{target.Jump.HostName}”. Use SSH, Telnet or a web session, or connect from a computer that can reach it.");
+        }
+    }
 }
 
 internal static class SessionJson

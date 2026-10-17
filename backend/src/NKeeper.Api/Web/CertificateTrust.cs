@@ -40,9 +40,10 @@ internal static class CertificateTrust
         string? trustFingerprint,
         Guid userId,
         TrustedKeyStore store,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        JumpTunnel? via = null)
     {
-        var certificate = await WebTargetProbe.ProbeAsync(address, port, cancellationToken);
+        var certificate = await WebTargetProbe.ProbeAsync(address, port, cancellationToken, via?.Address, via?.Port);
         if (certificate.IsValid)
         {
             return new CertificateTrustResult(null, null);

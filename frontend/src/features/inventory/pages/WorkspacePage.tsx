@@ -39,6 +39,7 @@ import {
   serviceLabel,
   WEB_PROTOCOLS,
   type HostMenuActions,
+  type ConnectMode,
   type IdracMode,
 } from '../hostMenu'
 import { matchesSearch, parseSearch, tagSearchTerm } from '../search'
@@ -70,6 +71,7 @@ const VirtualMachinesView = lazy(() =>
 )
 const SpiceConsole = lazy(() => import('../../terminal/components/SpiceConsole').then((m) => ({ default: m.SpiceConsole })))
 const VncConsole = lazy(() => import('../../terminal/components/VncConsole').then((m) => ({ default: m.VncConsole })))
+const FileBrowser = lazy(() => import('../../terminal/components/FileBrowser').then((m) => ({ default: m.FileBrowser })))
 const IdracView = lazy(() => import('../../terminal/components/IdracView').then((m) => ({ default: m.IdracView })))
 const RpcSession = lazy(() => import('../../terminal/components/RpcSession').then((m) => ({ default: m.RpcSession })))
 const SORTS: { value: HostSort; label: string }[] = [
@@ -85,12 +87,15 @@ interface LocalChanges {
 }
 
 /** What a session on a service opens: for an iDRAC, one of its modes or its web interface. */
-type OpenMode = IdracMode | 'web'
+type OpenMode = ConnectMode | 'web'
 
 /** Which session view a service opens in. An iDRAC opens its console unless asked for something else. */
 function sessionProtocol(protocol: ServiceProtocol, mode?: OpenMode): RemoteSession['protocol'] {
   if (WEB_PROTOCOLS.has(protocol) || mode === 'web') {
     return 'web'
+  }
+  if (mode === 'files') {
+    return 'sftp'
   }
   if (protocol === 'Idrac') {
     // RACADM is the iDRAC's SSH command line.
@@ -295,7 +300,8 @@ export function WorkspacePage() {
     const account = credential ? (formatAccount(credential) ?? credential.label) : useSignIn ? user?.signInAccount : oneOff?.username
     const sameHost = sessions.filter((s) => s.hostId === host.id).length
     const service = host.services[serviceIndex]
-    const modeLabel = service.protocol !== 'Idrac' ? null : mode === 'web' ? 'Web interface' : IDRAC_MODES[mode ?? 'console'].label
+    const modeLabel =
+      mode === 'files' ? 'Files' : service.protocol !== 'Idrac' ? null : mode === 'web' ? 'Web interface' : IDRAC_MODES[(mode as IdracMode | undefined) ?? 'console'].label
     setSessions((current) => [
       ...current,
       {
@@ -713,6 +719,8 @@ export function WorkspacePage() {
                 onShowHost={(id) => showHost(id)}
                 onOpenConsole={(vm) => openConsole(session, vm)}
               />
+            ) : session.protocol === 'sftp' ? (
+              <FileBrowser key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'idrac' ? (
               <IdracView
                 key={session.id}

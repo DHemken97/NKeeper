@@ -25,6 +25,10 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
         builder.HasOne<Host>().WithMany().HasForeignKey(h => h.HypervisorId).OnDelete(DeleteBehavior.SetNull);
         builder.HasIndex(h => h.VirtualMachineId);
 
+        // A jump host is another host; deleting it (or its credential) clears the setting.
+        builder.HasOne<Host>().WithMany().HasForeignKey(h => h.JumpHostId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne<HostCredential>().WithMany().HasForeignKey(h => h.JumpCredentialId).OnDelete(DeleteBehavior.SetNull);
+
         builder.HasIndex(h => h.Name);
         builder.HasIndex(h => h.Hostname);
         builder.HasIndex(h => h.IpAddress);

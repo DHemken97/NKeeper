@@ -26,6 +26,8 @@ function host(id: string, name: string, tags: Host['tags'] = [], canManage = tru
     cpuCores: null,
     memoryMiB: null,
     serialNumber: null,
+    jumpHostId: null,
+    jumpCredentialId: null,
     tags,
     services: [],
     credentials: [],

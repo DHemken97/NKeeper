@@ -53,6 +53,7 @@ internal sealed class RpcSession(SessionTargetResolver resolver, Auditing.AuditL
             }
 
             target = await resolver.ResolveAsync(start, user, ServiceProtocol.Rpc, RpcClient.EndpointMapperPort, cancellationToken, start.Domain);
+            SessionChecks.RefuseJumpHost(target, "RPC");
             if (target.Password is null)
             {
                 throw new SessionException(SessionErrorCodes.MissingSecret, "RPC needs a password.");

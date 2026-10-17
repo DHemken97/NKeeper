@@ -51,6 +51,15 @@ public sealed class Host
     /// <summary>When a scan last found this VM on <see cref="HypervisorId"/>; null when the link was set by hand.</summary>
     public DateTimeOffset? HypervisorSeenAtUtc { get; set; }
 
+    /// <summary>
+    /// The host this one is reached through (a bastion): connections are tunnelled over SSH to it,
+    /// then on to this host. It can't itself have a jump host. Cleared when it's deleted.
+    /// </summary>
+    public Guid? JumpHostId { get; set; }
+
+    /// <summary>The jump host's credential to sign in to it with; null means its first usable one.</summary>
+    public Guid? JumpCredentialId { get; set; }
+
     public List<HostService> Services { get; set; } = [];
 
     public List<HostTag> Tags { get; set; } = [];

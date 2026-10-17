@@ -79,6 +79,8 @@ const r750: Host = {
   cpuCores: null,
   memoryMiB: null,
   serialNumber: null,
+  jumpHostId: null,
+  jumpCredentialId: null,
   tags: [],
   services: [
     { protocol: 'Ssh', port: null, label: null },

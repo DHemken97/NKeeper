@@ -75,35 +75,44 @@ public sealed class WebSessionsController(HostAccess access, WebSessionStore ses
         var port = service.Port ?? (https ? 443 : 80);
         var target = TargetUri(https, address, port);
 
+        JumpTunnel? tunnel = null;
         string? pinned = null;
-        if (https)
+        try
         {
-            CertificateTrustResult trust;
-            try
+            if (host.JumpHostId is { } jumpId)
             {
-                trust = await CertificateTrust.CheckAsync(
+                var jump = await HttpContext.RequestServices.GetRequiredService<SessionTargetResolver>().ResolveJumpAsync(jumpId, host.JumpCredentialId, user, cancellationToken);
+                tunnel = await JumpTunnel.OpenAsync(jump, address, port, cancellationToken);
+            }
+
+            if (https)
+            {
+                var trust = await CertificateTrust.CheckAsync(
                     host.Id, address, port, idrac ? ServiceProtocol.Idrac : ServiceProtocol.Https, host.TrustedKeys, request.TrustFingerprint, user.Id,
-                    HttpContext.RequestServices.GetRequiredService<TrustedKeyStore>(), cancellationToken);
-            }
-            catch (CertificateChangedException ex)
-            {
-                return this.CertificateChanged(ex);
-            }
-            catch (SessionException ex)
-            {
-                return CodedProblem(StatusCodes.Status502BadGateway, ex.Code, ex.Message);
-            }
+                    HttpContext.RequestServices.GetRequiredService<TrustedKeyStore>(), cancellationToken, tunnel);
+                if (trust.Prompt is { } certificate)
+                {
+                    tunnel?.Dispose();
+                    return TrustRequired(target, certificate);
+                }
 
-            if (trust.Prompt is { } certificate)
-            {
-                return TrustRequired(target, certificate);
+                pinned = trust.PinnedFingerprint;
             }
-
-            pinned = trust.PinnedFingerprint;
+        }
+        catch (CertificateChangedException ex)
+        {
+            tunnel?.Dispose();
+            return this.CertificateChanged(ex);
+        }
+        catch (SessionException ex)
+        {
+            tunnel?.Dispose();
+            return CodedProblem(StatusCodes.Status502BadGateway, ex.Code, ex.Message);
         }
 
         var embedder = EmbedderOrigin(Request);
-        var session = sessions.TryCreate(user.Id, host.Id, target, pinned, embedder);
+        // The session owns the tunnel from here on.
+        var session = sessions.TryCreate(user.Id, host.Id, target, pinned, embedder, tunnel: tunnel);
         if (session is null)
         {
             return CodedProblem(

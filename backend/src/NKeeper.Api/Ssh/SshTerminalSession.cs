@@ -89,7 +89,9 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
         var username = SshAuthentication.UserName(target);
         var methods = SshAuthentication.CreateMethods(username, target);
         disposables.AddRange(methods.OfType<IDisposable>());
-        var connectionInfo = new SshConnectionInfo(target.Address, target.Port, username, [.. methods]) { Timeout = ConnectTimeout };
+        var tunnel = await JumpTunnel.OpenAsync(target.Jump, target.Address, target.Port, cancellationToken);
+        disposables.Add(tunnel);
+        var connectionInfo = new SshConnectionInfo(tunnel.Address, tunnel.Port, username, [.. methods]) { Timeout = ConnectTimeout };
 
         var client = new SshClient(connectionInfo) { KeepAliveInterval = TimeSpan.FromSeconds(30) };
         var hostKey = new HostKeyVerification(socket, trustedKeys, target, cancellationToken);

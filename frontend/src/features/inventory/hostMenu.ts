@@ -19,6 +19,12 @@ export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https'])
 /** What an iDRAC service opens: its HTML5 virtual console, the server's status and power, or RACADM (its SSH command line). */
 export type IdracMode = 'console' | 'overview' | 'racadm'
 
+/** What a connection opens: an iDRAC's console, status or RACADM, or an SSH service's files (SFTP). */
+export type ConnectMode = IdracMode | 'files'
+
+/** Session types that can't be tunnelled through a jump host yet (guacd and RPC dial hosts themselves). */
+const NOT_THROUGH_JUMP = new Set<ServiceProtocol>(['Rdp', 'Vnc', 'Rpc'])
+
 export const IDRAC_MODES: Record<IdracMode, { label: string; detail: string }> = {
   console: { label: 'Virtual console', detail: 'HTML5' },
   overview: { label: 'Status & power', detail: 'Redfish' },
@@ -27,9 +33,9 @@ export const IDRAC_MODES: Record<IdracMode, { label: string; detail: string }> =
 
 export interface HostMenuActions {
   /** Open a session with a saved credential. `mode` says what an iDRAC service opens. */
-  connect: (host: Host, serviceIndex: number, credential: HostCredential, mode?: IdracMode) => void
+  connect: (host: Host, serviceIndex: number, credential: HostCredential, mode?: ConnectMode) => void
   /** Ask for a username and password, then open a session. A credential without a secret prefills its account. */
-  connectWithPrompt: (host: Host, serviceIndex: number, account?: HostCredential, mode?: IdracMode) => void
+  connectWithPrompt: (host: Host, serviceIndex: number, account?: HostCredential, mode?: ConnectMode) => void
   /** Telnet: connect and type the login in the terminal, as the device asks for it. */
   connectWithoutLogin: (host: Host, serviceIndex: number) => void
   /** Open a web (HTTP/HTTPS) session, or an iDRAC's web interface; NKeeper connects to the host on the browser's behalf. */
@@ -41,7 +47,26 @@ export interface HostMenuActions {
   edit: (host: Host) => void
   /** Start a new host from a copy of this one; absent when the user can't add hosts. */
   clone?: (host: Host) => void
-  /** Tasks ▸ Scan ▸ Internal: log in over SSH with a credential (or ask for one when absent or without a secret). */
+  /** Files (SFTP) ▸ login, or ▸ SSH service ▸ login when there are several; none without an SSH service. */
+function filesMenuEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
+  const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh')
+  if (ssh.length === 0) {
+    return []
+  }
+  return [
+    {
+      kind: 'item',
+      label: 'Files',
+      detail: 'SFTP',
+      submenu:
+        ssh.length === 1
+          ? loginEntries(host, ssh[0].index, actions, 'files')
+          : ssh.map(({ service, index }) => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions, 'files') })),
+    },
+  ]
+}
+
+/** Tasks ▸ Scan ▸ Internal: log in over SSH with a credential (or ask for one when absent or without a secret). */
   scanInternal: (host: Host, serviceIndex: number, credential?: HostCredential) => void
   /** Tasks ▸ Scan ▸ External: probe the host over the network from the NKeeper server. */
   scanExternal: (host: Host) => void
@@ -87,6 +112,7 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
     { kind: 'separator' },
     ...(host.canManage ? [{ kind: 'item', label: 'Edit', onSelect: () => actions.edit(host) } as const] : []),
     ...(actions.clone ? [{ kind: 'item', label: 'Clone', detail: 'New host from this one', onSelect: () => actions.clone!(host) } as const] : []),
+    ...filesMenuEntries(host, actions),
     ...(host.canManage ? [{ kind: 'item', label: 'Tasks', submenu: taskMenuEntries(host, actions) } as const] : []),
     ...(host.macAddress && actions.wake ? [{ kind: 'item', label: 'Wake', detail: 'Wake-on-LAN', onSelect: () => actions.wake!(host) } as const] : []),
     { kind: 'item', label: 'Copy address', detail: primaryAddress(host), onSelect: () => actions.copyAddress(host) },
@@ -101,6 +127,10 @@ export function connectMenuEntries(
   const services: MenuEntry[] = host.services.flatMap((service, index): MenuEntry | MenuEntry[] => {
     if (!CONNECTABLE.has(service.protocol)) {
       return []
+    }
+
+    if (host.jumpHostId && NOT_THROUGH_JUMP.has(service.protocol)) {
+      return { kind: 'item', label: serviceLabel(service), detail: 'Not through a jump host yet', disabled: true }
     }
 
     const web: MenuEntry[] = [
@@ -146,7 +176,7 @@ function loginEntries(
   host: Host,
   index: number,
   actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin' | 'signIn'>,
-  mode?: IdracMode,
+  mode?: ConnectMode,
 ): MenuEntry[] {
   const protocol = host.services[index].protocol
   const credentials = host.credentials.map((credential): MenuEntry => {

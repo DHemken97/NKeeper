@@ -10,6 +10,7 @@ import { toCloneDraft, toHostDraft, toHostInput, type HostDraft } from '../draft
 import { isSupportedProtocol, type Host } from '../types'
 import { CredentialsEditor } from './CredentialsEditor'
 import { HypervisorField } from './HypervisorField'
+import { JumpHostField } from './JumpHostField'
 import styles from './HostPanel.module.css'
 import { ServicesEditor } from './ServicesEditor'
 import { TagEditor } from './TagEditor'
@@ -37,6 +38,8 @@ const FIELDS = [
   'memoryMiB',
   'serialNumber',
   'hypervisorId',
+  'jumpHostId',
+  'jumpCredentialId',
   'tags',
   'services',
   'credentials',
@@ -223,6 +226,15 @@ export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHo
                 seenAtUtc={host && host.hypervisorId === draft.hypervisorId ? host.hypervisorSeenAtUtc : null}
               />
             ) : null}
+            <JumpHostField
+              // A jump host has an SSH service and is reached directly; a host others go through can't use one.
+              hosts={allHosts.filter((h) => h.id !== host?.id && !h.jumpHostId && h.services.some((s) => s.protocol === 'Ssh'))}
+              value={draft.jumpHostId}
+              credentialId={draft.jumpCredentialId}
+              onChange={(jumpHostId, jumpCredentialId) => setDraft((current) => ({ ...current, jumpHostId, jumpCredentialId }))}
+              error={fieldErrors.jumpHostId}
+              credentialError={fieldErrors.jumpCredentialId}
+            />
           </div>
         </section>
 

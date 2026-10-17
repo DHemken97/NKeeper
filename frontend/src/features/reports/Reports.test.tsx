@@ -25,6 +25,8 @@ function host(id: string, name: string, ipAddress: string | null, hostname: stri
     cpuCores: null,
     memoryMiB: null,
     serialNumber: null,
+    jumpHostId: null,
+    jumpCredentialId: null,
     tags: [],
     services: [],
     credentials: [],
