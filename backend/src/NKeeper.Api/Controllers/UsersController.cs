@@ -14,6 +14,7 @@ namespace NKeeper.Api.Controllers;
 
 /// <summary>User accounts and their host access. Administrators only.</summary>
 [ApiController]
+[BlockedWhileInstanceLocked]
 [Route("api/users")]
 [Authorize(Roles = SystemRoles.Administrator)]
 public sealed class UsersController(UserAdministration users) : ControllerBase

@@ -5,10 +5,12 @@ using NKeeper.Api.Access;
 using NKeeper.Api.Contracts.Inventory;
 using NKeeper.Api.Inventory;
 using NKeeper.Api.Inventory.Import;
+using NKeeper.Api.Security;
 
 namespace NKeeper.Api.Controllers;
 
 [ApiController]
+[BlockedWhileInstanceLocked]
 [Route("api/hosts")]
 [Authorize]
 public sealed class HostsController(HostManager hosts) : ControllerBase

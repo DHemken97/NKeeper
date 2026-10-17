@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router'
+import { NavLink, Outlet, useNavigate } from 'react-router'
 import { ChangePasswordDialog } from '../../features/account/components/ChangePasswordDialog'
 import { useAuth } from '../../features/auth/context'
 import { isAdministrator } from '../../features/auth/types'
@@ -15,6 +15,7 @@ export function AppLayout() {
   const [changingPassword, setChangingPassword] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
   const admin = isAdministrator(user)
+  const navigate = useNavigate()
 
   async function handleSignOut() {
     setNotice(null)
@@ -80,6 +81,7 @@ export function AppLayout() {
           entries={[
             { kind: 'header', label: user?.email ?? user?.userName ?? '' },
             { kind: 'item', label: 'Change password', onSelect: () => setChangingPassword(true) },
+            ...(admin ? [{ kind: 'item', label: 'Move to a new server…', onSelect: () => navigate('/transfer') } as const] : []),
             { kind: 'separator' },
             { kind: 'item', label: 'Sign out', onSelect: () => void handleSignOut() },
           ]}

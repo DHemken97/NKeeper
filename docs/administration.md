@@ -2,6 +2,7 @@
 
 - [The first administrator](#the-first-administrator)
 - [Users and access](#users-and-access)
+- [Moving to a new server](#moving-to-a-new-server)
 - [Backups and restores](#backups-and-restores)
 - [Logs](#logs)
 - [Database migrations](#database-migrations)
@@ -53,6 +54,41 @@ The API enforces all of this:
 Account changes are logged with who made them.
 
 **Limits per user:** 20 open SSH/RDP/VNC sessions, 20 web sessions and 10 VM consoles. The interface shows one console at a time.
+
+## Moving to a new server
+
+Move a whole instance (Docker, native Linux or IIS, to any of them) from the UI. Use this, not a database dump: a dump also carries the old server's encryption keys, and needs the same database tools on both sides.
+
+**What moves:**
+- user accounts, with their roles, passwords (as hashes), lockouts and access grants;
+- hosts, with their tags, services, credentials, hardware details, VM links and trusted keys.
+
+**What doesn't move:**
+- sign-in sessions: everyone signs in again on the new server;
+- open sessions;
+- the old server's encryption keys: the new server re-encrypts every stored password with its own;
+- configuration (`.env`, `/etc/nkeeper/nkeeper.env` or `state.json`, including `WebProxy:BaseDomain`), TLS certificates and logs. Set those up on the new server as for any install.
+
+**Steps:**
+1. **Install the new server** with the setup script for its platform, and sign in there with the administrator the installer created. Don't add hosts or users: only an empty instance accepts an import.
+2. **Export on the old server:** account menu ▸ **Move to a new server…**.
+   - Enter your password, and keep the generated passphrase (or choose one of 16+ characters). Store it in a password manager, or write it down, never next to the file.
+   - Leave **Lock this server after the export** on, so nobody makes changes there that the new server won't get. Hosts and users then can't be changed; connecting still works.
+   - **Export and download** saves a `.nkeeper` file.
+3. **Copy the file** to a computer that can reach the new server, over a channel you trust (not email or chat).
+4. **Import on the new server:** account menu ▸ **Move to a new server…** ▸ choose the file and enter the passphrase.
+   - **Check the file** decrypts it and shows what it holds, without changing anything.
+   - Tick the confirmation, then **Import**. Everything is imported in one transaction, or nothing is.
+5. **Sign in again** with your account from the old server: the installer's administrator was replaced by the imported accounts. Open a session or two to check that stored passwords work.
+6. **Clean up:**
+   - delete the `.nkeeper` file everywhere it was copied;
+   - point DNS and users at the new server;
+   - retire the old one (stop it, then back up and destroy its database). If the move is called off, **Unlock** the old server on the same page.
+
+**Requirements and limits:**
+- The new server must run the same NKeeper version as the old one, or a newer one. A file from a newer NKeeper is refused, with a message to update first.
+- Files can be up to 256 MB.
+- Exports and imports are limited to 10 per administrator every 10 minutes.
 
 ## Backups and restores
 

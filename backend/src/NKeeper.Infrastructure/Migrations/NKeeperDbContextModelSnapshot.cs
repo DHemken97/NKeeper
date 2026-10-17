@@ -567,6 +567,30 @@ namespace NKeeper.Infrastructure.Migrations
                     b.ToTable("HostTrustedKeys", (string)null);
                 });
 
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.InstanceSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsLocked")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LockedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LockedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LockedByUserId");
+
+                    b.ToTable("InstanceSettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_InstanceSettings_Singleton", "\"Id\" = 1");
+                        });
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
                 {
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationRole", null)
@@ -702,6 +726,14 @@ namespace NKeeper.Infrastructure.Migrations
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("TrustedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.InstanceSettings", b =>
+                {
+                    b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("LockedByUserId")
                         .OnDelete(DeleteBehavior.SetNull);
                 });
 

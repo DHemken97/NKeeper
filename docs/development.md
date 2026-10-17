@@ -77,6 +77,7 @@ backend/
     RemoteSessions/                     shared session plumbing: WebSocket protocol, target resolution, trusted keys, limits, origin check
     Security/                           antiforgery and account-status filters
     Ssh/                                SSH terminal sessions (SSH.NET)
+    Transfer/                           moving an instance: encrypted bundle format, export, import, lock
     Users/                              user administration and access grants
     Web/                                web-session proxy (YARP), session store, HTTPS certificate trust
   src/NKeeper.Infrastructure/           persistence and identity

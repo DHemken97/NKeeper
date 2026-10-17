@@ -26,6 +26,8 @@ public sealed class NKeeperDbContext(DbContextOptions<NKeeperDbContext> options)
 
     public DbSet<HostAccessGrant> HostAccessGrants => Set<HostAccessGrant>();
 
+    public DbSet<InstanceSettings> InstanceSettings => Set<InstanceSettings>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);

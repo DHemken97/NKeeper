@@ -25,6 +25,13 @@ NKeeper holds credentials for the machines it connects to, so it's built to keep
 - **Write-only encryption.** Credential passwords and private keys are encrypted with ASP.NET Core Data Protection before they reach the database. The API never returns them: responses only say `hasPassword` / `hasPrivateKey`.
 - **Server-side use only.** Secrets are decrypted in memory at the moment of connecting. **Cloning** a host copies the encrypted values on the server, so they never reach the browser either.
 - **Key storage.** The Data Protection keys are stored in PostgreSQL, so restarts keep working. They are **not** themselves encrypted, so the database and its backups are as sensitive as the passwords (see [Known gaps](#known-gaps)).
+- **Moving to a new server.** The export file contains every stored password in plain text, inside an encryption layer:
+  - **Encryption:** AES-256-GCM in 64 KB chunks, under a key derived from the passphrase (PBKDF2-HMAC-SHA512, 600,000 iterations, random salt).
+  - **Integrity:** the header (version, salt, settings) is authenticated with every chunk. Each chunk's nonce encodes its position and whether it's the last one, so any change, reordering, truncation or addition is refused before anything is imported. Weak key-derivation settings in a file are refused too.
+  - **Passphrase:** generated with 148 bits by default, at least 16 characters if chosen. It is never stored or logged.
+  - **What isn't included:** the old server's Data Protection keys and sign-in sessions. The new server re-encrypts the secrets with its own keys.
+  - **Who can export:** administrators, and only after re-entering their password (this counts toward lockout). Imports are accepted only by an *empty* instance, whose only account is the administrator importing, so an import can't overwrite a live inventory. Both are rate limited and logged.
+  - **The file is only as safe as the passphrase:** keep them apart, and delete the file after the move.
 - **Configuration files** with secrets are readable only by their owners:
   - Docker: `.env`;
   - native Linux: `/etc/nkeeper/nkeeper.env`;

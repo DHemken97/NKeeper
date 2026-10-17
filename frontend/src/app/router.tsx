@@ -7,6 +7,7 @@ import { WorkspacePage } from '../features/inventory/pages/WorkspacePage'
 import { IpAddressReport } from '../features/reports/pages/IpAddressReport'
 import { ReportsLayout } from '../features/reports/pages/ReportsLayout'
 import { VmResourcesReport } from '../features/reports/pages/VmResourcesReport'
+import { TransferPage } from '../features/transfer/pages/TransferPage'
 import { UsersPage } from '../features/users/pages/UsersPage'
 
 /** Route table, kept separate from the router instance so tests can mount it in memory. */
@@ -35,7 +36,13 @@ export const routes: RouteObject[] = [
               { path: 'vm-resources', element: <VmResourcesReport /> },
             ],
           },
-          { element: <AdminRoute />, children: [{ path: '/users', element: <UsersPage /> }] },
+          {
+            element: <AdminRoute />,
+            children: [
+              { path: '/users', element: <UsersPage /> },
+              { path: '/transfer', element: <TransferPage /> },
+            ],
+          },
         ],
       },
     ],

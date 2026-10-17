@@ -15,6 +15,7 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
 - **Hardware inventory**: CPU cores, memory and serial numbers, filled in by scans (Linux, Windows, iDRAC), with each VM's vCPUs and memory read from its hypervisor.
 - **Reports**: an IP address map of every /24 subnet in use, and each VM host's capacity with what its VMs use. Both download as CSV.
 - **Trust on first use**: SSH host keys, RDP certificates and self-signed HTTPS certificates are confirmed once, then pinned. A changed key or certificate is refused.
+- **Moving servers**: export a whole instance into one passphrase-encrypted file and import it on a fresh NKeeper, between any install modes. Stored passwords are re-encrypted with the new server's keys.
 - **Users and access**: administrators and users. Users get access to tag-based groups of hosts or to single hosts, at *Use* or *Manage* level. Changes apply immediately.
 - **Secure by default**:
   - stored secrets are encrypted and write-only;
