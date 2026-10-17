@@ -47,7 +47,16 @@ export interface HostMenuActions {
   edit: (host: Host) => void
   /** Start a new host from a copy of this one; absent when the user can't add hosts. */
   clone?: (host: Host) => void
-  /** Files (SFTP) ▸ login, or ▸ SSH service ▸ login when there are several; none without an SSH service. */
+  /** Tasks ▸ Scan ▸ Internal: log in over SSH with a credential (or ask for one when absent or without a secret). */
+  scanInternal: (host: Host, serviceIndex: number, credential?: HostCredential) => void
+  /** Tasks ▸ Scan ▸ External: probe the host over the network from the NKeeper server. */
+  scanExternal: (host: Host) => void
+  copyAddress: (host: Host) => void
+  /** Send a Wake-on-LAN packet (hosts with a MAC address). */
+  wake?: (host: Host) => void
+}
+
+/** Files (SFTP) ▸ login, or ▸ SSH service ▸ login when there are several; none without an SSH service. */
 function filesMenuEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
   const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh')
   if (ssh.length === 0) {
@@ -64,15 +73,6 @@ function filesMenuEntries(host: Host, actions: Pick<HostMenuActions, 'connect' |
           : ssh.map(({ service, index }) => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions, 'files') })),
     },
   ]
-}
-
-/** Tasks ▸ Scan ▸ Internal: log in over SSH with a credential (or ask for one when absent or without a secret). */
-  scanInternal: (host: Host, serviceIndex: number, credential?: HostCredential) => void
-  /** Tasks ▸ Scan ▸ External: probe the host over the network from the NKeeper server. */
-  scanExternal: (host: Host) => void
-  copyAddress: (host: Host) => void
-  /** Send a Wake-on-LAN packet (hosts with a MAC address). */
-  wake?: (host: Host) => void
 }
 
 export function serviceLabel(service: HostService): string {

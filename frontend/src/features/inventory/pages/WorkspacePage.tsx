@@ -189,7 +189,7 @@ export function WorkspacePage() {
     serviceIndex: number
     account?: HostCredential
     purpose: 'connect' | 'scan'
-    mode?: IdracMode
+    mode?: ConnectMode
   } | null>(null)
   const [scan, setScan] = useState<{ host: Host; kind: 'internal' | 'external'; login?: InternalScanLogin } | null>(null)
   const [importing, setImporting] = useState(false)
