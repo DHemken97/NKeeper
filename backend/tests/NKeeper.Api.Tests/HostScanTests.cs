@@ -106,8 +106,9 @@ public sealed class HostScanTests(PostgresServerFixture postgres, SshServerFixtu
     [Fact]
     public void PortsNKeeperCantConnectWith_AreListed_ButNotOfferedAsServices()
     {
-        Assert.All([21, 23, 1433, 5985], port => Assert.Null(ScanPorts.Describe(port).Protocol));
-        Assert.Equal("Telnet", ScanPorts.Describe(23).Name);
+        Assert.All([21, 1433, 5985], port => Assert.Null(ScanPorts.Describe(port).Protocol));
+        Assert.Equal("FTP", ScanPorts.Describe(21).Name);
+        Assert.Equal(ServiceProtocol.Telnet, ScanPorts.Describe(23).Protocol);
         Assert.Equal(ServiceProtocol.Ssh, ScanPorts.Describe(22).Protocol);
     }
 

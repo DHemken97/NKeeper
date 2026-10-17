@@ -6,7 +6,7 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
 
 - **Host inventory** with services (SSH, RDP, VNC, HTTP/HTTPS, KVM, iDRAC, …), credentials and Zabbix-style `name: value` tags. There are no folders: you **group by** any tag, e.g. site → role, and search by text or tags (`env:prod`). **Clone** a host to add similar ones quickly, or **import** your mRemoteNG connections (add, update and/or delete, with a preview first). **Scan** a host to fill in its MAC address, OS, services and users: internally over one SSH login, or externally over the network.
 - **Sessions in tabs**: right-click a host, then **Connect ▸ service ▸ credential**.
-  - **SSH** terminal (xterm.js).
+  - **SSH** and **Telnet** terminals (xterm.js). Telnet can log in for you with a saved credential.
   - **RDP** and **VNC** desktops through Apache Guacamole's guacd, with clipboard sync, Ctrl+Alt+Del and full screen.
   - **Web interfaces** (routers, iDRAC/iLO, NAS…) are proxied by the server and shown in the tab, or can be opened directly in a new browser tab.
   - **KVM virtual machines**: lists a hypervisor's VMs over SSH (like virt-manager) and opens their **SPICE or VNC consoles** in the browser.
@@ -70,7 +70,7 @@ The script asks for the names people will use to reach the server and for the fi
 NKeeper is young. It's usable and well tested, but it hasn't had an independent security review. Treat it accordingly before storing production credentials.
 
 - **Not yet automated:** backups (see [Administration](docs/administration.md#backups-and-restores) for the manual commands), an audit-event store, two-factor sign-in and mRemoteNG import.
-- **Services** are SSH, RDP, RPC, VNC, HTTP(S), KVM and iDRAC. SSMS, Telnet, SFTP, FTP, WinRM and PowerShell aren't supported: imports and scans leave them out, and ones an older version stored are removed when the host is next edited.
+- **Services** are SSH, Telnet, RDP, RPC, VNC, HTTP(S), KVM and iDRAC. SSMS, SFTP, FTP, WinRM and PowerShell aren't supported: imports and scans leave them out, and ones an older version stored are removed when the host is next edited.
 - **Sessions live in the API process.** Restarting it ends open sessions, and limits are per API instance. There's no SSH port forwarding, jump hosts or SFTP yet. RDP file transfer, drives, printing and microphone are off.
 - **KVM:** one SPICE console at a time (VNC consoles aren't limited). SPICE configured for TLS only isn't supported.
 - **Web sessions** from other machines need a wildcard DNS record. Links that hard-code a host's absolute address leave the session.

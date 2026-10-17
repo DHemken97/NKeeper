@@ -25,14 +25,15 @@ internal static class ScanPorts
     };
 
     /// <summary>
-    /// The NKeeper service a port can become, or null when NKeeper can't connect with it (Telnet, FTP,
-    /// SQL Server and WinRM ports are only listed for information).
+    /// The NKeeper service a port can become, or null when NKeeper can't connect with it (FTP, SQL
+    /// Server and WinRM ports are only listed for information).
     /// </summary>
     public static ServiceProtocol? ProtocolFor(int port) => port switch
     {
         22 => ServiceProtocol.Ssh,
         3389 => ServiceProtocol.Rdp,
         >= 5900 and <= 5909 => ServiceProtocol.Vnc,
+        23 => ServiceProtocol.Telnet,
         80 or 8080 => ServiceProtocol.Http,
         443 or 8443 or 8006 or 9090 => ServiceProtocol.Https,
         _ => null,

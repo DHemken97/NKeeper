@@ -23,10 +23,10 @@ const switch01: Host = {
   memoryMiB: null,
   serialNumber: null,
   tags: [],
-  // Telnet was stored by an older version (or an import).
+  // FTP was stored by an older version (or an import).
   services: [
     { protocol: 'Ssh', port: null, label: null },
-    { protocol: 'Telnet', port: null, label: null },
+    { protocol: 'Ftp', port: null, label: null },
   ],
   credentials: [],
   trustedKeys: [],
@@ -55,9 +55,9 @@ describe('service types', () => {
 
     const type = await screen.findByLabelText('Type for service 1')
     expect(within(type).getAllByRole('option').map((o) => (o as HTMLOptionElement).value)).toEqual([...SUPPORTED_PROTOCOLS])
-    // The stored Telnet service isn't in the draft, and the editor says why.
+    // The stored FTP service isn't in the draft, and the editor says why.
     expect(screen.queryByLabelText('Type for service 2')).not.toBeInTheDocument()
-    expect(screen.getByRole('note')).toHaveTextContent('NKeeper can’t connect with Telnet, so that service is removed when you save. Cancel to keep it.')
+    expect(screen.getByRole('note')).toHaveTextContent('NKeeper can’t connect with FTP, so that service is removed when you save. Cancel to keep it.')
   })
 
   it('marks stored types NKeeper can’t connect with in the details', async () => {

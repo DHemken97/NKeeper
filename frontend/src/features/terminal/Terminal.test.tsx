@@ -371,16 +371,68 @@ describe('VNC', () => {
   })
 })
 
+describe('Telnet', () => {
+  const telnetHost: Host = {
+    ...linux01,
+    id: 'h-switch',
+    name: 'switch01',
+    services: [{ protocol: 'Telnet', port: null, label: null }],
+    credentials: [{ id: 'c-admin', label: 'Switch admin', username: 'admin', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],
+  }
+
+  function renderTelnet(host: Host) {
+    mockFetch({
+      'GET /api/auth/me': () => jsonResponse(200, adminUser),
+      'GET /api/hosts': () => jsonResponse(200, [host]),
+    })
+    render(
+      <AuthProvider>
+        <RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/'] })} />
+      </AuthProvider>,
+    )
+    return userEvent.setup()
+  }
+
+  it('opens a terminal on the Telnet endpoint, marked as unencrypted', async () => {
+    const user = renderTelnet(telnetHost)
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /switch01/ }))
+    await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
+    await user.hover(screen.getByRole('menuitem', { name: /^Telnet:23/ }))
+    expect(screen.getByRole('menuitem', { name: /^Without a login/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('menuitem', { name: /Switch admin/ }))
+
+    const socket = await socketAt(0)
+    expect(socket.url).toBe('ws://localhost:3000/api/telnet/session')
+    socket.accept()
+    expect(socket.jsonSent()[0]).toEqual({ type: 'start', hostId: 'h-switch', serviceIndex: 0, credentialId: 'c-admin', cols: 80, rows: 24 })
+    socket.receive({ type: 'connected', target: 'admin@10.0.0.2:23' })
+    expect(screen.getByText('Unencrypted to host')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /switch01.*Telnet · admin/, selected: true })).toBeInTheDocument()
+  })
+
+  it('connects without a login on double-click when none is saved: the device asks in the terminal', async () => {
+    const user = renderTelnet({ ...telnetHost, credentials: [] })
+
+    await user.dblClick(await screen.findByRole('button', { name: /switch01/ }))
+
+    const socket = await socketAt(0)
+    socket.accept()
+    expect(socket.jsonSent()[0]).toEqual({ type: 'start', hostId: 'h-switch', serviceIndex: 0, cols: 80, rows: 24 })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
 describe('connectMenuEntries', () => {
   it('explains when a host has no services', () => {
-    const entries = connectMenuEntries({ ...linux01, services: [] }, { connect: vi.fn(), connectWithPrompt: vi.fn(), connectWeb: vi.fn(), openDirect: vi.fn() })
+    const entries = connectMenuEntries({ ...linux01, services: [] }, { connect: vi.fn(), connectWithPrompt: vi.fn(), connectWithoutLogin: vi.fn(), connectWeb: vi.fn(), openDirect: vi.fn() })
     expect(entries).toEqual([{ kind: 'item', label: 'No services', detail: 'Edit the host to add one', disabled: true }])
   })
 
   it('offers only services NKeeper can connect with', () => {
-    const actions = { connect: vi.fn(), connectWithPrompt: vi.fn(), connectWeb: vi.fn(), openDirect: vi.fn() }
+    const actions = { connect: vi.fn(), connectWithPrompt: vi.fn(), connectWithoutLogin: vi.fn(), connectWeb: vi.fn(), openDirect: vi.fn() }
     const mixed = connectMenuEntries(
-      { ...linux01, services: [{ protocol: 'Telnet', port: null, label: null }, { protocol: 'Ssh', port: null, label: null }, { protocol: 'Ftp', port: null, label: null }] },
+      { ...linux01, services: [{ protocol: 'Ssms', port: null, label: null }, { protocol: 'Ssh', port: null, label: null }, { protocol: 'Ftp', port: null, label: null }] },
       actions,
     )
     expect(mixed.map((entry) => (entry.kind === 'item' ? entry.label : entry.kind))).toEqual(['SSH'])

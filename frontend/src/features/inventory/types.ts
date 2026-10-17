@@ -23,7 +23,7 @@ export type ServiceProtocol = (typeof SERVICE_PROTOCOLS)[number]
  * The service types NKeeper can connect with, in the order the editor offers them. The others are
  * only read: older versions and imports may have stored them, but they can't be added any more.
  */
-export const SUPPORTED_PROTOCOLS: readonly ServiceProtocol[] = ['Ssh', 'Rdp', 'Rpc', 'Vnc', 'Http', 'Https', 'Kvm', 'Idrac']
+export const SUPPORTED_PROTOCOLS: readonly ServiceProtocol[] = ['Ssh', 'Telnet', 'Rdp', 'Rpc', 'Vnc', 'Http', 'Https', 'Kvm', 'Idrac']
 
 export function isSupportedProtocol(protocol: ServiceProtocol): boolean {
   return SUPPORTED_PROTOCOLS.includes(protocol)

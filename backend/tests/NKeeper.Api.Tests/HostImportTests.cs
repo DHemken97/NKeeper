@@ -211,14 +211,14 @@ public sealed class HostImportTests(PostgresServerFixture postgres) : IAsyncLife
     {
         var file = MRemoteFile(
             MRemoteNgFile.DefaultMasterPassword,
-            Connection("switch01", "10.0.0.2", protocol: "Telnet", port: "23", username: "admin", password: "pw")
+            Connection("switch01", "10.0.0.2", protocol: "PowerShell", port: "5985", username: "admin", password: "pw")
             + Connection("switch01", "10.0.0.2", protocol: "SSH2", port: "22", username: "admin", password: "pw")
             + Connection("kiosk", "10.0.0.3", protocol: "IntApp", port: "0"));
 
         var result = await ImportAsync(file, add: true);
 
         Assert.Equal(["kiosk", "switch01"], result.Added.Order());
-        Assert.Contains(result.Warnings, w => w == "switch01: NKeeper can't connect with Telnet, so that service was left out.");
+        Assert.Contains(result.Warnings, w => w == "switch01: NKeeper can't connect with PowerShell, so that service was left out.");
         Assert.Contains(result.Warnings, w => w == "kiosk: NKeeper can't connect with IntApp, so that service was left out.");
         var hosts = await HostsAsync();
         Assert.Equal(ServiceProtocol.Ssh, Assert.Single(hosts.Single(h => h.Name == "switch01").Services).Protocol);

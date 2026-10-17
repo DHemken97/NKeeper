@@ -24,6 +24,10 @@ public sealed class RemoteSessionsController(SessionLimiter limiter, IOptions<Co
     public Task<IActionResult> Ssh(CancellationToken cancellationToken) =>
         RunAsync((socket, user, token) => Session<SshTerminalSession>().RunAsync(socket, user, token), cancellationToken);
 
+    [HttpGet("api/telnet/session")]
+    public Task<IActionResult> Telnet(CancellationToken cancellationToken) =>
+        RunAsync((socket, user, token) => Session<NKeeper.Api.Telnet.TelnetTerminalSession>().RunAsync(socket, user, token), cancellationToken);
+
     [HttpGet("api/rdp/session")]
     public Task<IActionResult> Rdp(CancellationToken cancellationToken) =>
         RunAsync((socket, user, token) => Session<DesktopSession>().RunAsync(socket, user, ServiceProtocol.Rdp, token), cancellationToken);

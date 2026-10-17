@@ -86,7 +86,7 @@ function sessionProtocol(protocol: ServiceProtocol, mode?: OpenMode): RemoteSess
     // RACADM is the iDRAC's SSH command line.
     return mode === 'overview' ? 'idrac' : mode === 'racadm' ? 'ssh' : 'idracconsole'
   }
-  return protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : protocol === 'Rpc' ? 'rpc' : 'ssh'
+  return protocol === 'Telnet' ? 'telnet' : protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : protocol === 'Rpc' ? 'rpc' : 'ssh'
 }
 
 /** Host ids in the order the tree shows them (skipping collapsed groups), each once. */
@@ -321,6 +321,7 @@ export function WorkspacePage() {
   const menuActions: HostMenuActions = {
     connect: (host, serviceIndex, credential, mode) => openSession(host, serviceIndex, credential, undefined, mode),
     connectWithPrompt: (host, serviceIndex, account, mode) => setPrompt({ host, serviceIndex, account, purpose: 'connect', mode }),
+    connectWithoutLogin: (host, serviceIndex) => openSession(host, serviceIndex),
     connectWeb: (host, serviceIndex) => openSession(host, serviceIndex, undefined, undefined, 'web'),
     // Called from the menu click itself, so the browser allows the new tab.
     openDirect: (host, serviceIndex) => void window.open(directWebUrl(host, host.services[serviceIndex]), '_blank', 'noopener,noreferrer'),
@@ -344,6 +345,9 @@ export function WorkspacePage() {
       openSession(host, connection.serviceIndex)
     } else if (connection.credential && !credentialNeedsPassword(connection.credential, host.services[connection.serviceIndex].protocol)) {
       openSession(host, connection.serviceIndex, connection.credential)
+    } else if (host.services[connection.serviceIndex].protocol === 'Telnet') {
+      // No saved login: the device asks for it in the terminal.
+      openSession(host, connection.serviceIndex)
     } else {
       setPrompt({ host, serviceIndex: connection.serviceIndex, account: connection.credential ?? undefined, purpose: 'connect' })
     }
@@ -709,7 +713,7 @@ export function WorkspacePage() {
       {prompt ? (
         <CredentialPromptDialog
           target={`${prompt.host.name} · ${serviceLabel(prompt.host.services[prompt.serviceIndex])}`}
-          usernameOptional={prompt.host.services[prompt.serviceIndex].protocol === 'Vnc'}
+          usernameOptional={['Vnc', 'Telnet'].includes(prompt.host.services[prompt.serviceIndex].protocol)}
           initialUsername={prompt.account?.username ?? undefined}
           submitLabel={prompt.purpose === 'scan' ? 'Scan' : undefined}
           onConnect={(username, password) => {

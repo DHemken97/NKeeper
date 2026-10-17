@@ -6,6 +6,7 @@
 - [Scanning hosts](#scanning-hosts)
 - [Connecting](#connecting)
 - [SSH](#ssh)
+- [Telnet](#telnet)
 - [RDP](#rdp)
 - [VNC](#vnc)
 - [Web interfaces (HTTP/HTTPS)](#web-interfaces-httphttps)
@@ -61,7 +62,7 @@ A host has:
 - whether it's a **virtual machine**, and if so, which host it **runs on** (its KVM or Proxmox node). The VM's details link to that host, and the host lists the VMs running on it. Deleting the host keeps its VMs and clears their link;
 - its own **tags**, **services** and **credentials**:
   - **Tags** are `name: value` pairs (the value is optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can have the same tag name twice with different values. Tags are what you group, search and grant access by; hosts don't live in folders.
-  - **Services** are the ways to connect: SSH, RDP, RPC, VNC, HTTP, HTTPS, KVM and iDRAC. Those are the only types you can add. A host may still have an SSMS, Telnet, SFTP, FTP, WinRM, PowerShell or Other service from an older version; its details mark it *Not supported*, and editing the host says it will be removed when you save (cancel to keep it). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's.
+  - **Services** are the ways to connect: SSH, Telnet, RDP, RPC, VNC, HTTP, HTTPS, KVM and iDRAC. Those are the only types you can add. A host may still have an SSMS, SFTP, FTP, WinRM, PowerShell or Other service from an older version; its details mark it *Not supported*, and editing the host says it will be removed when you save (cancel to keep it). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's.
   - **Credentials** have a username, domain, label, password, SSH private key and notes. Passwords and keys are **write-only**: once saved, NKeeper only shows that one is stored. Leave the field empty when editing to keep it, or choose to clear it.
 
 Administrators add hosts with **New host**. Anyone with *Manage* access can **Edit** or **Delete** a host.
@@ -85,7 +86,7 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - **Delete** removes hosts whose names aren't in the file. It's off by default.
 - **Preview first:** **Preview** shows what would be added, updated, deleted, left unchanged or skipped, and why. Nothing is saved until you choose **Import**, and changing an option asks for a new preview.
 - **How connections map:**
-  - each connection becomes a host with one service (its protocol and port) and, when it has a username or password, a credential. A protocol NKeeper can't connect with (Telnet, PowerShell, raw sockets and the like) is left out with a warning; the host and its login are still imported;
+  - each connection becomes a host with one service (its protocol and port) and, when it has a username or password, a credential. A protocol NKeeper can't connect with (PowerShell, raw sockets and the like) is left out with a warning; the host and its login are still imported;
   - the folder path becomes a `folder` tag, e.g. `folder: Servers/SQL`, so you can group by it;
   - values a connection inherits from its folders are resolved;
   - connections with the same name and address merge into one host with several services;
@@ -157,6 +158,16 @@ A full terminal (xterm.js) that resizes with the tab.
 - **Authentication:** a credential can use a password, a private key, or both. The password doubles as the key's passphrase. Keyboard-interactive prompts are answered with the password.
 - **Domain accounts:** a credential's domain is sent as `DOMAIN\user`, which is what Windows OpenSSH expects.
 - **Idle sessions** stay open.
+
+## Telnet
+
+For switches, routers, serial-console servers and other devices that only offer Telnet (port 23 by default). It's the same terminal as SSH:
+- **Terminal:** NKeeper tells the device it's an `xterm-256color` terminal and keeps it informed of the window size, so full-screen menus fit the tab.
+- **Logging in:**
+  - Telnet has no login of its own: the device asks in the terminal.
+  - With a saved credential, NKeeper answers the first `login:` (or `Username:`) and `Password:` prompts for you, once, just after connecting. A password-only credential answers just the password prompt.
+  - **Without a login** (in the service's menu, and what double-click does when the host has no credential) connects and leaves the typing to you.
+- **Not encrypted:** Telnet sends everything, passwords included, in the clear between NKeeper and the device. The status bar says **Unencrypted to host**. Your browser's connection to NKeeper is still protected. Prefer SSH wherever the device offers it.
 
 ## RDP
 

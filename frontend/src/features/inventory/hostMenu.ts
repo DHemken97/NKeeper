@@ -30,6 +30,8 @@ export interface HostMenuActions {
   connect: (host: Host, serviceIndex: number, credential: HostCredential, mode?: IdracMode) => void
   /** Ask for a username and password, then open a session. A credential without a secret prefills its account. */
   connectWithPrompt: (host: Host, serviceIndex: number, account?: HostCredential, mode?: IdracMode) => void
+  /** Telnet: connect and type the login in the terminal, as the device asks for it. */
+  connectWithoutLogin: (host: Host, serviceIndex: number) => void
   /** Open a web (HTTP/HTTPS) session, or an iDRAC's web interface; NKeeper connects to the host on the browser's behalf. */
   connectWeb: (host: Host, serviceIndex: number) => void
   /** Open the host's web interface in a new browser tab, loaded directly by this computer. */
@@ -60,12 +62,16 @@ function serviceDetail(service: HostService): string {
 
 /** Why a credential cannot be used with a protocol at all, or null when it can. */
 export function credentialProblem(credential: HostCredential, protocol: ServiceProtocol): string | null {
-  // VNC servers usually ask for a password only.
-  return protocol !== 'Vnc' && !credential.username ? 'No username' : null
+  // VNC servers usually ask for a password only; Telnet devices may too.
+  return protocol !== 'Vnc' && protocol !== 'Telnet' && !credential.username ? 'No username' : null
 }
 
 /** A usable credential without a stored secret: connecting asks for the password (e.g. users found by a scan). */
 export function credentialNeedsPassword(credential: HostCredential, protocol: ServiceProtocol): boolean {
+  if (protocol === 'Telnet') {
+    // The device asks in the terminal: whatever isn't stored, the user types there.
+    return false
+  }
   return protocol === 'Vnc' || protocol === 'Rdp' || protocol === 'Idrac' || protocol === 'Rpc' ? !credential.hasPassword : !credential.hasPassword && !credential.hasPrivateKey
 }
 
@@ -85,7 +91,7 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
 /** One entry per connectable service, each opening its credentials (also used by the Connect button). */
 export function connectMenuEntries(
   host: Host,
-  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWeb' | 'openDirect'>,
+  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin' | 'connectWeb' | 'openDirect'>,
 ): MenuEntry[] {
   const services: MenuEntry[] = host.services.flatMap((service, index): MenuEntry | MenuEntry[] => {
     if (!CONNECTABLE.has(service.protocol)) {
@@ -131,7 +137,7 @@ export function connectMenuEntries(
 function loginEntries(
   host: Host,
   index: number,
-  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt'>,
+  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>,
   mode?: IdracMode,
 ): MenuEntry[] {
   const protocol = host.services[index].protocol
@@ -147,6 +153,9 @@ function loginEntries(
   return [
     ...credentials,
     ...(credentials.length > 0 ? [{ kind: 'separator' } as const] : []),
+    ...(protocol === 'Telnet'
+      ? [{ kind: 'item', label: 'Without a login', detail: 'Type it in the terminal', onSelect: () => actions.connectWithoutLogin(host, index) } as const]
+      : []),
     { kind: 'item', label: 'Enter credentials…', onSelect: () => actions.connectWithPrompt(host, index, undefined, mode) },
   ]
 }

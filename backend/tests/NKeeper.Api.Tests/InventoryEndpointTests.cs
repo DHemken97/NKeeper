@@ -343,7 +343,7 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
 
     [Theory]
     [InlineData("Ssms")]
-    [InlineData("Telnet")]
+    [InlineData("Ftp")]
     [InlineData("WinRm")]
     [InlineData("Other")]
     public async Task ServicesNKeeperCantConnectWith_CantBeAdded(string protocol)
@@ -367,11 +367,11 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
         {
             var db = scope.ServiceProvider.GetRequiredService<NKeeperDbContext>();
             await db.Database.ExecuteSqlAsync(
-                $"""INSERT INTO "HostServices" ("Id", "HostId", "Protocol", "Position") VALUES ({Guid.NewGuid()}, {host.Id}, 'Telnet', 0)""", Ct);
+                $"""INSERT INTO "HostServices" ("Id", "HostId", "Protocol", "Position") VALUES ({Guid.NewGuid()}, {host.Id}, 'Ftp', 0)""", Ct);
         }
 
         var stored = await ReadAsync<HostResponse>(await _client.GetAsync($"/api/hosts/{host.Id}", Ct));
-        Assert.Equal(ServiceProtocol.Telnet, Assert.Single(stored.Services).Protocol);
+        Assert.Equal(ServiceProtocol.Ftp, Assert.Single(stored.Services).Protocol);
 
         var saved = await _client.SendJsonAsync(HttpMethod.Put, $"/api/hosts/{host.Id}", new
         {

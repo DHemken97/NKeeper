@@ -69,6 +69,7 @@ internal static class ApiServiceCollectionExtensions
         services.AddScoped<NKeeper.Api.Transfer.InstanceLock>();
         services.AddScoped<TrustedKeyStore>();
         services.AddScoped<SshTerminalSession>();
+        services.AddScoped<NKeeper.Api.Telnet.TelnetTerminalSession>();
         services.AddScoped<DesktopSession>();
         services.AddScoped<NKeeper.Api.Rpc.RpcSession>();
         services.AddSingleton<SessionLimiter>();

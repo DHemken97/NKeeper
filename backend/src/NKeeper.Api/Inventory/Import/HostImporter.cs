@@ -27,6 +27,7 @@ public sealed class HostImporter(NKeeperDbContext db, HostAccess access, Credent
         [ServiceProtocol.Ssh] = 22,
         [ServiceProtocol.Rdp] = 3389,
         [ServiceProtocol.Vnc] = 5900,
+        [ServiceProtocol.Telnet] = 23,
         [ServiceProtocol.Http] = 80,
         [ServiceProtocol.Https] = 443,
     };
