@@ -31,9 +31,9 @@ On a phone, the two panes show one at a time.
   - `site:"Datacenter A"` quotes a value with spaces;
   - `env:` means "has an env tag".
   - Clicking a tag on a host filters by it.
-- **Group by** up to three levels of tag names, the service type, or **Runs on** (the hypervisor a VM runs on), e.g. *site → role* or *Runs on → role*. A host appears under every value it has. Hosts without the tag collect in a "No site" group. Under **Runs on**, a hypervisor heads its own group, followed by its VMs, since it runs on its own hardware (a nested hypervisor also appears under the host it runs on). Other hosts that run on no known host collect in "Not on a known host".
+- **Group by** up to three levels of tag names, the service type, or **Runs on** (the hypervisor a VM runs on), e.g. *site → role* or *Runs on → role*. A host appears under every value it has. Hosts without the tag collect in a "No site" group. Under **Runs on**, a hypervisor heads its own group, followed by its VMs, since it runs on its own hardware (a nested hypervisor also appears under the host it runs on). Other hosts that run on no known host collect in "Not on a known host". Your last grouping choice is saved to your account and used by default on your next visit; a grouping in the page URL takes precedence.
 - **Collapse all / Expand all** (the arrows next to **Refresh**, when the tree is grouped) closes or opens every group at once. After collapsing all, opening a group shows its subgroups still closed.
-- **Sort** by name, address or last update. Names sort naturally, so `srv2` comes before `srv10`.
+- **Sort** by name, address or last update. Names sort naturally, so `srv2` comes before `srv10`. Your last choice is saved to your account and used by default on your next visit; a sort in the page URL takes precedence.
 - **Select several hosts** to change them together:
   - **Ctrl+click** (**⌘+click** on a Mac) adds or removes a host, and **Ctrl+Space** does the same from the keyboard;
   - **Shift+click** selects every host between the last one you clicked and this one, as the tree shows them;
