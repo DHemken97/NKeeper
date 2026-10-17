@@ -7,10 +7,12 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
 - **Host inventory** with services (SSH, RDP, VNC, HTTP/HTTPS, KVM, iDRAC, …), credentials and Zabbix-style `name: value` tags. There are no folders: you **group by** any tag, e.g. site → role, and search by text or tags (`env:prod`). **Clone** a host to add similar ones quickly, or **import** your mRemoteNG connections (add, update and/or delete, with a preview first). **Scan** a host to fill in its MAC address, OS, services and users: internally over one SSH login, or externally over the network.
 - **Sessions in tabs**: right-click a host, then **Connect ▸ service ▸ credential**.
   - **SSH** and **Telnet** terminals (xterm.js). Telnet can log in for you with a saved credential.
+  - **Files** over SFTP on any SSH service: browse, upload, download, rename and delete.
   - **RDP** and **VNC** desktops through Apache Guacamole's guacd, with clipboard sync, Ctrl+Alt+Del and full screen.
   - **Web interfaces** (routers, iDRAC/iLO, NAS…) are proxied by the server and shown in the tab, or can be opened directly in a new browser tab.
   - **KVM virtual machines**: lists a hypervisor's VMs over SSH (like virt-manager) and opens their **SPICE or VNC consoles** in the browser.
   - **Dell iDRAC**: the HTML5 virtual console in a tab, the server's status and power buttons over Redfish, and RACADM over SSH.
+- **Jump hosts**: reach hosts on networks the server can't see by tunnelling through an SSH bastion. SSH, Telnet, files, web, iDRAC, KVM and internal scans all go through it.
 - **Windows scans** over RPC (WMI): hostname, model, Windows version, adapters, listening ports and local accounts.
 - **Hardware inventory**: CPU cores, memory and serial numbers, filled in by scans (Linux, Windows, iDRAC), with each VM's vCPUs and memory read from its hypervisor.
 - **Health**: every service is checked from the server every few minutes, with status dots in the tree, a report of what's down and of TLS certificates about to expire, and **Wake-on-LAN** for hosts with a MAC address.
@@ -48,7 +50,7 @@ The script asks for the names people will use to reach the server and for the fi
 | Guide | Covers |
 | --- | --- |
 | [Installation](docs/installation.md) | Setup scripts, Docker Compose by hand, HTTPS and certificates, upgrades, running behind another proxy, uninstalling |
-| [User guide](docs/user-guide.md) | The workspace, hosts and tags, cloning, scanning, connecting with SSH, RDP, VNC, web, KVM/SPICE and iDRAC, and reports |
+| [User guide](docs/user-guide.md) | The workspace, hosts and tags, cloning, scanning, connecting with SSH, RDP, VNC, web, KVM/SPICE and iDRAC, files, jump hosts, and reports |
 | [Administration](docs/administration.md) | The first administrator, users and access, backups and restores, logs, database migrations |
 | [Configuration](docs/configuration.md) | Every API setting and `.env` variable, and where native installs keep their files |
 | [Security](docs/security.md) | How NKeeper protects accounts, secrets, sessions and the network path |
@@ -72,8 +74,8 @@ The script asks for the names people will use to reach the server and for the fi
 NKeeper is young. It's usable and well tested, but it hasn't had an independent security review. Treat it accordingly before storing production credentials.
 
 - **Not yet automated:** backups (see [Administration](docs/administration.md#backups-and-restores) for the manual commands), two-factor sign-in, and recording RDP and VNC sessions.
-- **Services** are SSH, Telnet, RDP, RPC, VNC, HTTP(S), KVM and iDRAC. SSMS, SFTP, FTP, WinRM and PowerShell aren't supported: imports and scans leave them out, and ones an older version stored are removed when the host is next edited.
-- **Sessions live in the API process.** Restarting it ends open sessions, and limits are per API instance. There's no SSH port forwarding, jump hosts or SFTP yet. RDP file transfer, drives, printing and microphone are off.
+- **Services** are SSH, Telnet, RDP, RPC, VNC, HTTP(S), KVM and iDRAC. SSMS, FTP, WinRM and PowerShell aren't supported, nor SFTP as a service of its own (files open on an SSH service): imports and scans leave them out, and ones an older version stored are removed when the host is next edited.
+- **Sessions live in the API process.** Restarting it ends open sessions, and limits are per API instance. There's no SSH port forwarding. RDP, VNC and RPC can't go through a jump host yet, and hosts behind one aren't health-checked. RDP file transfer, drives, printing and microphone are off.
 - **KVM:** one SPICE console at a time (VNC consoles aren't limited). SPICE configured for TLS only isn't supported.
 - **Web sessions** from other machines need a wildcard DNS record. Links that hard-code a host's absolute address leave the session.
 - **Passwords:** there's no self-service password reset; an administrator resets passwords.

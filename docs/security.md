@@ -55,6 +55,8 @@ NKeeper holds credentials for the machines it connects to, so it's built to keep
 - **Trust on first use, then pinning.** SSH host keys, RDP certificates and self-signed HTTPS certificates must be confirmed by the user the first time. A changed key or certificate is refused, not prompted. RDP certificates are probed by the API, and the fingerprint is then pinned in guacd. RDP never falls back to legacy security without TLS.
 - **guacd** (RDP/VNC) has no authentication of its own, so it's never published. It's reachable only on the Compose network or `127.0.0.1`, runs with all capabilities dropped, and receives only instructions that pass NKeeper's allow-list filter. Clipboard data is capped. File transfer, drives, printing, microphone and recording are disabled.
 - **VNC** has no transport security. The session says "Unencrypted to host".
+- **Jump hosts** are SSH servers the API tunnels through. Their host key must already be trusted, and the target's own host key or certificate is still verified end to end, so a jump host can't impersonate the hosts behind it. Users need access to both the host and its jump host.
+- **Files (SFTP)** go through the API: uploads and downloads stream through it, never directly between browser and host. Downloads use one-time links that expire after a minute and work only for the user who asked. Every file operation is audited.
 - **KVM consoles** are tunnelled through the SSH connection to the hypervisor (with its host key verified). Each console belongs to the user who opened it, and closes when idle or after 12 hours.
 - **WebSocket hijacking:** browsers attach cookies to cross-site WebSocket handshakes and CORS doesn't apply to them. So session endpoints only accept handshakes whose `Origin` is NKeeper itself (or a configured `Cors:AllowedOrigins` entry).
 - **Limits and logging:** each user has session limits. Every session is logged with user, host, credential ID and duration, never secrets.
@@ -94,7 +96,7 @@ Proxying a device's web interface means running someone else's web app, so each 
 ## Known gaps
 
 - **Data Protection keys aren't encrypted at rest.** They sit in the same database as the secrets they protect. Encrypting them with a certificate or a key vault is planned. Until then, protect the database and its backups like the credentials themselves, and never lose them: without the keys, stored secrets are unrecoverable.
-- **No two-factor sign-in, and no tamper-proof audit trail** yet. Session and account events go to the application log.
+- **No two-factor sign-in** yet. The [audit log](administration.md#audit-log) is in the database, so anyone with write access to the database could edit it; it isn't tamper-proof.
 - **Web sessions** trust the proxied device's pages to behave like web pages. The isolation above limits what they can reach, but a malicious device page still runs in the user's browser on its own origin.
 - **The session cookie lifetime** slides (8 hours, or 14 days with "Remember me"). There's no forced re-authentication for sensitive actions.
 - **Rate limiting and session limits are in memory**, per API instance.

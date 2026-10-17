@@ -178,6 +178,7 @@ Use `pg_dump.exe` and `pg_restore.exe` from `C:\Program Files\PostgreSQL\17\bin`
 **What's recorded:**
 - **Sign-ins:** successful, failed (with the name that was tried, never the password), and sign-outs.
 - **Sessions:** every SSH, Telnet, RDP, VNC, RPC, web, iDRAC console and VM console session.
+- **Files:** every SFTP upload, download, rename, delete and new folder, with its path and size.
   - Each session's start says what it connected to, e.g. *SSH · root@10.0.0.5:22*. Its end gives the duration and, for web sessions and consoles, why it ended.
   - A session that couldn't connect is recorded with the reason, e.g. a refused connection or a rejected login.
 - **Changes:** hosts added, changed, deleted, imported, bulk-edited and scanned; trusted keys forgotten; users added, changed, deleted, their passwords reset and their access changed; iDRAC power actions; moves to a new server.

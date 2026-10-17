@@ -7,6 +7,8 @@
 - [Connecting](#connecting)
 - [SSH](#ssh)
 - [Telnet](#telnet)
+- [Files (SFTP)](#files-sftp)
+- [Jump hosts](#jump-hosts)
 - [RDP](#rdp)
 - [VNC](#vnc)
 - [Web interfaces (HTTP/HTTPS)](#web-interfaces-httphttps)
@@ -61,6 +63,7 @@ A host has:
 - an optional **MAC address** and **description**;
 - its **hardware**: CPU cores (logical processors), memory and, for physical servers, the **serial number** (a Dell service tag). For a virtual machine, the CPU cores and memory are what its hypervisor gives it (vCPUs and allocated memory). Scans fill these in; you can also type them, with memory in GiB;
 - whether it's a **virtual machine**, and if so, which host it **runs on** (its KVM or Proxmox node). The VM's details link to that host, and the host lists the VMs running on it. Deleting the host keeps its VMs and clears their link;
+- optionally, a **jump host** to **reach it through** (see [Jump hosts](#jump-hosts));
 - its own **tags**, **services** and **credentials**:
   - **Tags** are `name: value` pairs (the value is optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can have the same tag name twice with different values. Tags are what you group, search and grant access by; hosts don't live in folders.
   - **Services** are the ways to connect: SSH, Telnet, RDP, RPC, VNC, HTTP, HTTPS, KVM and iDRAC. Those are the only types you can add. A host may still have an SSMS, SFTP, FTP, WinRM, PowerShell or Other service from an older version; its details mark it *Not supported*, and editing the host says it will be removed when you save (cancel to keep it). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's.
@@ -169,6 +172,27 @@ For switches, routers, serial-console servers and other devices that only offer 
   - With a saved credential, NKeeper answers the first `login:` (or `Username:`) and `Password:` prompts for you, once, just after connecting. A password-only credential answers just the password prompt.
   - **Without a login** (in the service's menu, and what double-click does when the host has no credential) connects and leaves the typing to you.
 - **Not encrypted:** Telnet sends everything, passwords included, in the clear between NKeeper and the device. The status bar says **Unencrypted to host**. Your browser's connection to NKeeper is still protected. Prefer SSH wherever the device offers it.
+
+## Files (SFTP)
+
+Any host with an SSH service has **Connect ▸ Files ▸ credential** (or **Files ▸ SSH service ▸ credential** when it has several). The files open in a tab:
+- **Browsing:** the tab starts in the login's home folder. Open a folder by clicking it, go back with **Up** or the path above the list, and **Refresh** to see changes made elsewhere.
+- **Upload:** choose one or more files, up to 2 GB each. They go into the folder shown. If a file with the same name exists, NKeeper asks before replacing it.
+- **Download:** files stream from the host through the NKeeper server to your browser.
+- **New folder**, **Rename** and **Delete**. Delete asks first, and only deletes empty folders.
+- **Logins and trust** are the same as SSH: the same credentials, host key check and trusted keys. The SSH server must have its SFTP subsystem enabled (OpenSSH does by default).
+- **Audit:** every upload, download, rename, delete and new folder is in the audit log, with its path and size.
+
+## Jump hosts
+
+A **jump host** (or bastion) is an SSH server that NKeeper signs in to first, then tunnels a host's connections through. Use it for sites, VLANs and customer networks that the NKeeper server can't reach directly.
+- **Setting one:** edit the host and choose a host under **Reach through**, then which of its credentials to **sign in as** (by default, its first credential with a username and a password or key).
+- **Which hosts can be jump hosts:** hosts with an SSH service that NKeeper reaches directly. There's one hop: a jump host can't have a jump host of its own, and a host that others go through can't get one.
+- **What goes through it:** SSH, Telnet, files, web sessions, iDRAC (console, status and power, and RACADM), KVM consoles and internal SSH scans. The host details show **Reached through**, with a link to the jump host.
+- **What doesn't yet:** RDP, VNC and RPC are greyed out in the Connect menu, since the RDP/VNC gateway dials hosts itself. External scans and health checks probe from the NKeeper server, so they skip these hosts.
+- **Trust:** connect to the jump host with SSH once and trust its host key first; the tunnel can't stop to ask. The target's own host key or certificate is still checked against the target itself, so the jump host can't pretend to be it.
+- **Access:** you need access to the jump host as well as the host. Without it, connecting says so.
+- **Port forwarding:** the jump host's SSH server must allow TCP forwarding (`AllowTcpForwarding yes`, the OpenSSH default).
 
 ## RDP
 
