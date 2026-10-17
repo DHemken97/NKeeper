@@ -1,0 +1,17 @@
+# Build context is the repository root (see container/Dockerfile).
+.git/
+.claude/
+dist/
+**/node_modules/
+**/bin/
+**/obj/
+**/TestResults/
+**/coverage/
+backend/tests/
+frontend/dist/
+**/.env
+**/.env.*
+!**/.env.example
+**/appsettings.*.local.json
+**/secrets.json
+*.nkeeper

@@ -45,6 +45,8 @@ scripts\setup.cmd -Mode Iis            :: Windows, under IIS (as administrator)
 
 The script asks for the names people will use to reach the server and for the first administrator. It then builds and starts NKeeper and prints the address and sign-in details. Running it again upgrades NKeeper and keeps your data. See **[Installation](docs/installation.md)** for the options, certificates, DNS for web sessions, upgrades and uninstalling.
 
+For Proxmox VE or another host that wants a single container, `scripts/build-image.sh` builds NKeeper as one image instead; see [Single container image](docs/installation.md#single-container-image-proxmox-ve).
+
 ## Documentation
 
 | Guide | Covers |

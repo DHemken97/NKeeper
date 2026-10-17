@@ -7,6 +7,7 @@
 - [Upgrading](#upgrading)
 - [Uninstalling](#uninstalling)
 - [Docker Compose by hand](#docker-compose-by-hand)
+- [Single container image (Proxmox VE)](#single-container-image-proxmox-ve)
 - [Behind another reverse proxy](#behind-another-reverse-proxy)
 
 ## Choosing how to run NKeeper
@@ -16,6 +17,7 @@
 | **Docker, Linux** (recommended) | `scripts/setup.sh` | Servers: everything in containers, easiest to upgrade and remove |
 | **Docker Desktop, Windows** | `scripts\setup.cmd` | Windows machines that can run Docker Desktop |
 | **Native, Linux** | `sudo scripts/setup.sh --mode native` | Servers where you'd rather use the distribution's nginx and PostgreSQL (Debian/Ubuntu, RHEL/Rocky/Alma/Fedora) |
+| **Single container image** | `scripts/build-image.sh` | Proxmox VE OCI containers, NAS boxes and other one-container-per-app hosts; see [below](#single-container-image-proxmox-ve) |
 | **IIS, Windows** | `scripts\setup.cmd -Mode Iis` (as administrator) | Windows servers that standardise on IIS. **Not yet tested on a real IIS server.** |
 
 Every mode serves NKeeper over HTTPS (port 443 by default), with plain HTTP (port 80) redirecting to it.
@@ -184,6 +186,90 @@ Export the CA with `docker compose cp frontend:/etc/nginx/tls/ca.crt nkeeper-ca.
 docker compose logs -f backend      # API logs
 docker compose down                 # stop (data is kept)
 docker compose down -v              # stop and DELETE the database and certificates
+```
+
+## Single container image (Proxmox VE)
+
+For hosts that run one container per application, such as a **Proxmox VE OCI container** or a NAS, NKeeper also builds as **one image**. It holds nginx (HTTPS), the API, PostgreSQL 17 and guacd 1.6 (RDP and VNC), run by supervisord. The Compose install above stays the default; use this when one container is what your platform wants.
+
+### Building it
+
+On any machine with Docker (Docker Desktop on Windows), from the repository folder:
+
+```bash
+scripts/build-image.sh                                 # Linux, macOS or Git Bash
+scripts\build-image.ps1                                # Windows PowerShell
+```
+
+This writes `dist/nkeeper-<version>-amd64.tar`, an **OCI archive**, the format Proxmox VE imports. The version is `git describe`, e.g. `327c499`. The first build compiles guacd and takes a few minutes; later ones reuse the cache.
+
+| Option (`.sh` / `.ps1`) | Effect |
+| --- | --- |
+| `--push REPO` / `-Push REPO` | Also push `REPO:<version>` and `REPO:latest` to a registry, e.g. `ghcr.io/you/nkeeper`. Run `docker login` first. |
+| `--load` / `-Load` | Also load the image into the local Docker as `nkeeper:<version>` |
+| `--platform LIST` / `-Platform LIST` | `linux/amd64` (default), `linux/arm64`, or both, comma-separated: one archive each. Building for another architecture runs under emulation and is much slower. |
+| `--version V` / `-Version V` | Version tag instead of `git describe` |
+| `--no-archive` / `-NoArchive` | Skip the archive (with `--push` or `--load`) |
+
+### On Proxmox VE
+
+OCI containers need **Proxmox VE 9.1 or later**, where Proxmox still marks them a technology preview. NKeeper's image hasn't been tested on Proxmox yet, so report anything that doesn't work.
+
+1. **Get the image onto Proxmox**, either way:
+   - **Upload:** *your node* ▸ a storage with *CT Templates* (e.g. `local`) ▸ **CT Templates** ▸ **Upload**, and choose the `.tar`.
+   - **From a registry** (after `--push`): **CT Templates** ▸ **Pull from OCI Registry**, with the reference, e.g. `ghcr.io/you/nkeeper:latest`.
+2. **Create CT** with that template:
+   - **Unprivileged** is fine.
+   - **Resources:** 2 cores, 2 GB of memory and an 8 GB disk are plenty for a team.
+   - **Network:** DHCP or a static address. Hosts you connect to must be reachable from it.
+   - **A mount point for `/var/lib/nkeeper`** (e.g. `mp0`, 8 GB), so the data lives on its own volume and survives replacing the container on upgrade. Everything NKeeper keeps is there.
+3. **Start it**, then read the first administrator's password from the Proxmox host's shell (`120` is the container's ID):
+   ```bash
+   pct exec 120 -- cat /var/lib/nkeeper/initial-admin.txt
+   pct exec 120 -- rm /var/lib/nkeeper/initial-admin.txt     # once you've signed in
+   ```
+4. **Open** `https://<the container's address>/`. The certificate comes from NKeeper's own CA. To make browsers trust it, copy the CA out and install it on client machines ([HTTPS and certificates](#https-and-certificates)):
+   ```bash
+   pct pull 120 /var/lib/nkeeper/tls/ca.crt nkeeper-ca.crt
+   ```
+
+### Settings
+
+The first start writes `/var/lib/nkeeper/nkeeper.env`. Change a setting there and restart the container. Variables set on the container itself (`docker run -e`, or the container's environment in Proxmox) take precedence over the file.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `NKEEPER_SERVER_NAMES` | the container's hostname and IP addresses, detected at each start | Names and addresses people use; the certificate covers them |
+| `NKEEPER_HTTPS_PORT` | `443` | The HTTPS port people use, when a port mapping changes it (e.g. `-p 8443:443` needs `8443`) |
+| `NKEEPER_WEB_BASE_DOMAIN` | empty | As in [DNS for web sessions](#dns-for-web-sessions) |
+| `NKEEPER_ADMIN_USERNAME` / `_EMAIL` / `_PASSWORD` | `admin` / `admin@nkeeper.local` / generated | The first administrator, created on the first start only |
+| any API setting, e.g. `ActiveDirectory__Enabled` | see [Configuration](configuration.md#api-settings) | Passed to the API as is |
+
+The slim image has no text editor. Edit the file from the Proxmox host instead:
+
+```bash
+pct pull 120 /var/lib/nkeeper/nkeeper.env nkeeper.env    # edit it, then:
+pct push 120 nkeeper.env /var/lib/nkeeper/nkeeper.env --perms 600
+pct reboot 120
+```
+
+**What's in `/var/lib/nkeeper`:** `nkeeper.env`, `postgres/` (the database, including the encrypted secrets and their keys), `tls/` (the CA and certificate; put your own as `custom.crt` and `custom.key`), and `initial-admin.txt` until you delete it. Back up the whole volume, or use `pg_dump` inside the container (`pct exec 120 -- runuser -u postgres -- pg_dump -h /run/postgresql nkeeper > nkeeper.sql`).
+
+### Upgrading the single image
+
+Build the new version, then replace the container and keep the data volume:
+- **Proxmox:** create a new container from the new image, without its own `/var/lib/nkeeper` mount point. Stop the old one, move its volume across with `pct move-volume <old-id> mp0 --target-vmid <new-id> --target-volume mp0`, and start the new one. Migrations run on start. Remove the old container once you're happy.
+- **Docker:** `docker rm -f nkeeper`, then the same `docker run` with the new tag and the same volume.
+
+The image stays on PostgreSQL 17. If a future image moves to a newer PostgreSQL, it will refuse an old database with a message rather than damage it; carry the data over with [Move to a new server](administration.md#moving-to-a-new-server).
+
+### With plain Docker
+
+```bash
+scripts/build-image.sh --load
+docker run -d --name nkeeper --restart unless-stopped -p 443:443 -p 80:80 \
+  -e NKEEPER_SERVER_NAMES="nkeeper.example.com 192.168.1.20" -v nkeeper-data:/var/lib/nkeeper nkeeper:<version>
+docker exec nkeeper cat /var/lib/nkeeper/initial-admin.txt
 ```
 
 ## Behind another reverse proxy
