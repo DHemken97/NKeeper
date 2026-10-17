@@ -69,7 +69,7 @@ The script asks for the names people will use to reach the server and for the fi
 NKeeper is young. It's usable and well tested, but it hasn't had an independent security review. Treat it accordingly before storing production credentials.
 
 - **Not yet automated:** backups (see [Administration](docs/administration.md#backups-and-restores) for the manual commands), an audit-event store, two-factor sign-in and mRemoteNG import.
-- **Services** other than SSH, RDP, RPC, VNC, HTTP(S), KVM and iDRAC (e.g. SSMS, Telnet, SFTP, WinRM) can be recorded, but can't be connected to yet and aren't offered under **Connect**.
+- **Services** are SSH, RDP, RPC, VNC, HTTP(S), KVM and iDRAC. SSMS, Telnet, SFTP, FTP, WinRM and PowerShell aren't supported: imports and scans leave them out, and ones an older version stored are removed when the host is next edited.
 - **Sessions live in the API process.** Restarting it ends open sessions, and limits are per API instance. There's no SSH port forwarding, jump hosts or SFTP yet. RDP file transfer, drives, printing and microphone are off.
 - **KVM:** one SPICE console at a time (VNC consoles aren't limited). SPICE configured for TLS only isn't supported.
 - **Web sessions** from other machines need a wildcard DNS record. Links that hard-code a host's absolute address leave the session.

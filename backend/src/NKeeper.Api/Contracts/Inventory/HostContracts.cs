@@ -172,6 +172,11 @@ public sealed record HostRequest : IValidatableObject
 
         for (var index = 0; index < Services.Length; index++)
         {
+            if (Services[index].Protocol is { } protocol && !SupportedServices.IsSupported(protocol))
+            {
+                yield return new ValidationResult($"NKeeper can't connect with {protocol} services, so they can't be added.", [$"services[{index}].protocol"]);
+            }
+
             if (Services[index].Protocol != ServiceProtocol.Idrac)
             {
                 continue;

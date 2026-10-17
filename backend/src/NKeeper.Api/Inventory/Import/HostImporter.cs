@@ -27,10 +27,8 @@ public sealed class HostImporter(NKeeperDbContext db, HostAccess access, Credent
         [ServiceProtocol.Ssh] = 22,
         [ServiceProtocol.Rdp] = 3389,
         [ServiceProtocol.Vnc] = 5900,
-        [ServiceProtocol.Telnet] = 23,
         [ServiceProtocol.Http] = 80,
         [ServiceProtocol.Https] = 443,
-        [ServiceProtocol.PowerShell] = 5985,
     };
 
     /// <exception cref="InventoryValidationException">The file can't be read or the master password is wrong.</exception>
@@ -355,7 +353,13 @@ public sealed class HostImporter(NKeeperDbContext db, HostAccess access, Credent
             }
 
             var label = connection.ProtocolLabel is { Length: > 100 } longLabel ? longLabel[..100] : connection.ProtocolLabel;
-            if (!Services.Any(s => s.Protocol == connection.Protocol && string.Equals(s.Label, label, StringComparison.OrdinalIgnoreCase)))
+            if (!SupportedServices.IsSupported(connection.Protocol))
+            {
+                // The host and its login are still imported; only the service NKeeper can't open is left out.
+                var name = label ?? (connection.Protocol == ServiceProtocol.Other ? "this protocol" : connection.Protocol.ToString());
+                warnings.Add($"{Name}: NKeeper can't connect with {name}, so that service was left out.");
+            }
+            else if (!Services.Any(s => s.Protocol == connection.Protocol && string.Equals(s.Label, label, StringComparison.OrdinalIgnoreCase)))
             {
                 Services.Add((connection.Protocol, connection.Port, label));
             }

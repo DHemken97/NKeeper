@@ -7,7 +7,7 @@ import { TextField } from '../../../components/ui/TextField'
 import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
 import { toCloneDraft, toHostDraft, toHostInput, type HostDraft } from '../drafts'
-import type { Host } from '../types'
+import { isSupportedProtocol, type Host } from '../types'
 import { CredentialsEditor } from './CredentialsEditor'
 import { HypervisorField } from './HypervisorField'
 import styles from './HostPanel.module.css'
@@ -237,7 +237,12 @@ export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHo
         </section>
 
         <section className={styles.section}>
-          <ServicesEditor value={draft.services} onChange={(services) => set('services', services)} errors={fieldErrors} />
+          <ServicesEditor
+            value={draft.services}
+            onChange={(services) => set('services', services)}
+            errors={fieldErrors}
+            dropped={(host ?? cloneOf)?.services.filter((s) => !isSupportedProtocol(s.protocol))}
+          />
         </section>
 
         <section className={styles.section}>

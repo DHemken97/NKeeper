@@ -1,4 +1,4 @@
-import type { Host, HostCredential, HostInput, RdpSecurity, ServiceProtocol } from './types'
+import { isSupportedProtocol, type Host, type HostCredential, type HostInput, type RdpSecurity, type ServiceProtocol } from './types'
 
 /** Editor state for a host. Each list item has a `key` so React can track rows while editing. */
 
@@ -113,7 +113,9 @@ export function toHostDraft(host: Host | null): HostDraft {
     memoryGiB: host?.memoryMiB ? String(Math.round((host.memoryMiB / 1024) * 100) / 100) : '',
     serialNumber: host?.serialNumber ?? '',
     tags: host?.tags.map((t) => newTagDraft(t.name, t.value)) ?? [],
-    services: host?.services.map((s) => newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity, s.address)) ?? [],
+    // Services of types NKeeper can't connect with can't be saved; the editor says they'll go.
+    services:
+      host?.services.filter((s) => isSupportedProtocol(s.protocol)).map((s) => newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity, s.address)) ?? [],
     credentials: host?.credentials.map((c) => newCredentialDraft(c)) ?? [],
   }
 }

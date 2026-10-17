@@ -61,7 +61,7 @@ A host has:
 - whether it's a **virtual machine**, and if so, which host it **runs on** (its KVM or Proxmox node). The VM's details link to that host, and the host lists the VMs running on it. Deleting the host keeps its VMs and clears their link;
 - its own **tags**, **services** and **credentials**:
   - **Tags** are `name: value` pairs (the value is optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can have the same tag name twice with different values. Tags are what you group, search and grant access by; hosts don't live in folders.
-  - **Services** are the ways to connect: SSH, RDP, RPC, VNC, HTTP, HTTPS, KVM and iDRAC. Others (SSMS, Telnet, SFTP, FTP, WinRM, PowerShell, Other) can be recorded, e.g. from an mRemoteNG import, but NKeeper can't connect with them yet, so they don't appear under **Connect**. Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's.
+  - **Services** are the ways to connect: SSH, RDP, RPC, VNC, HTTP, HTTPS, KVM and iDRAC. Those are the only types you can add. A host may still have an SSMS, Telnet, SFTP, FTP, WinRM, PowerShell or Other service from an older version; its details mark it *Not supported*, and editing the host says it will be removed when you save (cancel to keep it). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's.
   - **Credentials** have a username, domain, label, password, SSH private key and notes. Passwords and keys are **write-only**: once saved, NKeeper only shows that one is stored. Leave the field empty when editing to keep it, or choose to clear it.
 
 Administrators add hosts with **New host**. Anyone with *Manage* access can **Edit** or **Delete** a host.
@@ -85,7 +85,7 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - **Delete** removes hosts whose names aren't in the file. It's off by default.
 - **Preview first:** **Preview** shows what would be added, updated, deleted, left unchanged or skipped, and why. Nothing is saved until you choose **Import**, and changing an option asks for a new preview.
 - **How connections map:**
-  - each connection becomes a host with one service (its protocol and port) and, when it has a username or password, a credential;
+  - each connection becomes a host with one service (its protocol and port) and, when it has a username or password, a credential. A protocol NKeeper can't connect with (Telnet, PowerShell, raw sockets and the like) is left out with a warning; the host and its login are still imported;
   - the folder path becomes a `folder` tag, e.g. `folder: Servers/SQL`, so you can group by it;
   - values a connection inherits from its folders are resolved;
   - connections with the same name and address merge into one host with several services;

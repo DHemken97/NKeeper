@@ -104,6 +104,14 @@ public sealed class HostScanTests(PostgresServerFixture postgres, SshServerFixtu
     }
 
     [Fact]
+    public void PortsNKeeperCantConnectWith_AreListed_ButNotOfferedAsServices()
+    {
+        Assert.All([21, 23, 1433, 5985], port => Assert.Null(ScanPorts.Describe(port).Protocol));
+        Assert.Equal("Telnet", ScanPorts.Describe(23).Name);
+        Assert.Equal(ServiceProtocol.Ssh, ScanPorts.Describe(22).Protocol);
+    }
+
+    [Fact]
     public void HostsWithoutAPosixShell_AreExplained()
     {
         var error = Assert.Throws<SessionException>(() => InternalScan.Parse("'sh' is not recognized as an internal or external command"));

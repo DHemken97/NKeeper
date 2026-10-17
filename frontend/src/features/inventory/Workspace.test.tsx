@@ -224,6 +224,8 @@ describe('workspace', () => {
 
     const form = await screen.findByRole('form', { name: 'Edit sql01' })
     expect(within(form).getByText('Stored. Leave empty to keep it.')).toBeInTheDocument()
+    // SSMS can't be connected with, so it isn't copied; the editor says so.
+    expect(within(form).getByRole('note')).toHaveTextContent('NKeeper can’t connect with SQL Server (SSMS), so that service is removed when you save.')
     await user.click(within(form).getByRole('button', { name: 'Add credential' }))
     await user.type(within(form).getAllByLabelText('Username')[1], 'sa')
     await user.click(within(form).getAllByRole('button', { name: 'Remove' })[0])
@@ -294,7 +296,6 @@ describe('workspace', () => {
       ],
       services: [
         { protocol: 'Rdp', port: null, label: null, rdpSecurity: 'Auto' },
-        { protocol: 'Ssms', port: 14330, label: 'Named instance' },
       ],
       credentials: [{ copyFromCredentialId: 'c-admin', label: 'Local admin', username: 'administrator', domain: null, notes: null }],
     })

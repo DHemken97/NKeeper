@@ -24,18 +24,17 @@ internal static class ScanPorts
         [8443] = "HTTPS (alternate)", [9090] = "Cockpit", [9100] = "Printer (JetDirect)", [16509] = "libvirt",
     };
 
-    /// <summary>The NKeeper service a port is, or null when NKeeper has none for it.</summary>
+    /// <summary>
+    /// The NKeeper service a port can become, or null when NKeeper can't connect with it (Telnet, FTP,
+    /// SQL Server and WinRM ports are only listed for information).
+    /// </summary>
     public static ServiceProtocol? ProtocolFor(int port) => port switch
     {
         22 => ServiceProtocol.Ssh,
         3389 => ServiceProtocol.Rdp,
         >= 5900 and <= 5909 => ServiceProtocol.Vnc,
-        23 => ServiceProtocol.Telnet,
-        21 => ServiceProtocol.Ftp,
         80 or 8080 => ServiceProtocol.Http,
         443 or 8443 or 8006 or 9090 => ServiceProtocol.Https,
-        1433 => ServiceProtocol.Ssms,
-        5985 or 5986 => ServiceProtocol.WinRm,
         _ => null,
     };
 

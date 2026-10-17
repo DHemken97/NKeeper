@@ -1,8 +1,17 @@
 import type { MenuEntry } from '../../components/ui/ContextMenu'
-import { formatAccount, PROTOCOL_INFO, primaryAddress, type Host, type HostCredential, type HostService, type ServiceProtocol } from './types'
+import {
+  formatAccount,
+  PROTOCOL_INFO,
+  primaryAddress,
+  SUPPORTED_PROTOCOLS,
+  type Host,
+  type HostCredential,
+  type HostService,
+  type ServiceProtocol,
+} from './types'
 
-/** Protocols NKeeper can open sessions for. Other services (SSMS, Telnet, FTP…) are stored but not offered under Connect. */
-const CONNECTABLE = new Set<ServiceProtocol>(['Ssh', 'Rdp', 'Rpc', 'Vnc', 'Http', 'Https', 'Kvm', 'Idrac'])
+/** Protocols NKeeper can open sessions for; services of other types an older version stored aren't offered under Connect. */
+const CONNECTABLE = new Set<ServiceProtocol>(SUPPORTED_PROTOCOLS)
 
 /** Web services open the host's own web interface; they need no credential from NKeeper. */
 export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https'])

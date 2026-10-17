@@ -5,7 +5,7 @@ import { Button } from '../../../components/ui/Button'
 import { ApiError } from '../../../lib/api'
 import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
-import { formatAccount, formatMemory, formatTag, PROTOCOL_INFO, RDP_SECURITY_INFO, type Host, type HostTag, type TrustedKey } from '../types'
+import { formatAccount, formatMemory, formatTag, isSupportedProtocol, PROTOCOL_INFO, RDP_SECURITY_INFO, type Host, type HostTag, type TrustedKey } from '../types'
 import { DeleteButton } from './DeleteButton'
 import styles from './HostPanel.module.css'
 
@@ -240,6 +240,9 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
                       {service.label ?? info.name}
                       {service.protocol === 'Rdp' && service.rdpSecurity ? (
                         <span className={styles.muted}> · {RDP_SECURITY_INFO[service.rdpSecurity].label}</span>
+                      ) : null}
+                      {!isSupportedProtocol(service.protocol) ? (
+                        <span className={styles.muted}> · Not supported: removed when the host is next edited</span>
                       ) : null}
                     </span>
                     <span className={`${styles.mono} ${styles.muted}`}>
