@@ -26,6 +26,39 @@ public sealed record CurrentUserResponse(
     IReadOnlyList<string> Roles,
     bool MustChangePassword,
     bool IsDirectoryAccount,
-    string? SignInAccount);
+    string? SignInAccount,
+    IReadOnlyList<string> WorkspaceGroupBy,
+    string WorkspaceSort);
+
+public sealed record WorkspacePreferencesResponse(IReadOnlyList<string> GroupBy, string Sort);
+
+public sealed record WorkspacePreferencesRequest : IValidatableObject
+{
+    [MaxLength(3)]
+    public string[] GroupBy { get; init; } = [];
+
+    [Required]
+    [RegularExpression("^(name|address|updated)$")]
+    public string Sort { get; init; } = "name";
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (GroupBy is null)
+        {
+            yield return new ValidationResult("Choose valid grouping keys.", [nameof(GroupBy)]);
+            yield break;
+        }
+
+        if (GroupBy.Any(key => string.IsNullOrWhiteSpace(key) || key.Length > 253))
+        {
+            yield return new ValidationResult("Each grouping key must be between 1 and 253 characters.", [nameof(GroupBy)]);
+        }
+
+        if (GroupBy.Distinct(StringComparer.OrdinalIgnoreCase).Count() != GroupBy.Length)
+        {
+            yield return new ValidationResult("Grouping keys must be unique.", [nameof(GroupBy)]);
+        }
+    }
+}
 
 public sealed record AntiforgeryTokenResponse(string Token, string HeaderName);

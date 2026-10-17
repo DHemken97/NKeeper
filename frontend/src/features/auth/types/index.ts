@@ -10,6 +10,10 @@ export interface User {
   isDirectoryAccount: boolean
   /** The domain login (CORP\jdoe) this sign-in can pass on to RDP sessions, or null. */
   signInAccount: string | null
+  /** The signed-in user's saved host-tree grouping levels. */
+  workspaceGroupBy?: string[]
+  /** The signed-in user's saved host-tree sort. */
+  workspaceSort?: 'name' | 'address' | 'updated'
 }
 
 export const ADMINISTRATOR_ROLE = 'Administrator'

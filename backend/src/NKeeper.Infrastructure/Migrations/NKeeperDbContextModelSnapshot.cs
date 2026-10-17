@@ -390,6 +390,14 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean");
 
+                    b.Property<string[]>("WorkspaceGroupBy")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<string>("WorkspaceSort")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("UserName")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");

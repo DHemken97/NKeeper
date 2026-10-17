@@ -128,6 +128,14 @@ public sealed class AuthController(
     {
         var roles = await userManager.GetRolesAsync(user);
         return new CurrentUserResponse(
-            user.Id, user.UserName!, user.Email, [.. roles.Order(StringComparer.Ordinal)], user.MustChangePassword, user.IsDirectoryAccount, signInAccount);
+            user.Id,
+            user.UserName!,
+            user.Email,
+            [.. roles.Order(StringComparer.Ordinal)],
+            user.MustChangePassword,
+            user.IsDirectoryAccount,
+            signInAccount,
+            user.WorkspaceGroupBy,
+            user.WorkspaceSort);
     }
 }

@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
 import { ContextMenu } from '../../../components/ui/ContextMenu'
 import { Spinner } from '../../../components/ui/Spinner'
 import { toFormErrors } from '../../../lib/formErrors'
+import { accountApi } from '../../account/api/accountApi'
 import { healthApi, hostsApi } from '../api/inventoryApi'
 import { BulkEditPanel } from '../components/BulkEditPanel'
 import { GroupByPicker } from '../components/GroupByPicker'
@@ -197,11 +198,18 @@ export function WorkspacePage() {
   /** Where a Shift+click range starts. */
   const [anchor, setAnchor] = useState<string | null>(null)
   const [groupMenu, setGroupMenu] = useState<{ groupId: string; x: number; y: number } | null>(null)
+  const [savedGroupBy, setSavedGroupBy] = useState(() => user?.workspaceGroupBy ?? [])
+  const [savedSort, setSavedSort] = useState(() => user?.workspaceSort ?? 'name')
+  const [preferencesError, setPreferencesError] = useState<string | null>(null)
+  const preferenceSave = useRef<Promise<void>>(Promise.resolve())
 
   const allHosts = local.basedOn !== undefined && local.basedOn === resource.data ? local.hosts : resource.data
   const query = params.get('q') ?? ''
-  const groupKeys = useMemo(() => params.getAll('group').map(decodeGroupKey), [params])
-  const sort = (SORTS.find((s) => s.value === params.get('sort'))?.value ?? 'name') as HostSort
+  const groupKeys = useMemo(
+    () => (params.has('group') ? params.getAll('group').map(decodeGroupKey) : savedGroupBy.map(decodeGroupKey)),
+    [params, savedGroupBy],
+  )
+  const sort = SORTS.find((s) => s.value === params.get('sort'))?.value ?? (params.has('sort') ? 'name' : savedSort)
   const selectedId = params.get('host')
   const editRequested = selectedId === NEW_HOST || params.get('edit') === '1'
 
@@ -238,6 +246,17 @@ export function WorkspacePage() {
 
   function applyLocally(change: (hosts: Host[]) => Host[]) {
     setLocal({ basedOn: resource.data, hosts: change(allHosts ?? []) })
+  }
+
+  function saveWorkspacePreferences(groupBy: string[], nextSort: HostSort) {
+    setSavedGroupBy(groupBy)
+    setSavedSort(nextSort)
+    setPreferencesError(null)
+    preferenceSave.current = preferenceSave.current
+      .catch(() => undefined)
+      .then(() => accountApi.updateWorkspacePreferences(groupBy, nextSort))
+      .then(() => undefined)
+      .catch((error: unknown) => setPreferencesError(toFormErrors(error).message))
   }
 
   function showHost(id: string | null, edit = false) {
@@ -516,13 +535,22 @@ export function WorkspacePage() {
             value={groupKeys}
             onChange={(keys: GroupKey[]) => {
               setCollapsed(new Set())
-              update({ group: keys.map(encodeGroupKey) })
+              const groupBy = keys.map(encodeGroupKey)
+              update({ group: groupBy })
+              saveWorkspacePreferences(groupBy, sort)
             }}
             tagNames={knownTagNames}
           />
           <label className={styles.sort}>
             <span>Sort</span>
-            <select value={sort} onChange={(event) => update({ sort: event.target.value === 'name' ? null : event.target.value })}>
+            <select
+              value={sort}
+              onChange={(event) => {
+                const nextSort = event.target.value as HostSort
+                update({ sort: nextSort === 'name' ? null : nextSort })
+                saveWorkspacePreferences(groupKeys.map(encodeGroupKey), nextSort)
+              }}
+            >
               {SORTS.map((s) => (
                 <option key={s.value} value={s.value}>
                   {s.label}
@@ -531,6 +559,7 @@ export function WorkspacePage() {
             </select>
           </label>
         </div>
+        {preferencesError ? <Alert>{`Couldn’t save your host tree preferences. ${preferencesError}`}</Alert> : null}
 
         <div className={styles.treeScroll}>
           {resource.error && !allHosts ? (

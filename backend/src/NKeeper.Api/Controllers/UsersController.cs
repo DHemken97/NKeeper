@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using NKeeper.Api.Auditing;
 using NKeeper.Api.Configuration;
+using NKeeper.Api.Contracts.Auth;
 using NKeeper.Api.Contracts.Users;
 using NKeeper.Api.Security;
 using NKeeper.Api.Users;
@@ -82,6 +83,24 @@ public sealed class AccountController(
     UserManager<ApplicationUser> userManager,
     SessionRevoker sessions) : ControllerBase
 {
+    /// <summary>Save the signed-in user's host tree's default grouping and sort.</summary>
+    [HttpPut("workspace-preferences")]
+    [ProducesResponseType<WorkspacePreferencesResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<WorkspacePreferencesResponse>> UpdateWorkspacePreferences(WorkspacePreferencesRequest request)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        user.WorkspaceGroupBy = request.GroupBy;
+        user.WorkspaceSort = request.Sort;
+        UserAdministration.ThrowOnFailure(await userManager.UpdateAsync(user), defaultField: "workspace");
+        return new WorkspacePreferencesResponse(user.WorkspaceGroupBy, user.WorkspaceSort);
+    }
+
     /// <summary>
     /// Changes the caller's password. Other sessions of the account are signed out; this one stays.
     /// Rate limited like sign-in, since it verifies the current password.

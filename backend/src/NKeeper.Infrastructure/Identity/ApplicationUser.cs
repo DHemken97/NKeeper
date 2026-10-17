@@ -21,4 +21,10 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     /// Created at the user's first sign-in.
     /// </summary>
     public bool IsDirectoryAccount { get; set; }
+
+    /// <summary>Last host-tree grouping levels selected by this user.</summary>
+    public string[] WorkspaceGroupBy { get; set; } = [];
+
+    /// <summary>Last host-tree sort selected by this user.</summary>
+    public string WorkspaceSort { get; set; } = "name";
 }

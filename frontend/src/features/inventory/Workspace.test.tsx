@@ -5,9 +5,18 @@ import { describe, expect, it } from 'vitest'
 import { routes } from '../../app/router'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
 import { AuthProvider } from '../auth/components/AuthProvider'
+import type { User } from '../auth/types'
 import type { Host } from './types'
 
-const adminUser = { id: '6f1c0d4e-0000-4000-8000-000000000001', userName: 'admin', email: 'admin@example.com', roles: ['Administrator'] }
+const adminUser: User = {
+  id: '6f1c0d4e-0000-4000-8000-000000000001',
+  userName: 'admin',
+  email: 'admin@example.com',
+  roles: ['Administrator'],
+  mustChangePassword: false,
+  isDirectoryAccount: false,
+  signInAccount: null,
+}
 
 function makeHost(overrides: Partial<Host>): Host {
   return {
@@ -60,10 +69,10 @@ const web01 = makeHost({ id: 'h-web01', name: 'web01', hostname: 'web01', tags: 
 const fw01 = makeHost({ id: 'h-fw01', name: 'fw01', ipAddress: '10.9.0.1', tags: [{ name: 'site', value: 'Branch' }] })
 const laptop = makeHost({ id: 'h-laptop', name: 'laptop', hostname: 'laptop' })
 
-function renderAt(path: string, routesOverride: Parameters<typeof mockFetch>[0] = {}) {
+function renderAt(path: string, routesOverride: Parameters<typeof mockFetch>[0] = {}, user = adminUser) {
   const fetchMock = mockFetch({
     ...antiforgeryRoute,
-    'GET /api/auth/me': () => jsonResponse(200, adminUser),
+    'GET /api/auth/me': () => jsonResponse(200, user),
     'GET /api/hosts': () => jsonResponse(200, [fw01, laptop, sql01, web01]),
     ...routesOverride,
   })
@@ -349,6 +358,28 @@ describe('workspace', () => {
     expect(screen.getByRole('menuitem', { name: /^Hostname/ })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: /^IP/ })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: /^Serial Number/ })).toBeInTheDocument()
+  })
+
+  it('uses the signed-in user’s saved group and sort defaults and saves changes', async () => {
+    let saved: { groupBy: string[]; sort: string } | undefined
+    const { user } = renderAt(
+      '/',
+      {
+        'PUT /api/account/workspace-preferences': (_url, init) => {
+          saved = JSON.parse(String(init.body))
+          return jsonResponse(200, saved)
+        },
+      },
+      { ...adminUser, workspaceGroupBy: ['site'], workspaceSort: 'updated' },
+    )
+
+    expect((await screen.findByRole('button', { name: /site:\s*DC-A/ }))).toBeInTheDocument()
+    expect(screen.getByLabelText('Sort')).toHaveValue('updated')
+
+    await user.click(screen.getByRole('button', { name: 'Stop grouping by site' }))
+    await user.selectOptions(screen.getByLabelText('Sort'), 'address')
+
+    await waitFor(() => expect(saved).toEqual({ groupBy: [], sort: 'address' }))
   })
 
   it('shows server validation errors on the matching rows', async () => {
