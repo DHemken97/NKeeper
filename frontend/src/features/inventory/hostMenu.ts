@@ -23,6 +23,8 @@ export interface HostMenuActions {
   connectWithPrompt: (host: Host, serviceIndex: number, account?: HostCredential, mode?: IdracMode) => void
   /** Open a web (HTTP/HTTPS) session, or an iDRAC's web interface; NKeeper connects to the host on the browser's behalf. */
   connectWeb: (host: Host, serviceIndex: number) => void
+  /** RDP with the user's own domain login; absent when their sign-in has none to pass on. */
+  signIn?: { account: string; connect: (host: Host, serviceIndex: number) => void }
   /** Open the host's web interface in a new browser tab, loaded directly by this computer. */
   openDirect: (host: Host, serviceIndex: number) => void
   edit: (host: Host) => void
@@ -76,7 +78,7 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
 /** One entry per connectable service, each opening its credentials (also used by the Connect button). */
 export function connectMenuEntries(
   host: Host,
-  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWeb' | 'openDirect'>,
+  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWeb' | 'openDirect' | 'signIn'>,
 ): MenuEntry[] {
   const services: MenuEntry[] = host.services.flatMap((service, index): MenuEntry | MenuEntry[] => {
     if (!CONNECTABLE.has(service.protocol)) {
@@ -118,11 +120,14 @@ export function connectMenuEntries(
     : [{ kind: 'item', label: host.services.length > 0 ? 'No services to connect with' : 'No services', detail: 'Edit the host to add one', disabled: true }]
 }
 
-/** The host's credentials usable with a service (asking for a password when none is stored), then "Enter credentials…". */
+/**
+ * The host's credentials usable with a service (asking for a password when none is stored), the
+ * user's own domain login for RDP, then "Enter credentials…".
+ */
 function loginEntries(
   host: Host,
   index: number,
-  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt'>,
+  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'signIn'>,
   mode?: IdracMode,
 ): MenuEntry[] {
   const protocol = host.services[index].protocol
@@ -135,9 +140,11 @@ function loginEntries(
       onSelect: () => (asks ? actions.connectWithPrompt(host, index, credential, mode) : actions.connect(host, index, credential, mode)),
     }
   })
+  const signIn = protocol === 'Rdp' && actions.signIn ? actions.signIn : null
   return [
     ...credentials,
     ...(credentials.length > 0 ? [{ kind: 'separator' } as const] : []),
+    ...(signIn ? [{ kind: 'item', label: 'My sign-in', detail: signIn.account, onSelect: () => signIn.connect(host, index) } as const] : []),
     { kind: 'item', label: 'Enter credentials…', onSelect: () => actions.connectWithPrompt(host, index, undefined, mode) },
   ]
 }

@@ -51,6 +51,7 @@ const bobSummary: UserSummary = {
   isDisabled: false,
   mustChangePassword: false,
   isLockedOut: false,
+  isDirectoryAccount: false,
   grantCount: 1,
   createdAtUtc: '2026-10-01T00:00:00Z',
 }

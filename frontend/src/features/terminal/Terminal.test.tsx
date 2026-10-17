@@ -369,6 +369,36 @@ describe('VNC', () => {
     expect(socket.jsonSent()[0]).toMatchObject({ type: 'start', hostId: 'h-vnc', serviceIndex: 0, credentialId: 'c-vnc' })
     expect(screen.getByRole('tab', { name: /kiosk.*VNC/, selected: true })).toBeInTheDocument()
   })
+
+  it('opens RDP with the user’s own domain sign-in, sending no secret', async () => {
+    mockFetch({
+      'GET /api/auth/me': () => jsonResponse(200, { ...adminUser, isDirectoryAccount: true, signInAccount: 'CORP\\jdoe' }),
+      'GET /api/hosts': () => jsonResponse(200, [linux01]),
+    })
+    const router = createMemoryRouter(routes, { initialEntries: ['/'] })
+    render(
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>,
+    )
+    const user = userEvent.setup()
+
+    fireEvent.contextMenu(await hostRow())
+    await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
+    await user.hover(screen.getByRole('menuitem', { name: /^SSH:22/ }))
+    expect(screen.queryByRole('menuitem', { name: /My sign-in/ })).not.toBeInTheDocument()
+    await user.hover(screen.getByRole('menuitem', { name: /^RDP:3389/ }))
+    await user.click(screen.getByRole('menuitem', { name: /My sign-in.*CORP\\jdoe/ }))
+
+    const socket = await socketAt(0)
+    expect(socket.url).toBe('ws://localhost:3000/api/rdp/session')
+    socket.accept()
+    const start = socket.jsonSent()[0]
+    expect(start).toMatchObject({ type: 'start', hostId: 'h-linux01', serviceIndex: 1, useSignInCredentials: true })
+    expect(start.password).toBeUndefined()
+    expect(start.credentialId).toBeUndefined()
+    expect(screen.getByRole('tab', { name: /linux01.*RDP · CORP\\jdoe/, selected: true })).toBeInTheDocument()
+  })
 })
 
 describe('connectMenuEntries', () => {

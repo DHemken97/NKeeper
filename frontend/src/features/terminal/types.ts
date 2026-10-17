@@ -16,6 +16,8 @@ export interface SessionRequest {
    * (in memory, for the tab's lifetime) to open VM consoles.
    */
   oneOff?: { username: string; password: string; domain?: string }
+  /** RDP: log in as the user's own domain account, which they signed in to NKeeper with. The password stays on the server. */
+  useSignIn?: boolean
   /** For VM consoles: the virtual machine on the KVM host. */
   vm?: { uuid: string; name: string }
 }
