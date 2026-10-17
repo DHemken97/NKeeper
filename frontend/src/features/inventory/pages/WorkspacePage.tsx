@@ -60,6 +60,7 @@ import styles from './WorkspacePage.module.css'
 
 const NEW_HOST = 'new'
 const DETAILS_TAB = 'details'
+const EMPTY_GROUP_BY: string[] = []
 let nextSessionId = 1
 
 // xterm.js is large; load it on the first connection rather than with the page.
@@ -198,13 +199,20 @@ export function WorkspacePage() {
   /** Where a Shift+click range starts. */
   const [anchor, setAnchor] = useState<string | null>(null)
   const [groupMenu, setGroupMenu] = useState<{ groupId: string; x: number; y: number } | null>(null)
-  const [savedGroupBy, setSavedGroupBy] = useState(() => user?.workspaceGroupBy ?? [])
-  const [savedSort, setSavedSort] = useState(() => user?.workspaceSort ?? 'name')
+  const [savedPreferences, setSavedPreferences] = useState<{
+    userId: string
+    groupBy: string[]
+    sort: HostSort
+  } | null>(null)
   const [preferencesError, setPreferencesError] = useState<string | null>(null)
   const preferenceSave = useRef<Promise<void>>(Promise.resolve())
 
   const allHosts = local.basedOn !== undefined && local.basedOn === resource.data ? local.hosts : resource.data
   const query = params.get('q') ?? ''
+  const savedGroupBy =
+    savedPreferences && savedPreferences.userId === user?.id ? savedPreferences.groupBy : user?.workspaceGroupBy ?? EMPTY_GROUP_BY
+  const savedSort =
+    savedPreferences && savedPreferences.userId === user?.id ? savedPreferences.sort : user?.workspaceSort ?? 'name'
   const groupKeys = useMemo(
     () => (params.has('group') ? params.getAll('group').map(decodeGroupKey) : savedGroupBy.map(decodeGroupKey)),
     [params, savedGroupBy],
@@ -249,13 +257,18 @@ export function WorkspacePage() {
   }
 
   function saveWorkspacePreferences(groupBy: string[], nextSort: HostSort) {
-    setSavedGroupBy(groupBy)
-    setSavedSort(nextSort)
+    if (!user) {
+      return
+    }
+
+    setSavedPreferences({ userId: user.id, groupBy, sort: nextSort })
     setPreferencesError(null)
     preferenceSave.current = preferenceSave.current
       .catch(() => undefined)
       .then(() => accountApi.updateWorkspacePreferences(groupBy, nextSort))
-      .then(() => undefined)
+      .then((preferences) => {
+        setSavedPreferences({ userId: user.id, groupBy: preferences.groupBy, sort: preferences.sort })
+      })
       .catch((error: unknown) => setPreferencesError(toFormErrors(error).message))
   }
 

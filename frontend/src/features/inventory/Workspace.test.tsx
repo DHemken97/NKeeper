@@ -382,6 +382,22 @@ describe('workspace', () => {
     await waitFor(() => expect(saved).toEqual({ groupBy: [], sort: 'address' }))
   })
 
+  it('saves a newly selected grouping under the signed-in user', async () => {
+    let saved: { groupBy: string[]; sort: string } | undefined
+    const { user } = renderAt('/', {
+      'PUT /api/account/workspace-preferences': (_url, init) => {
+        saved = JSON.parse(String(init.body))
+        return jsonResponse(200, saved)
+      },
+    })
+
+    await screen.findByRole('option', { name: 'Tag: site' })
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Group by' }), 'site')
+
+    await waitFor(() => expect(saved).toEqual({ groupBy: ['site'], sort: 'name' }))
+    expect(await screen.findByRole('button', { name: 'Stop grouping by site' })).toBeInTheDocument()
+  })
+
   it('shows server validation errors on the matching rows', async () => {
     const { user } = renderAt('/?host=h-sql01&edit=1', {
       'PUT /api/hosts/h-sql01': () =>
