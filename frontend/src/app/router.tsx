@@ -7,6 +7,8 @@ import { WorkspacePage } from '../features/inventory/pages/WorkspacePage'
 import { IpAddressReport } from '../features/reports/pages/IpAddressReport'
 import { ReportsLayout } from '../features/reports/pages/ReportsLayout'
 import { VmResourcesReport } from '../features/reports/pages/VmResourcesReport'
+import { AuditLogReport } from '../features/audit/pages/AuditLogReport'
+import { RecordingPlayer } from '../features/audit/pages/RecordingPlayer'
 import { TransferPage } from '../features/transfer/pages/TransferPage'
 import { UsersPage } from '../features/users/pages/UsersPage'
 
@@ -34,6 +36,13 @@ export const routes: RouteObject[] = [
               { index: true, element: <Navigate to="ip-addresses" replace /> },
               { path: 'ip-addresses', element: <IpAddressReport /> },
               { path: 'vm-resources', element: <VmResourcesReport /> },
+              {
+                element: <AdminRoute />,
+                children: [
+                  { path: 'audit', element: <AuditLogReport /> },
+                  { path: 'audit/recordings/:id', element: <RecordingPlayer /> },
+                ],
+              },
             ],
           },
           {

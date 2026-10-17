@@ -28,7 +28,7 @@ public sealed record TelnetStartMessage : SessionStartMessage
 /// without one, the user types them. Telnet isn't encrypted: everything, passwords included, crosses
 /// the network from NKeeper to the host in the clear.
 /// </summary>
-internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolver, ILogger<TelnetTerminalSession> logger)
+internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolver, Auditing.AuditLog audit, ILogger<TelnetTerminalSession> logger)
 {
     private const int DefaultTelnetPort = 23;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(15);
@@ -41,9 +41,11 @@ internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolv
     {
         var started = Stopwatch.StartNew();
         SessionTarget? target = null;
+        Auditing.AuditedSession? audited = null;
         try
         {
             var start = await socket.ReceiveStartAsync<TelnetStartMessage>(cancellationToken);
+            audited = audit.BeginSession("Telnet", start.HostId, user, record: true);
             target = await resolver.ResolveAsync(start, user, ServiceProtocol.Telnet, DefaultTelnetPort, cancellationToken, requireUsername: false);
             logger.LogInformation(
                 "Telnet session requested by user {UserId} for host {HostId} ({Address}:{Port}) using {CredentialSource}",
@@ -53,11 +55,13 @@ internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolv
             using var tcp = await ConnectAsync(target, cancellationToken);
             await socket.SendJsonAsync(new { type = "connected", target = target.Display }, cancellationToken);
 
-            using var connection = new Connection(socket, tcp.GetStream(), target, start.Cols, start.Rows);
+            await audited.ConnectedAsync(target.Display, start.Cols, start.Rows);
+            using var connection = new Connection(socket, tcp.GetStream(), target, start.Cols, start.Rows, audited.Recorder);
             await connection.PumpAsync(cancellationToken);
         }
         catch (SessionException ex)
         {
+            await (audited?.FailedAsync(ex.Message, target?.Display) ?? Task.CompletedTask);
             await socket.SendErrorAndCloseAsync(ex.Code, ex.Message, cancellationToken);
         }
         catch (Exception ex) when (ex is OperationCanceledException or WebSocketException)
@@ -66,6 +70,7 @@ internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolv
         }
         finally
         {
+            await (audited?.EndAsync() ?? Task.CompletedTask);
             logger.LogInformation("Telnet session ended for user {UserId} (host {HostId}) after {Duration}", user.Id, target?.HostId, started.Elapsed);
         }
     }
@@ -101,7 +106,7 @@ internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolv
     private static partial Regex PasswordPrompt();
 
     /// <summary>One open connection: the two pumps, the protocol state and the automatic login.</summary>
-    private sealed class Connection(SessionSocket socket, NetworkStream stream, SessionTarget target, int cols, int rows) : IDisposable
+    private sealed class Connection(SessionSocket socket, NetworkStream stream, SessionTarget target, int cols, int rows, Auditing.TerminalRecorder? recorder) : IDisposable
     {
         private readonly TelnetProtocol _protocol = new();
         private readonly SemaphoreSlim _writeLock = new(1, 1);
@@ -160,6 +165,7 @@ internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolv
                     if (data.Count > 0)
                     {
                         var bytes = data.ToArray();
+                        recorder?.Output(bytes);
                         await socket.SendAsync(bytes, WebSocketMessageType.Binary, cancellationToken);
                         await AnswerPromptAsync(bytes, cancellationToken);
                     }
@@ -185,9 +191,13 @@ internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolv
                         break;
                     case WebSocketMessageType.Text when SessionSocket.ReadType(data) == "resize":
                         var size = JsonSerializer.Deserialize<ResizeMessage>(data, SessionJson.Options);
-                        if (size is { Cols: > 0 and <= 1000, Rows: > 0 and <= 1000 } && _protocol.Resize(size.Cols, size.Rows) is { Length: > 0 } naws)
+                        if (size is { Cols: > 0 and <= 1000, Rows: > 0 and <= 1000 })
                         {
-                            await WriteAsync(naws, cancellationToken);
+                            recorder?.Resize(size.Cols, size.Rows);
+                            if (_protocol.Resize(size.Cols, size.Rows) is { Length: > 0 } naws)
+                            {
+                                await WriteAsync(naws, cancellationToken);
+                            }
                         }
 
                         break;

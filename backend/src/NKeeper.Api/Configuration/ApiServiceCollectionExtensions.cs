@@ -73,6 +73,13 @@ internal static class ApiServiceCollectionExtensions
         services.AddScoped<DesktopSession>();
         services.AddScoped<NKeeper.Api.Rpc.RpcSession>();
         services.AddSingleton<SessionLimiter>();
+        services.AddHttpContextAccessor();
+        services.AddOptions<NKeeper.Api.Auditing.AuditSettings>()
+            .Bind(configuration.GetSection(NKeeper.Api.Auditing.AuditSettings.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddSingleton<NKeeper.Api.Auditing.AuditLog>();
+        services.AddHostedService<NKeeper.Api.Auditing.AuditRetention>();
         services.AddOptions<WebProxySettings>()
             .Bind(configuration.GetSection(WebProxySettings.SectionName))
             .ValidateDataAnnotations()

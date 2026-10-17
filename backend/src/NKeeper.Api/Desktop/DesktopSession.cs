@@ -50,6 +50,7 @@ internal sealed partial class DesktopSession(
     SessionTargetResolver resolver,
     TrustedKeyStore trustedKeys,
     IOptions<GuacdSettings> guacd,
+    Auditing.AuditLog audit,
     ILogger<DesktopSession> logger)
 {
     public const string CertificateAlgorithm = "x509";
@@ -62,10 +63,12 @@ internal sealed partial class DesktopSession(
         var name = protocol == ServiceProtocol.Rdp ? "RDP" : "VNC";
         var started = Stopwatch.StartNew();
         SessionTarget? target = null;
+        Auditing.AuditedSession? audited = null;
 
         try
         {
             var start = await socket.ReceiveStartAsync<DesktopStartMessage>(cancellationToken);
+            audited = audit.BeginSession(name, start.HostId, user);
             target = protocol == ServiceProtocol.Rdp
                 ? await resolver.ResolveAsync(start, user, protocol, 3389, cancellationToken, start.Domain)
                 // VNC servers usually ask for a password only.
@@ -97,11 +100,13 @@ internal sealed partial class DesktopSession(
             await socket.SendJsonAsync(new { type = "connected", target = target.Display }, cancellationToken);
             await socket.SendAsync(Encoding.UTF8.GetBytes(ready.Raw), WebSocketMessageType.Text, cancellationToken);
             logger.LogInformation("{Protocol} session connected for user {UserId} to host {HostId}", name, user.Id, target.HostId);
+            await audited.ConnectedAsync(target.Display);
 
             await RelayAsync(socket, connection, target, name, cancellationToken);
         }
         catch (SessionException ex)
         {
+            await (audited?.FailedAsync(ex.Message, target?.Display) ?? Task.CompletedTask);
             await socket.SendErrorAndCloseAsync(ex.Code, ex.Message, cancellationToken);
         }
         catch (Exception ex) when (ex is OperationCanceledException or WebSocketException)
@@ -110,6 +115,7 @@ internal sealed partial class DesktopSession(
         }
         finally
         {
+            await (audited?.EndAsync() ?? Task.CompletedTask);
             logger.LogInformation("{Protocol} session ended for user {UserId} (host {HostId}) after {Duration}", name, user.Id, target?.HostId, started.Elapsed);
         }
     }

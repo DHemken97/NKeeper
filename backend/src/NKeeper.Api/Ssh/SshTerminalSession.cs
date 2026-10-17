@@ -28,7 +28,7 @@ public sealed record SshStartMessage : SessionStartMessage
 /// credentials from the inventory can be used, and decrypted secrets never leave the server.
 /// Unknown host keys must be confirmed by the user; changed keys are refused.
 /// </summary>
-internal sealed class SshTerminalSession(SessionTargetResolver resolver, TrustedKeyStore trustedKeys, ILogger<SshTerminalSession> logger)
+internal sealed class SshTerminalSession(SessionTargetResolver resolver, TrustedKeyStore trustedKeys, Auditing.AuditLog audit, ILogger<SshTerminalSession> logger)
 {
     private const int DefaultSshPort = 22;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
@@ -41,10 +41,12 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
         var started = Stopwatch.StartNew();
         SessionTarget? target = null;
         var disposables = new List<IDisposable>();
+        Auditing.AuditedSession? audited = null;
 
         try
         {
             var start = await socket.ReceiveStartAsync<SshStartMessage>(cancellationToken);
+            audited = audit.BeginSession("SSH", start.HostId, user, record: true);
             target = await resolver.ResolveAsync(start, user, ServiceProtocol.Ssh, DefaultSshPort, cancellationToken);
             if (target.Password is null && target.PrivateKey is null)
             {
@@ -61,10 +63,12 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
             await socket.SendJsonAsync(new { type = "connected", target = target.Display }, cancellationToken);
             logger.LogInformation("SSH session connected for user {UserId} to host {HostId}", userId, target.HostId);
 
-            await PumpAsync(socket, client, shell, cancellationToken);
+            await audited.ConnectedAsync(target.Display, start.Cols, start.Rows);
+            await PumpAsync(socket, client, shell, audited.Recorder, cancellationToken);
         }
         catch (SessionException ex)
         {
+            await (audited?.FailedAsync(ex.Message, target?.Display) ?? Task.CompletedTask);
             await socket.SendErrorAndCloseAsync(ex.Code, ex.Message, cancellationToken);
         }
         catch (Exception ex) when (ex is OperationCanceledException or WebSocketException)
@@ -73,6 +77,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
         }
         finally
         {
+            await (audited?.EndAsync() ?? Task.CompletedTask);
             disposables.ForEach(d => d.Dispose());
             logger.LogInformation("SSH session ended for user {UserId} (host {HostId}) after {Duration}", userId, target?.HostId, started.Elapsed);
         }
@@ -117,11 +122,11 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
         }
     }
 
-    private static async Task PumpAsync(SessionSocket socket, SshClient client, ShellStream shell, CancellationToken cancellationToken)
+    private static async Task PumpAsync(SessionSocket socket, SshClient client, ShellStream shell, Auditing.TerminalRecorder? recorder, CancellationToken cancellationToken)
     {
         using var inputCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var output = PumpOutputAsync(socket, shell, cancellationToken);
-        var input = PumpInputAsync(socket, shell, inputCancellation.Token);
+        var output = PumpOutputAsync(socket, shell, recorder, cancellationToken);
+        var input = PumpInputAsync(socket, shell, recorder, inputCancellation.Token);
 
         if (await Task.WhenAny(output, input) == output)
         {
@@ -142,7 +147,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
         await Task.WhenAll(output, input).ContinueWith(_ => { }, TaskScheduler.Default);
     }
 
-    private static async Task PumpOutputAsync(SessionSocket socket, ShellStream shell, CancellationToken cancellationToken)
+    private static async Task PumpOutputAsync(SessionSocket socket, ShellStream shell, Auditing.TerminalRecorder? recorder, CancellationToken cancellationToken)
     {
         var buffer = new byte[16 * 1024];
         try
@@ -155,6 +160,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
                     return;
                 }
 
+                recorder?.Output(buffer.AsSpan(0, read));
                 await socket.SendAsync(buffer.AsMemory(0, read), WebSocketMessageType.Binary, cancellationToken);
             }
         }
@@ -164,7 +170,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
         }
     }
 
-    private static async Task PumpInputAsync(SessionSocket socket, ShellStream shell, CancellationToken cancellationToken)
+    private static async Task PumpInputAsync(SessionSocket socket, ShellStream shell, Auditing.TerminalRecorder? recorder, CancellationToken cancellationToken)
     {
         while (socket.State == WebSocketState.Open)
         {
@@ -182,6 +188,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
                     if (size is { Cols: > 0 and <= 1000, Rows: > 0 and <= 1000 })
                     {
                         shell.ChangeWindowSize((uint)size.Cols, (uint)size.Rows, 0, 0);
+                        recorder?.Resize(size.Cols, size.Rows);
                     }
 
                     break;

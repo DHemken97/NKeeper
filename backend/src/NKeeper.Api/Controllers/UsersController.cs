@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using NKeeper.Api.Auditing;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.Contracts.Users;
 using NKeeper.Api.Security;
@@ -27,6 +28,7 @@ public sealed class UsersController(UserAdministration users) : ControllerBase
     public async Task<ActionResult<UserResponse>> Get(Guid id, CancellationToken cancellationToken) =>
         await users.GetAsync(id, cancellationToken) is { } user ? user : NotFound();
 
+    [Audit("user.create", AuditTarget.User)]
     [HttpPost]
     [ProducesResponseType<UserResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -37,6 +39,7 @@ public sealed class UsersController(UserAdministration users) : ControllerBase
     }
 
     /// <summary>Changes email, role and disabled state. Demoting or disabling ends the user's sessions.</summary>
+    [Audit("user.update", AuditTarget.User)]
     [HttpPut("{id:guid}")]
     [ProducesResponseType<UserResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -45,6 +48,7 @@ public sealed class UsersController(UserAdministration users) : ControllerBase
         await users.UpdateAsync(id, request, User.GetUserId(), cancellationToken) is { } user ? user : NotFound();
 
     /// <summary>Sets a new password (unlocking the account) and ends the user's sessions.</summary>
+    [Audit("user.reset_password", AuditTarget.User)]
     [HttpPost("{id:guid}/password")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -53,6 +57,7 @@ public sealed class UsersController(UserAdministration users) : ControllerBase
         await users.ResetPasswordAsync(id, request, User.GetUserId(), cancellationToken) ? NoContent() : NotFound();
 
     /// <summary>Replaces the user's host access grants.</summary>
+    [Audit("user.grants", AuditTarget.User)]
     [HttpPut("{id:guid}/grants")]
     [ProducesResponseType<UserResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -60,6 +65,7 @@ public sealed class UsersController(UserAdministration users) : ControllerBase
     public async Task<ActionResult<UserResponse>> ReplaceGrants(Guid id, ReplaceGrantsRequest request, CancellationToken cancellationToken) =>
         await users.ReplaceGrantsAsync(id, request, User.GetUserId(), cancellationToken) is { } user ? user : NotFound();
 
+    [Audit("user.delete", AuditTarget.User)]
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -80,6 +86,7 @@ public sealed class AccountController(
     /// Changes the caller's password. Other sessions of the account are signed out; this one stays.
     /// Rate limited like sign-in, since it verifies the current password.
     /// </summary>
+    [Audit("account.change_password", AuditTarget.None)]
     [HttpPost("password")]
     [AllowWhilePasswordChangeRequired]
     [EnableRateLimiting(LoginRateLimitSettings.PolicyName)]

@@ -112,6 +112,8 @@ public sealed class WebSessionsController(HostAccess access, WebSessionStore ses
                 $"You already have {WebSessionStore.MaxSessionsPerUser} open web sessions. Close one and try again.");
         }
 
+        await HttpContext.RequestServices.GetRequiredService<Auditing.AuditLog>().RecordAsync(
+            new Auditing.AuditEntry(Auditing.AuditActions.SessionStart, host.Id, $"{(idrac ? "iDRAC web interface" : "Web")} · {target}", session.Id));
         return new OpenWebSessionResponse(
             "ready", session.Id, $"{WebProxyMiddleware.LaunchPath}?t={session.LaunchToken}", settings.Value.BaseDomain, target.ToString(), null);
     }

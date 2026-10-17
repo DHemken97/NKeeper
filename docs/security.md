@@ -21,6 +21,8 @@ NKeeper holds credentials for the machines it connects to, so it's built to keep
 - **No public sign-up.** The first administrator comes from a guarded, create-only bootstrap step, and the setup scripts remove its password from the configuration afterwards.
 - **Active Directory sign-in** (optional) binds to a domain controller as the user over LDAPS or StartTLS. Clear-text LDAP is refused unless explicitly allowed. Empty passwords are rejected, so an unauthenticated bind never counts as a sign-in. A domain account can never take over a local account of the same name.
 
+- **Audit trail.** Sign-ins (failed ones by the name tried, never the password), sessions and changes are recorded in the database by a separate connection, so a failed or rolled-back change can't remove its record, and recording never breaks the action. Only administrators can read it. Terminal recordings keep output only, never keystrokes. The trail is append-only through NKeeper, but a database administrator can still change it: it isn't tamper-proof against someone with direct database access.
+
 ## Stored secrets
 
 - **Write-only encryption.** Credential passwords and private keys are encrypted with ASP.NET Core Data Protection before they reach the database. The API never returns them: responses only say `hasPassword` / `hasPrivateKey`.

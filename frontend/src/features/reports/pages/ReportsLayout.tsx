@@ -1,20 +1,25 @@
 import { NavLink, Outlet } from 'react-router'
+import { useAuth } from '../../auth/context'
+import { isAdministrator } from '../../auth/types'
 import styles from './Reports.module.css'
 
 /** The reports NKeeper offers, in the section's list. */
 const REPORTS = [
   { path: 'ip-addresses', label: 'IP address map', description: 'Hosts by address, one column per /24 subnet' },
   { path: 'vm-resources', label: 'VM hosts & resources', description: 'Each VM host’s CPU and memory, and what its VMs use' },
+  { path: 'audit', label: 'Audit log', description: 'Sign-ins, sessions and changes, with recordings', adminOnly: true },
 ]
 
 /** The Reports section: the list of reports, and the chosen one. */
 export function ReportsLayout() {
+  const { user } = useAuth()
+  const admin = isAdministrator(user)
   return (
     <div className={styles.page}>
       <nav className={styles.sidebar} aria-label="Reports">
         <h1 className={styles.title}>Reports</h1>
         <ul className={styles.reportList}>
-          {REPORTS.map((report) => (
+          {REPORTS.filter((report) => admin || !report.adminOnly).map((report) => (
             <li key={report.path}>
               <NavLink to={report.path} className={({ isActive }) => `${styles.reportLink} ${isActive ? styles.reportLinkActive : ''}`}>
                 <span>{report.label}</span>

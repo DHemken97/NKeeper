@@ -23,6 +23,7 @@ public sealed class AuthController(
     IOptions<AuthenticationSettings> authenticationSettings,
     IOptions<ActiveDirectoryOptions> directoryOptions,
     SignInCredentialStore signInCredentials,
+    Auditing.AuditLog audit,
     TimeProvider timeProvider) : ControllerBase
 {
     public const string InvalidCredentialsCode = "invalid_credentials";
@@ -51,6 +52,10 @@ public sealed class AuthController(
         var user = await credentialValidator.ValidateAsync(request.UserNameOrEmail, request.Password, cancellationToken);
         if (user is null)
         {
+            // The name as typed (never the password), so repeated guessing shows up in the trail.
+            var attempted = request.UserNameOrEmail.Trim();
+            await audit.RecordAsync(new Auditing.AuditEntry(
+                Auditing.AuditActions.SignInFailed, UserName: attempted.Length > 256 ? attempted[..256] : attempted));
             var problem = ProblemDetailsFactory.CreateProblemDetails(
                 HttpContext,
                 StatusCodes.Status401Unauthorized,
@@ -79,6 +84,8 @@ public sealed class AuthController(
         }
 
         await signInManager.SignInAsync(user, properties);
+        await audit.RecordAsync(new Auditing.AuditEntry(
+            Auditing.AuditActions.SignIn, Detail: user.IsDirectoryAccount ? "Active Directory" : null, UserId: user.Id, UserName: user.UserName));
         return await ToResponseAsync(user, passOn ? $"{directory.Domain}\\{user.UserName}" : null);
     }
 
@@ -88,6 +95,11 @@ public sealed class AuthController(
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Logout()
     {
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            await audit.RecordAsync(new Auditing.AuditEntry(Auditing.AuditActions.SignOut));
+        }
+
         // Removes the server-side session row via the ticket store and clears the cookie.
         await signInManager.SignOutAsync();
         return NoContent();

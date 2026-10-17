@@ -40,6 +40,10 @@ The API reads `appsettings.json`, `appsettings.{Environment}.json`, user secrets
 | `ActiveDirectory__AdministratorsGroup` | empty (roles are assigned in NKeeper) | Distinguished name of a group whose members become NKeeper administrators. It's checked at every sign-in. |
 | `ActiveDirectory__PassCredentialsToRemoteSessions` | `true` | Keep the user's domain password, encrypted, with their NKeeper session, so RDP can log in as them (**My sign-in**) |
 | `ActiveDirectory__Timeout` | `00:00:10` | LDAP timeout |
+| `Auditing__RecordTerminalSessions` | `true` | Keep a playable recording of what SSH and Telnet sessions showed (output only, never keystrokes); see [Administration](administration.md#audit-log) |
+| `Auditing__MaxRecordingMegabytes` | `50` | A recording stops growing at this size (the session goes on) |
+| `Auditing__RetentionDays` | `365` | Audit events older than this are deleted (daily) |
+| `Auditing__RecordingRetentionDays` | `90` | Recordings older than this are deleted (daily) |
 | `ASPNETCORE_ENVIRONMENT` | `Production` in every install | `Development` enables the OpenAPI document and the developer error page |
 | `ASPNETCORE_URLS` / `ASPNETCORE_HTTP_PORTS` | `8080` in the container; `http://127.0.0.1:5080` in native Linux | Where the API listens (behind nginx) |
 | `Logging__LogLevel__Default` | `Information` | Log level (`Microsoft.AspNetCore` is `Warning`) |

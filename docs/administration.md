@@ -5,6 +5,7 @@
 - [Active Directory sign-in](#active-directory-sign-in)
 - [Moving to a new server](#moving-to-a-new-server)
 - [Backups and restores](#backups-and-restores)
+- [Audit log](#audit-log)
 - [Logs](#logs)
 - [Database migrations](#database-migrations)
 
@@ -170,6 +171,27 @@ sudo systemctl start nkeeper
 
 Use `pg_dump.exe` and `pg_restore.exe` from `C:\Program Files\PostgreSQL\17\bin`, with the same options, connecting as `postgres`. Stop the **NKeeper** app pool before restoring.
 
+## Audit log
+
+**Reports ▸ Audit log** (administrators) is NKeeper's record of who did what. It's kept in the database, separately from the application logs.
+
+**What's recorded:**
+- **Sign-ins:** successful, failed (with the name that was tried, never the password), and sign-outs.
+- **Sessions:** every SSH, Telnet, RDP, VNC, RPC, web, iDRAC console and VM console session.
+  - Each session's start says what it connected to, e.g. *SSH · root@10.0.0.5:22*. Its end gives the duration and, for web sessions and consoles, why it ended.
+  - A session that couldn't connect is recorded with the reason, e.g. a refused connection or a rejected login.
+- **Changes:** hosts added, changed, deleted, imported, bulk-edited and scanned; trusted keys forgotten; users added, changed, deleted, their passwords reset and their access changed; iDRAC power actions; moves to a new server.
+
+Each entry has the time, the user, the host (named as it was then, so the trail still reads correctly after a rename or deletion) and the client's address. Search by text, filter by what happened and by date, and page back with **Load older**. **Download CSV** exports what's shown, up to 100,000 rows.
+
+**Recordings:** SSH and Telnet sessions are recorded as they appeared on screen, and **▶ Play recording** replays one at its original pace, or 2×, 4× or 8×. Pauses longer than two seconds are shortened.
+- **Only output is recorded**, never keystrokes. Passwords typed at a prompt (which the terminal doesn't echo) aren't in it, but anything the screen showed is, e.g. a file `cat` printed. Treat recordings as sensitive. Only administrators can play them.
+- **Size limit:** a recording stops at 50 MB and is marked as cut short; the session itself goes on.
+- **Not recorded yet:** RDP and VNC sessions.
+- **Turning it off:** set `Auditing__RecordTerminalSessions=false`.
+
+**Retention:** events are kept for 365 days and recordings for 90, then deleted daily. Both can be changed under `Auditing__*` in [Configuration](configuration.md#api-settings). Audit events aren't carried over by a move to a new server.
+
 ## Logs
 
 | Install | API log | Web server |
@@ -183,7 +205,7 @@ Use `pg_dump.exe` and `pg_restore.exe` from `C:\Program Files\PostgreSQL\17\bin`
 - **Accounts:** account changes, with who made them.
 - **Sessions:** every session start and end, with the user, host, credential ID and duration.
 
-Secrets are never logged. These logs are application logs, not a tamper-proof audit trail; keep them with your normal log retention.
+Secrets are never logged. These are application logs; for who did what, use the [audit log](#audit-log).
 
 ## Database migrations
 

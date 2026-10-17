@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using NKeeper.Api.Auditing;
 using NKeeper.Api.Kvm;
 using NKeeper.Api.RemoteSessions;
 using NKeeper.Api.Security;
@@ -55,6 +56,7 @@ public sealed class InstanceTransferController(NKeeperDbContext db) : Controller
     /// Downloads everything in this instance as a file encrypted with the passphrase. The caller
     /// confirms with their own password; optionally the instance is locked against changes afterwards.
     /// </summary>
+    [Audit("transfer.export", AuditTarget.None)]
     [HttpPost("export")]
     [EnableRateLimiting(RateLimitPolicy)]
     [Produces("application/octet-stream")]
@@ -82,6 +84,7 @@ public sealed class InstanceTransferController(NKeeperDbContext db) : Controller
     }
 
     /// <summary>Lets hosts and users be changed again after an export (e.g. the move was called off).</summary>
+    [Audit("transfer.unlock", AuditTarget.None)]
     [HttpPost("unlock")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Unlock(CancellationToken cancellationToken)
@@ -103,6 +106,7 @@ public sealed class InstanceTransferController(NKeeperDbContext db) : Controller
     /// Replaces this fresh instance's data with the file's. Every session ends, the caller's
     /// included: they sign in again with their account from the old server.
     /// </summary>
+    [Audit("transfer.import", AuditTarget.None)]
     [HttpPost("import")]
     [EnableRateLimiting(RateLimitPolicy)]
     [RequestSizeLimit(MaxBundleBytes + (1024 * 1024))]

@@ -13,6 +13,7 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
   - **Dell iDRAC**: the HTML5 virtual console in a tab, the server's status and power buttons over Redfish, and RACADM over SSH.
 - **Windows scans** over RPC (WMI): hostname, model, Windows version, adapters, listening ports and local accounts.
 - **Hardware inventory**: CPU cores, memory and serial numbers, filled in by scans (Linux, Windows, iDRAC), with each VM's vCPUs and memory read from its hypervisor.
+- **Audit log**: who signed in, opened which session to which host, and changed what, searchable and exportable. SSH and Telnet sessions are recorded and can be played back.
 - **Reports**: an IP address map of every /24 subnet in use, and each VM host's capacity with what its VMs use. Both download as CSV.
 - **Trust on first use**: SSH host keys, RDP certificates and self-signed HTTPS certificates are confirmed once, then pinned. A changed key or certificate is refused.
 - **Moving servers**: export a whole instance into one passphrase-encrypted file and import it on a fresh NKeeper, between any install modes. Stored passwords are re-encrypted with the new server's keys.
@@ -69,7 +70,7 @@ The script asks for the names people will use to reach the server and for the fi
 
 NKeeper is young. It's usable and well tested, but it hasn't had an independent security review. Treat it accordingly before storing production credentials.
 
-- **Not yet automated:** backups (see [Administration](docs/administration.md#backups-and-restores) for the manual commands), an audit-event store, two-factor sign-in and mRemoteNG import.
+- **Not yet automated:** backups (see [Administration](docs/administration.md#backups-and-restores) for the manual commands), two-factor sign-in, and recording RDP and VNC sessions.
 - **Services** are SSH, Telnet, RDP, RPC, VNC, HTTP(S), KVM and iDRAC. SSMS, SFTP, FTP, WinRM and PowerShell aren't supported: imports and scans leave them out, and ones an older version stored are removed when the host is next edited.
 - **Sessions live in the API process.** Restarting it ends open sessions, and limits are per API instance. There's no SSH port forwarding, jump hosts or SFTP yet. RDP file transfer, drives, printing and microphone are off.
 - **KVM:** one SPICE console at a time (VNC consoles aren't limited). SPICE configured for TLS only isn't supported.

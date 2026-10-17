@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NKeeper.Api.Access;
+using NKeeper.Api.Auditing;
 using NKeeper.Api.Contracts.Inventory;
 using NKeeper.Api.Inventory.Scanning;
 using NKeeper.Api.RemoteSessions;
@@ -27,6 +28,7 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
     /// Internal scan: logs in over SSH and reads the host's own state (hostname, OS, MAC address,
     /// listening ports, local users). On the network it is a single SSH connection.
     /// </summary>
+    [Audit("host.scan", Detail = "internal")]
     [HttpPost("internal")]
     [ProducesResponseType<ScanResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
@@ -84,6 +86,7 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
     }
 
     /// <summary>External scan: probes common TCP ports on the host's address from the NKeeper server.</summary>
+    [Audit("host.scan", Detail = "external")]
     [HttpPost("external")]
     [ProducesResponseType<ScanResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]

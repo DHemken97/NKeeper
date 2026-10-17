@@ -29,7 +29,7 @@ public sealed record RpcStartMessage : SessionStartMessage
 /// browser sends <c>{ type: "call", opnum, stub }</c> (stub as hex) and receives
 /// <c>{ type: "response", stub }</c> or <c>{ type: "fault", message, status? }</c>.
 /// </summary>
-internal sealed class RpcSession(SessionTargetResolver resolver, ILogger<RpcSession> logger)
+internal sealed class RpcSession(SessionTargetResolver resolver, Auditing.AuditLog audit, ILogger<RpcSession> logger)
 {
     private const int MaxStubBytes = 256 * 1024;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
@@ -40,10 +40,12 @@ internal sealed class RpcSession(SessionTargetResolver resolver, ILogger<RpcSess
     {
         var started = Stopwatch.StartNew();
         SessionTarget? target = null;
+        Auditing.AuditedSession? audited = null;
 
         try
         {
             var start = await socket.ReceiveStartAsync<RpcStartMessage>(cancellationToken);
+            audited = audit.BeginSession("RPC", start.HostId, user);
             var interfaceId = EndpointMapper;
             if (start.InterfaceId is { Length: > 0 } text && !Guid.TryParse(text, out interfaceId))
             {
@@ -65,10 +67,12 @@ internal sealed class RpcSession(SessionTargetResolver resolver, ILogger<RpcSess
             await ConnectAsync(client, target, interfaceId, start, cancellationToken);
             await socket.SendJsonAsync(new { type = "connected", target = target.Display }, cancellationToken);
 
+            await audited.ConnectedAsync(target.Display);
             await ServeAsync(socket, client, cancellationToken);
         }
         catch (SessionException ex)
         {
+            await (audited?.FailedAsync(ex.Message, target?.Display) ?? Task.CompletedTask);
             await socket.SendErrorAndCloseAsync(ex.Code, ex.Message, cancellationToken);
         }
         catch (Exception ex) when (ex is OperationCanceledException or WebSocketException)
@@ -82,6 +86,7 @@ internal sealed class RpcSession(SessionTargetResolver resolver, ILogger<RpcSess
         }
         finally
         {
+            await (audited?.EndAsync() ?? Task.CompletedTask);
             logger.LogInformation("RPC session ended for user {UserId} (host {HostId}) after {Duration}", user.Id, target?.HostId, started.Elapsed);
         }
     }

@@ -56,6 +56,7 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
         WithRedfishAsync(request, async (client, target) =>
         {
             await IdracRedfish.ResetAsync(client, request.ResetType, cancellationToken);
+            await Audit.RecordAsync(new Auditing.AuditEntry("idrac.power", target.HostId, $"{request.ResetType} · {target.Display}"));
             return new IdracOverviewResponse("ready", null, Display(target), null);
         }, cancellationToken);
 
@@ -91,6 +92,7 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
                     SessionErrorCodes.TooManySessions, $"You already have {WebSessionStore.MaxSessionsPerUser} open web sessions. Close one and try again.");
             }
 
+            await Audit.RecordAsync(new Auditing.AuditEntry(Auditing.AuditActions.SessionStart, target.HostId, $"iDRAC console · {target.Display}", session.Id));
             return new OpenWebSessionResponse(
                 "ready", session.Id, $"{WebProxyMiddleware.LaunchPath}?t={session.LaunchToken}", settings.Value.BaseDomain, uri.ToString(), null);
         }
@@ -140,6 +142,8 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
         return CertificateTrust.CheckAsync(
             target.HostId, target.Address, target.Port, target.KeyProtocol, target.KnownKeys, request.TrustFingerprint, User.GetUserId(), HttpContext.RequestServices.GetRequiredService<TrustedKeyStore>(), cancellationToken);
     }
+
+    private Auditing.AuditLog Audit => HttpContext.RequestServices.GetRequiredService<Auditing.AuditLog>();
 
     private SessionTargetResolver Resolver => HttpContext.RequestServices.GetRequiredService<SessionTargetResolver>();
 
