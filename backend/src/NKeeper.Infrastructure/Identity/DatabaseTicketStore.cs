@@ -33,6 +33,8 @@ public sealed class DatabaseTicketStore(
         {
             Id = Guid.NewGuid(),
             UserId = GetUserId(ticket),
+            // Taken out of the ticket first, so the password isn't serialized with it.
+            ProtectedSignInPassword = SignInCredentialStore.Detach(ticket.Properties, dataProtectionProvider),
             ProtectedTicket = Protect(ticket),
             CreatedAtUtc = now,
             LastRenewedAtUtc = now,
@@ -59,7 +61,12 @@ public sealed class DatabaseTicketStore(
             return;
         }
 
+        // A sign-in while an earlier session's cookie is still sent renews that session with the
+        // new ticket; the new sign-in's password (or none) replaces the old one.
+        var signingIn = ticket.Properties.Items.ContainsKey(SignInCredentialStore.PasswordProperty);
+        var password = SignInCredentialStore.Detach(ticket.Properties, dataProtectionProvider);
         var protectedTicket = Protect(ticket);
+        var userId = GetUserId(ticket);
         var now = timeProvider.GetUtcNow();
         var expires = ticket.Properties.ExpiresUtc;
 
@@ -70,10 +77,18 @@ public sealed class DatabaseTicketStore(
         await db.AuthSessions
             .Where(s => s.Id == id)
             .ExecuteUpdateAsync(
-                setters => setters
-                    .SetProperty(s => s.ProtectedTicket, protectedTicket)
-                    .SetProperty(s => s.LastRenewedAtUtc, now)
-                    .SetProperty(s => s.ExpiresAtUtc, expires),
+                setters =>
+                {
+                    setters
+                        .SetProperty(s => s.ProtectedTicket, protectedTicket)
+                        .SetProperty(s => s.UserId, userId)
+                        .SetProperty(s => s.LastRenewedAtUtc, now)
+                        .SetProperty(s => s.ExpiresAtUtc, expires);
+                    if (signingIn)
+                    {
+                        setters.SetProperty(s => s.ProtectedSignInPassword, password);
+                    }
+                },
                 cancellationToken);
     }
 

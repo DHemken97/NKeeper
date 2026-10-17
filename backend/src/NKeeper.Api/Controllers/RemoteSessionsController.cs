@@ -7,6 +7,7 @@ using NKeeper.Api.Desktop;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Api.RemoteSessions;
 using NKeeper.Api.Rpc;
+using NKeeper.Api.Security;
 using NKeeper.Api.Ssh;
 
 namespace NKeeper.Api.Controllers;
@@ -50,7 +51,7 @@ public sealed class RemoteSessionsController(SessionLimiter limiter, IOptions<Co
             return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "Remote sessions can only be opened from NKeeper itself.");
         }
 
-        var user = RequestUser.From(User);
+        var user = RequestUser.From(User) with { SessionKey = CurrentSession.Key(HttpContext) };
         var userId = user.Id;
         using var webSocket = await HttpContext.WebSockets.AcceptWebSocketAsync();
         using var socket = new SessionSocket(webSocket);

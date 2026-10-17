@@ -7,7 +7,7 @@ namespace NKeeper.Api.RemoteSessions;
  * Remote session WebSocket protocols (GET /api/ssh/session, GET /api/rdp/session) share a JSON
  * control phase in text frames, each with a "type" field:
  *
- *   client → server  start           { hostId, serviceIndex, credentialId? | username + password (+ domain)?, ...protocol fields }
+ *   client → server  start           { hostId, serviceIndex, credentialId? | useSignInCredentials? | username + password (+ domain)?, ...protocol fields }
  *                    hostKeyDecision { trust }                         (reply to hostKey "unknown")
  *   server → client  status          { status: "connecting", target }
  *                    hostKey         { status: "unknown" | "changed", kind: "ssh" | "certificate", port, algorithm,
@@ -37,6 +37,12 @@ public abstract record SessionStartMessage
 
     [StringLength(1024)]
     public string? Password { get; init; }
+
+    /// <summary>
+    /// RDP: log in with the domain account the user signed in to NKeeper with (Active Directory).
+    /// The password stays on the server; the browser only asks for it to be used.
+    /// </summary>
+    public bool UseSignInCredentials { get; init; }
 }
 
 /// <summary>Error codes sent in "error" messages, so the client can tailor its message.</summary>
@@ -47,6 +53,9 @@ public static class SessionErrorCodes
     public const string HostNotFound = "host_not_found";
     public const string WrongService = "wrong_service";
     public const string CredentialNotFound = "credential_not_found";
+
+    /// <summary>The sign-in session holds no domain login to pass on (not an Active Directory sign-in, or pass-through is off).</summary>
+    public const string SignInCredentialsUnavailable = "sign_in_credentials_unavailable";
     public const string MissingUsername = "missing_username";
     public const string MissingSecret = "missing_secret";
     public const string InvalidPrivateKey = "invalid_private_key";

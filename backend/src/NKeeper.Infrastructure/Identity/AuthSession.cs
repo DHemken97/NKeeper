@@ -18,4 +18,10 @@ public sealed class AuthSession
     public DateTimeOffset LastRenewedAtUtc { get; set; }
 
     public DateTimeOffset? ExpiresAtUtc { get; set; }
+
+    /// <summary>
+    /// The domain password the user signed in with, encrypted, for passing on to RDP sessions.
+    /// See <see cref="SignInCredentialStore"/>.
+    /// </summary>
+    public byte[]? ProtectedSignInPassword { get; set; }
 }

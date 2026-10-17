@@ -38,12 +38,13 @@ public sealed class UserAdministration(
                 u.IsDisabled,
                 u.MustChangePassword,
                 u.LockoutEnd,
+                u.IsDirectoryAccount,
                 u.CreatedAtUtc,
                 Grants = db.HostAccessGrants.Count(g => g.UserId == u.Id),
             })
             .ToListAsync(cancellationToken);
         return [.. users.Select(u => new UserSummaryResponse(
-            u.Id, u.UserName!, u.Email, RoleOf(u.Id, admins), u.IsDisabled, u.MustChangePassword, u.LockoutEnd > now, u.Grants, u.CreatedAtUtc))];
+            u.Id, u.UserName!, u.Email, RoleOf(u.Id, admins), u.IsDisabled, u.MustChangePassword, u.LockoutEnd > now, u.IsDirectoryAccount, u.Grants, u.CreatedAtUtc))];
     }
 
     public async Task<UserResponse?> GetAsync(Guid id, CancellationToken cancellationToken)
@@ -63,7 +64,7 @@ public sealed class UserAdministration(
         var admins = await AdministratorIdsAsync(cancellationToken);
         return new UserResponse(
             user.Id, user.UserName!, user.Email, RoleOf(user.Id, admins), user.IsDisabled, user.MustChangePassword,
-            user.LockoutEnd > timeProvider.GetUtcNow(), user.CreatedAtUtc, grants);
+            user.LockoutEnd > timeProvider.GetUtcNow(), user.IsDirectoryAccount, user.CreatedAtUtc, grants);
     }
 
     public async Task<UserResponse> CreateAsync(CreateUserRequest request, Guid actorId, CancellationToken cancellationToken)
@@ -136,6 +137,11 @@ public sealed class UserAdministration(
         if (user is null)
         {
             return false;
+        }
+
+        if (user.IsDirectoryAccount)
+        {
+            throw new InventoryValidationException("password", "This is an Active Directory account: its password is reset in Active Directory.");
         }
 
         // An administrator reset needs no emailed token: check the policy, then set the hash directly.

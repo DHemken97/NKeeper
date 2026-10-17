@@ -133,7 +133,7 @@ public sealed class AuthEndpointTests(PostgresServerFixture postgres) : IAsyncLi
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
         var properties = json.RootElement.EnumerateObject().Select(p => p.Name).Order().ToArray();
-        Assert.Equal(["email", "id", "mustChangePassword", "roles", "userName"], properties);
+        Assert.Equal(["email", "id", "isDirectoryAccount", "mustChangePassword", "roles", "signInAccount", "userName"], properties);
         Assert.True(Guid.TryParse(json.RootElement.GetProperty("id").GetString(), out _));
     }
 
