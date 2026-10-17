@@ -45,13 +45,11 @@ export interface HostMenuActions {
   /** Open the host's web interface in a new browser tab, loaded directly by this computer. */
   openDirect: (host: Host, serviceIndex: number) => void
   edit: (host: Host) => void
-  /** Start a new host from a copy of this one; absent when the user can't add hosts. */
-  clone?: (host: Host) => void
   /** Tasks ▸ Scan ▸ Internal: log in over SSH with a credential (or ask for one when absent or without a secret). */
   scanInternal: (host: Host, serviceIndex: number, credential?: HostCredential) => void
   /** Tasks ▸ Scan ▸ External: probe the host over the network from the NKeeper server. */
   scanExternal: (host: Host) => void
-  copyAddress: (host: Host) => void
+  copyText: (text: string) => void
   /** Send a Wake-on-LAN packet (hosts with a MAC address). */
   wake?: (host: Host) => void
 }
@@ -111,11 +109,43 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
     { kind: 'item', label: 'Connect', submenu: connectMenuEntries(host, actions) },
     { kind: 'separator' },
     ...(host.canManage ? [{ kind: 'item', label: 'Edit', onSelect: () => actions.edit(host) } as const] : []),
-    ...(actions.clone ? [{ kind: 'item', label: 'Clone', detail: 'New host from this one', onSelect: () => actions.clone!(host) } as const] : []),
-    ...filesMenuEntries(host, actions),
-    ...(host.canManage ? [{ kind: 'item', label: 'Tasks', submenu: taskMenuEntries(host, actions) } as const] : []),
-    ...(host.macAddress && actions.wake ? [{ kind: 'item', label: 'Wake', detail: 'Wake-on-LAN', onSelect: () => actions.wake!(host) } as const] : []),
-    { kind: 'item', label: 'Copy address', detail: primaryAddress(host), onSelect: () => actions.copyAddress(host) },
+    ...(host.canManage || (host.macAddress && actions.wake)
+      ? [{ kind: 'item', label: 'Tasks', submenu: taskMenuEntries(host, actions) } as const]
+      : []),
+    {
+      kind: 'item',
+      label: 'Copy',
+      submenu: [
+        {
+          kind: 'item',
+          label: 'MAC',
+          detail: host.macAddress ?? undefined,
+          disabled: !host.macAddress,
+          onSelect: () => host.macAddress && actions.copyText(host.macAddress),
+        },
+        {
+          kind: 'item',
+          label: 'Hostname',
+          detail: host.hostname ?? undefined,
+          disabled: !host.hostname,
+          onSelect: () => host.hostname && actions.copyText(host.hostname),
+        },
+        {
+          kind: 'item',
+          label: 'IP',
+          detail: host.ipAddress ?? undefined,
+          disabled: !host.ipAddress,
+          onSelect: () => host.ipAddress && actions.copyText(host.ipAddress),
+        },
+        {
+          kind: 'item',
+          label: 'Serial Number',
+          detail: host.serialNumber ?? undefined,
+          disabled: !host.serialNumber,
+          onSelect: () => host.serialNumber && actions.copyText(host.serialNumber),
+        },
+      ],
+    },
   ]
 }
 
@@ -163,9 +193,11 @@ export function connectMenuEntries(
     return { kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions) }
   })
 
-  return services.length > 0
-    ? services
-    : [{ kind: 'item', label: host.services.length > 0 ? 'No services to connect with' : 'No services', detail: 'Edit the host to add one', disabled: true }]
+  const entries =
+    services.length > 0
+      ? services
+      : [{ kind: 'item', label: host.services.length > 0 ? 'No services to connect with' : 'No services', detail: 'Edit the host to add one', disabled: true } as const]
+  return [...entries, ...filesMenuEntries(host, actions)]
 }
 
 /**
@@ -211,7 +243,7 @@ function credentialEntry(credential: HostCredential, detail?: string): Extract<M
 }
 
 /** Tasks ▸ Scan ▸ Internal (SSH or RPC service ▸ credential) or External. */
-export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scanInternal' | 'scanExternal'>): MenuEntry[] {
+export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scanInternal' | 'scanExternal' | 'wake'>): MenuEntry[] {
   const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh' || service.protocol === 'Rpc')
   const logins = (index: number): MenuEntry[] => [
     ...host.credentials
@@ -242,6 +274,9 @@ export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scan
       label: 'Scan',
       submenu: [internal, { kind: 'item', label: 'External', detail: 'Over the network', onSelect: () => actions.scanExternal(host) }],
     },
+    ...(host.macAddress && actions.wake
+      ? [{ kind: 'item', label: 'Wake', detail: 'Wake-on-LAN', onSelect: () => actions.wake!(host) } as const]
+      : []),
   ]
 }
 

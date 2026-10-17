@@ -263,14 +263,14 @@ describe('workspace', () => {
   it('clones a host: a prefilled new host whose credentials are copied on the server', async () => {
     let body: Record<string, unknown> | undefined
     const created = makeHost({ id: 'h-sql02', name: 'sql02', ipAddress: '10.0.0.16' })
-    const { user, router } = renderAt('/?host=h-sql01', {
+    const { user, router } = renderAt('/?host=h-sql01&edit=1', {
       'POST /api/hosts': (_url, init) => {
         body = JSON.parse(String(init.body))
         return jsonResponse(201, created)
       },
     })
 
-    await user.click(await screen.findByRole('button', { name: 'Clone' }))
+    await user.click(await screen.findByRole('button', { name: 'Clone host' }))
     const form = await screen.findByRole('form', { name: 'Clone sql01' })
     expect(within(form).getByLabelText('Name')).toHaveValue('sql01 (copy)')
     expect(within(form).getByText('Stored. Leave empty to keep it.')).toBeInTheDocument()
@@ -307,15 +307,48 @@ describe('workspace', () => {
     })
   })
 
-  it('offers Clone in the host menu, and Cancel returns to the original', async () => {
-    const { user, router } = renderAt('/')
+  it('offers Clone in the host editor, and Cancel returns to the original', async () => {
+    const { user, router } = renderAt('/?host=h-web01&edit=1')
 
-    fireEvent.contextMenu(await screen.findByRole('button', { name: /web01/ }))
-    await user.click(screen.getByRole('menuitem', { name: /^Clone/ }))
+    await user.click(await screen.findByRole('button', { name: 'Clone host' }))
     expect(await screen.findByRole('form', { name: 'Clone web01' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
     await waitFor(() => expect(router.state.location.search).toBe('?host=h-web01'))
+  })
+
+  it('groups file access under Connect, Wake under Tasks, and host fields under Copy', async () => {
+    const fileHost = makeHost({
+      id: 'h-files',
+      name: 'files01',
+      hostname: 'files01.example.com',
+      ipAddress: '10.0.0.20',
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      serialNumber: 'SERIAL-01',
+      services: [{ protocol: 'Ssh', port: 22, label: null }],
+    })
+    const { user } = renderAt('/', { 'GET /api/hosts': () => jsonResponse(200, [fileHost]) })
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /files01/ }))
+    expect(screen.queryByRole('menuitem', { name: /^Clone/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /^Wake/ })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('menuitem', { name: 'Connect' }))
+    await user.click(screen.getByRole('menuitem', { name: /^Files/ }))
+    expect(screen.getByRole('menuitem', { name: 'Enter credentials…' })).toBeInTheDocument()
+
+    await user.keyboard('{Escape}{Escape}')
+    fireEvent.contextMenu(screen.getByRole('button', { name: /files01/ }))
+    await user.click(screen.getByRole('menuitem', { name: 'Tasks' }))
+    expect(screen.getByRole('menuitem', { name: /^Wake/ })).toBeInTheDocument()
+
+    await user.keyboard('{Escape}{Escape}')
+    fireEvent.contextMenu(screen.getByRole('button', { name: /files01/ }))
+    await user.click(screen.getByRole('menuitem', { name: 'Copy' }))
+    expect(screen.getByRole('menuitem', { name: /^MAC/ })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /^Hostname/ })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /^IP/ })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /^Serial Number/ })).toBeInTheDocument()
   })
 
   it('shows server validation errors on the matching rows', async () => {

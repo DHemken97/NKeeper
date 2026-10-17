@@ -130,10 +130,12 @@ describe('service health', () => {
     expect(await within(details).findByText(/Wake-on-LAN sent to AA:BB:CC:DD:EE:0F/)).toBeInTheDocument()
 
     fireEvent.contextMenu(within(await screen.findByRole('list', { name: 'Hosts' })).getByRole('button', { name: /web01/ }))
+    await user.click(screen.getByRole('menuitem', { name: 'Tasks' }))
     await user.click(screen.getByRole('menuitem', { name: /^Wake/ }))
     await waitFor(() => expect(woken).toBe(2))
     // db01 has no MAC address: nothing to wake.
     fireEvent.contextMenu(within(screen.getByRole('list', { name: 'Hosts' })).getByRole('button', { name: /db01/ }))
+    await user.click(screen.getByRole('menuitem', { name: 'Tasks' }))
     expect(screen.queryByRole('menuitem', { name: /^Wake/ })).not.toBeInTheDocument()
   })
 

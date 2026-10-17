@@ -467,7 +467,7 @@ describe('connectMenuEntries', () => {
       { ...linux01, services: [{ protocol: 'Ssms', port: null, label: null }, { protocol: 'Ssh', port: null, label: null }, { protocol: 'Ftp', port: null, label: null }] },
       actions,
     )
-    expect(mixed.map((entry) => (entry.kind === 'item' ? entry.label : entry.kind))).toEqual(['SSH'])
+    expect(mixed.map((entry) => (entry.kind === 'item' ? entry.label : entry.kind))).toEqual(['SSH', 'Files'])
 
     const none = connectMenuEntries({ ...linux01, services: [{ protocol: 'Ssms', port: null, label: null }] }, actions)
     expect(none).toEqual([{ kind: 'item', label: 'No services to connect with', detail: 'Edit the host to add one', disabled: true }])

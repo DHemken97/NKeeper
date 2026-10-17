@@ -20,6 +20,8 @@ interface HostEditorProps {
   host: Host | null
   /** When creating: start from a copy of this host. */
   cloneOf?: Host
+  /** Start a new host from this one (available while editing an existing host). */
+  onClone?: () => void
   knownTagNames: string[]
   knownTagValues: (name: string) => string[]
   /** Every host, to choose the one a virtual machine runs on. */
@@ -46,7 +48,7 @@ const FIELDS = [
 ]
 
 /** Create or edit a host in the details panel, including its tags, services and credentials. */
-export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHosts, onSaved, onCancel }: HostEditorProps) {
+export function HostEditor({ host, cloneOf, onClone, knownTagNames, knownTagValues, allHosts, onSaved, onCancel }: HostEditorProps) {
   const [draft, setDraft] = useState<HostDraft>(() => (!host && cloneOf ? toCloneDraft(cloneOf) : toHostDraft(host)))
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
@@ -263,6 +265,11 @@ export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHo
       </div>
 
       <footer className={styles.footer}>
+        {host && onClone ? (
+          <Button variant="secondary" onClick={onClone} disabled={saving}>
+            Clone host
+          </Button>
+        ) : null}
         <Button variant="secondary" onClick={onCancel} disabled={saving}>
           Cancel
         </Button>

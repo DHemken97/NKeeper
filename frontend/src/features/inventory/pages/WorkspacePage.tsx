@@ -46,7 +46,6 @@ import { matchesSearch, parseSearch, tagSearchTerm } from '../search'
 import {
   formatAccount,
   hostHealth,
-  primaryAddress,
   type Host,
   type HostCredential,
   type HostTag,
@@ -365,8 +364,7 @@ export function WorkspacePage() {
     // Called from the menu click itself, so the browser allows the new tab.
     openDirect: (host, serviceIndex) => void window.open(directWebUrl(host, host.services[serviceIndex]), '_blank', 'noopener,noreferrer'),
     edit: (host) => showHost(host.id, true),
-    clone: admin ? cloneHost : undefined,
-    copyAddress: (host) => void navigator.clipboard?.writeText(primaryAddress(host)),
+    copyText: (text) => void navigator.clipboard?.writeText(text),
     wake: (host) =>
       void hostsApi.wake(host.id).then(
         () => setWakeNotice({ text: `Wake-on-LAN sent to ${host.name} (${host.macAddress}).`, error: false }),
@@ -644,6 +642,7 @@ export function WorkspacePage() {
               key={`${selectedId}:${cloneSource?.id ?? ''}`}
               host={selectedHost ?? null}
               cloneOf={cloneSource}
+              onClone={admin && selectedHost ? () => cloneHost(selectedHost) : undefined}
               knownTagNames={knownTagNames}
               knownTagValues={(name) => tagValues(allHosts ?? [], name)}
               allHosts={allHosts ?? []}
@@ -655,7 +654,6 @@ export function WorkspacePage() {
               key={selectedHost.id}
               host={selectedHost}
               onEdit={() => update({ edit: '1' })}
-              onClone={admin ? () => cloneHost(selectedHost) : undefined}
               onDeleted={handleDeleted}
               onTagClick={filterByTag}
               onConnectMenu={(anchor) => setMenu({ hostId: selectedHost.id, x: anchor.left, y: anchor.bottom + 4, connectOnly: true })}

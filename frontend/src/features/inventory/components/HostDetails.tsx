@@ -26,8 +26,6 @@ import styles from './HostPanel.module.css'
 interface HostDetailsProps {
   host: Host
   onEdit: () => void
-  /** Start a new host from a copy of this one (shown to administrators only). */
-  onClone?: () => void
   onDeleted: (id: string) => void
   /** Filter the tree to hosts carrying this tag. */
   onTagClick: (tag: HostTag) => void
@@ -60,7 +58,6 @@ function describeKey(key: TrustedKey): string {
 export function HostDetails({
   host,
   onEdit,
-  onClone,
   onDeleted,
   onTagClick,
   onConnectMenu,
@@ -150,11 +147,6 @@ export function HostDetails({
                 Edit
               </Button>
             </>
-          ) : null}
-          {onClone ? (
-            <Button variant="secondary" onClick={onClone} disabled={deleting}>
-              Clone
-            </Button>
           ) : null}
           {host.macAddress ? (
             <Button variant="secondary" onClick={() => void sendWake()} loading={wake.busy} disabled={deleting} title="Send a Wake-on-LAN packet">
