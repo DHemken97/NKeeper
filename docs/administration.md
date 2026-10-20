@@ -57,6 +57,20 @@ Account changes are logged with who made them.
 
 **Limits per user:** 20 open SSH/RDP/VNC sessions, 20 web sessions and 10 VM consoles. The interface shows one console at a time.
 
+## Email and sign-in codes
+
+**Settings → Email** (administrators only) is where NKeeper's SMTP server is set: server, port, encryption (STARTTLS, TLS from the start, or none for a local relay), optional username and password, and the sender address. **Send test email** sends a message to your own address with the values in the form, before you save them. The password is stored encrypted like host credentials and is never shown again: leave the field empty to keep it.
+
+With email set up, **Email 2FA challenge code** can be turned on for any user, when creating them or under **Users**. Their sign-in then has a second step:
+
+1. They sign in as usual: password, Active Directory or single sign-on.
+2. NKeeper emails a random 9-digit code to the account's address. Until it's entered, they have no access at all.
+3. They type the code on the sign-in page. It expires after 10 minutes. **Send a new code** replaces it (at most every 30 seconds). Five wrong codes cancel the sign-in.
+
+- **Email must stay working.** The option can't be turned on while email is off, and email can't be turned off while any user has it. If the server can't send the code, the sign-in fails with a message to contact an administrator. Keep one administrator without the option as a way in.
+- **Audit log.** Sign-ins completed with a code are recorded as *emailed code*. Wrong codes are recorded as failed sign-ins.
+- **Moving to a new server** carries the email settings (password included, inside the encrypted file) and each user's option.
+
 ## Moving to a new server
 
 Move a whole instance (Docker, native Linux or IIS, to any of them) from the UI. Use this, not a database dump: a dump also carries the old server's encryption keys, and needs the same database tools on both sides.

@@ -65,6 +65,7 @@ internal sealed class InstanceExporter(NKeeperDbContext db, CredentialProtector 
 
         var users = await db.Users.AsNoTracking().OrderBy(u => u.CreatedAtUtc).ToListAsync(cancellationToken);
         var grants = await db.HostAccessGrants.AsNoTracking().ToListAsync(cancellationToken);
+        var email = await db.EmailSettings.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
         var hosts = await db.Hosts.AsNoTracking()
             .Include(h => h.Services)
             .Include(h => h.Tags)
@@ -78,7 +79,7 @@ internal sealed class InstanceExporter(NKeeperDbContext db, CredentialProtector 
             [.. users.Select(u => new BundleUser(
                 u.Id, u.UserName!, u.Email, u.EmailConfirmed, u.PasswordHash, u.SecurityStamp, u.LockoutEnabled, u.LockoutEnd,
                 u.AccessFailedCount, u.IsDisabled, u.MustChangePassword, u.CreatedAtUtc, [.. rolesByUser[u.Id]], u.IsDirectoryAccount,
-                u.WorkspaceGroupBy, u.WorkspaceSort, u.SingleSignOnSubject))],
+                u.WorkspaceGroupBy, u.WorkspaceSort, u.SingleSignOnSubject, u.TwoFactorEnabled))],
             [.. grants.Select(g => new BundleGrant(g.Id, g.UserId, g.HostId, g.TagName, g.TagValue, g.Level, g.CreatedAtUtc, g.CreatedByUserId))],
             [.. hosts.Select(h => new BundleHost(
                 h.Id, h.Name, h.Hostname, h.IpAddress, h.MacAddress, h.Description, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId,
@@ -92,7 +93,13 @@ internal sealed class InstanceExporter(NKeeperDbContext db, CredentialProtector 
                     c.Notes, c.Position))],
                 [.. h.TrustedKeys.Select(k => new BundleTrustedKey(k.Id, k.Protocol, k.Port, k.Algorithm, k.Fingerprint, k.TrustedAtUtc, k.TrustedByUserId))],
                 h.JumpHostId,
-                h.JumpCredentialId))]);
+                h.JumpCredentialId))],
+            email is null
+                ? null
+                : new BundleEmail(
+                    email.Enabled, email.Host, email.Port, email.Security, email.UserName,
+                    email.ProtectedPassword is null ? null : protector.Unprotect(email.ProtectedPassword),
+                    email.FromAddress, email.FromName));
     }
 }
 

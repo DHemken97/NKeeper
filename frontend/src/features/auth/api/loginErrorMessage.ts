@@ -10,6 +10,10 @@ export function loginErrorMessage(error: unknown): string {
     return 'Unable to reach the server. Check your connection and try again.'
   }
 
+  if (error.code === 'email_unavailable') {
+    return 'Your account needs a sign-in code sent by email, and it couldn’t be sent. Ask an administrator to check the email settings.'
+  }
+
   switch (error.status) {
     case 400:
       return 'Please check the details you entered and try again.'

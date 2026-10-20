@@ -65,5 +65,16 @@ public sealed record WorkspacePreferencesRequest : IValidatableObject
 
 public sealed record AntiforgeryTokenResponse(string Token, string HeaderName);
 
+/// <summary>The password was right, and the account also needs the code just emailed (202 from login).</summary>
+/// <param name="CodeSentTo">The address it went to, partly hidden (j•••@example.com).</param>
+public sealed record TwoFactorChallengeResponse(bool TwoFactorRequired, string CodeSentTo);
+
+public sealed record TwoFactorCodeRequest
+{
+    [Required(ErrorMessage = "Enter the code from the email.")]
+    [StringLength(32)]
+    public string Code { get; init; } = string.Empty;
+}
+
 /// <param name="SingleSignOnName">The identity provider's name for the "Sign in with …" button, or null without single sign-on.</param>
 public sealed record SignInOptionsResponse(string? SingleSignOnName);

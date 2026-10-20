@@ -42,6 +42,11 @@ export function AppLayout() {
               Users
             </NavLink>
           ) : null}
+          {admin ? (
+            <NavLink to="/settings" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
+              Settings
+            </NavLink>
+          ) : null}
         </nav>
         <button
           type="button"

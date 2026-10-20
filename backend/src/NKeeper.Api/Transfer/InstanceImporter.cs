@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using NKeeper.Infrastructure.Access;
+using NKeeper.Infrastructure.Email;
 using NKeeper.Infrastructure.Identity;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Infrastructure.Persistence;
@@ -22,6 +23,7 @@ internal sealed class InstanceImporter(
     NKeeperDbContext db,
     CredentialProtector protector,
     ILookupNormalizer normalizer,
+    TimeProvider timeProvider,
     ILogger<InstanceImporter> logger)
 {
     /// <summary>Decompressed data larger than this is refused (a bundle is at most 256 MB compressed).</summary>
@@ -101,6 +103,23 @@ internal sealed class InstanceImporter(
         // sessions and roles go with it); they sign in again with their account from the old server.
         await db.Users.Where(u => u.Id == callerId).ExecuteDeleteAsync(cancellationToken);
 
+        if (bundle.Data.Email is { } email)
+        {
+            await db.EmailSettings.ExecuteDeleteAsync(cancellationToken);
+            db.EmailSettings.Add(new EmailSettings
+            {
+                Enabled = email.Enabled,
+                Host = email.Host,
+                Port = email.Port,
+                Security = email.Security,
+                UserName = email.UserName,
+                ProtectedPassword = email.Password is null ? null : protector.Protect(email.Password),
+                FromAddress = email.FromAddress,
+                FromName = email.FromName,
+                UpdatedAtUtc = timeProvider.GetUtcNow(),
+            });
+        }
+
         var roles = await db.Roles.ToDictionaryAsync(r => r.NormalizedName!, cancellationToken);
         foreach (var user in bundle.Data.Users)
         {
@@ -122,6 +141,7 @@ internal sealed class InstanceImporter(
                 MustChangePassword = user.MustChangePassword,
                 IsDirectoryAccount = user.IsDirectoryAccount,
                 SingleSignOnSubject = user.SingleSignOnSubject,
+                TwoFactorEnabled = user.EmailTwoFactor,
                 WorkspaceGroupBy = [.. user.WorkspaceGroupBy ?? []],
                 WorkspaceSort = user.WorkspaceSort ?? "name",
                 CreatedAtUtc = user.CreatedAtUtc,
@@ -241,6 +261,12 @@ internal sealed class InstanceImporter(
         if (directory > 0)
         {
             warnings.Add($"{directory} account{(directory == 1 ? " signs" : "s sign")} in with Active Directory: set up ActiveDirectory__* on this server the same way first, or {(directory == 1 ? "it" : "they")} can't sign in.");
+        }
+
+        var twoFactor = data.Users.Count(u => u.EmailTwoFactor);
+        if (twoFactor > 0 && data.Email is not { Enabled: true })
+        {
+            warnings.Add($"{twoFactor} account{(twoFactor == 1 ? " needs" : "s need")} a sign-in code sent by email, but the file has no email settings: set up email on this server first, or {(twoFactor == 1 ? "it" : "they")} can't sign in.");
         }
 
         var singleSignOn = data.Users.Count(u => u.SingleSignOnSubject is not null);

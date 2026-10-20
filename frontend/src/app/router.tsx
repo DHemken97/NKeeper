@@ -11,6 +11,7 @@ import { HealthReport } from '../features/reports/pages/HealthReport'
 import { AuditLogReport } from '../features/audit/pages/AuditLogReport'
 import { RecordingPlayer } from '../features/audit/pages/RecordingPlayer'
 import { TransferPage } from '../features/transfer/pages/TransferPage'
+import { SettingsPage } from '../features/settings/pages/SettingsPage'
 import { UsersPage } from '../features/users/pages/UsersPage'
 
 /** Route table, kept separate from the router instance so tests can mount it in memory. */
@@ -52,6 +53,7 @@ export const routes: RouteObject[] = [
             children: [
               { path: '/users', element: <UsersPage /> },
               { path: '/transfer', element: <TransferPage /> },
+              { path: '/settings', element: <SettingsPage /> },
             ],
           },
         ],

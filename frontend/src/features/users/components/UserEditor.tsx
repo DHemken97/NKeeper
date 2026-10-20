@@ -33,6 +33,7 @@ export function UserEditor({ user, hosts, currentUserId, onChanged, onDeleted }:
   const [email, setEmail] = useState(user.email ?? '')
   const [role, setRole] = useState<UserRole>(user.role)
   const [disabled, setDisabled] = useState(user.isDisabled)
+  const [emailTwoFactor, setEmailTwoFactor] = useState(user.emailTwoFactor ?? false)
   const [grants, setGrants] = useState<GrantDraft[]>(() => user.grants.map(toGrantDraft))
   const [accountErrors, setAccountErrors] = useState<Record<string, string>>({})
   const [grantErrors, setGrantErrors] = useState<Record<string, string>>({})
@@ -48,15 +49,15 @@ export function UserEditor({ user, hosts, currentUserId, onChanged, onDeleted }:
     setAccountErrors({})
     setSavingAccount(true)
     try {
-      const updated = await usersApi.update(user.id, { email: email.trim(), role, isDisabled: disabled })
+      const updated = await usersApi.update(user.id, { email: email.trim(), role, isDisabled: disabled, emailTwoFactor })
       onChanged(updated)
       const signedOut = role !== user.role || (disabled && !user.isDisabled)
       setMessage({ kind: 'info', text: signedOut ? 'Saved. The user was signed out everywhere so the change applies.' : 'Saved.' })
     } catch (error) {
-      const { fields, message: text } = toFormErrors(error, ['email', 'role', 'isDisabled'])
+      const { fields, message: text } = toFormErrors(error, ['email', 'role', 'isDisabled', 'emailTwoFactor'])
       setAccountErrors(fields)
-      if (text || fields.isDisabled) {
-        setMessage({ kind: 'error', text: text ?? fields.isDisabled })
+      if (text || fields.isDisabled || fields.emailTwoFactor) {
+        setMessage({ kind: 'error', text: text ?? fields.isDisabled ?? fields.emailTwoFactor })
       }
     } finally {
       setSavingAccount(false)
@@ -115,6 +116,7 @@ export function UserEditor({ user, hosts, currentUserId, onChanged, onDeleted }:
             {user.isDisabled ? ' · disabled' : ''}
             {user.isLockedOut ? ' · locked out after failed sign-ins' : ''}
             {user.mustChangePassword ? ' · must change password' : ''}
+            {user.emailTwoFactor ? ' · email sign-in code' : ''}
           </p>
         </div>
         <div className={panel.actions}>
@@ -136,6 +138,11 @@ export function UserEditor({ user, hosts, currentUserId, onChanged, onDeleted }:
             checked={disabled}
             onChange={(e) => setDisabled(e.target.checked)}
             disabled={isSelf}
+          />
+          <Checkbox
+            label="Email 2FA challenge code (a 9-digit code is emailed at every sign-in)"
+            checked={emailTwoFactor}
+            onChange={(e) => setEmailTwoFactor(e.target.checked)}
           />
           {isSelf ? <p className={panel.muted}>You can’t change your own role or disable yourself.</p> : null}
           <div>
