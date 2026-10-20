@@ -150,15 +150,17 @@ cd frontend && npm run build           # type-check and production build
 | xrdp, x11vnc and guacd | RDP and VNC end to end, including certificate trust and the instruction filter |
 | An in-process HTTP/HTTPS server | Web sessions: proxying, cookies, framing, certificates, isolation |
 | An in-process fake iDRAC (Redfish over HTTPS) | iDRAC status, power, console credentials and launch, certificate trust |
+| An in-process fake OpenID Connect provider | Single sign-on through ASP.NET Core's real handler: signed id_tokens, state, nonce and PKCE, account creation and refusals, groups |
+| A fake SMTP transport | Email settings, test emails and emailed sign-in codes (it keeps the messages instead of delivering them) |
 
 Without Docker (and without `NKEEPER_TEST_POSTGRES`), these tests are reported as **Skipped** with the reason, never as passed.
 
 Frontend tests render the real app with mocked HTTP and fake WebSocket, xterm, Guacamole, SPICE and noVNC clients. They cover:
-- sign-in and routing;
+- sign-in and routing, single sign-on and emailed sign-in codes;
 - the workspace (tree, search, grouping, editing, cloning);
 - the host menus;
 - every session type's UI;
-- user administration.
+- user administration and settings.
 
 ## Database migrations
 

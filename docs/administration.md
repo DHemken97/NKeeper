@@ -2,7 +2,9 @@
 
 - [The first administrator](#the-first-administrator)
 - [Users and access](#users-and-access)
+- [Email and sign-in codes](#email-and-sign-in-codes)
 - [Active Directory sign-in](#active-directory-sign-in)
+- [Single sign-on](#single-sign-on)
 - [Moving to a new server](#moving-to-a-new-server)
 - [Backups and restores](#backups-and-restores)
 - [Audit log](#audit-log)
@@ -76,7 +78,8 @@ With email set up, **Email 2FA challenge code** can be turned on for any user, w
 Move a whole instance (Docker, native Linux or IIS, to any of them) from the UI. Use this, not a database dump: a dump also carries the old server's encryption keys, and needs the same database tools on both sides.
 
 **What moves:**
-- user accounts, with their roles, passwords (as hashes), lockouts, access grants and saved workspace grouping and sort. [Active Directory](#active-directory-sign-in) accounts stay domain accounts: configure `ActiveDirectory__*` on the new server the same way before importing;
+- user accounts, with their roles, passwords (as hashes), lockouts, access grants and saved workspace grouping and sort. [Active Directory](#active-directory-sign-in) accounts stay domain accounts: configure `ActiveDirectory__*` on the new server the same way before importing. [Single sign-on](#single-sign-on) accounts stay tied to their provider: configure `SingleSignOn__*` with the same provider and claims first. Each user's **Email 2FA challenge code** option moves too;
+- the [email settings](#email-and-sign-in-codes), password included (inside the encrypted file);
 - hosts, with their tags, services, credentials, hardware details, VM links, jump hosts and trusted keys.
 
 **What doesn't move:**

@@ -310,6 +310,10 @@ The figures come from the hosts' hardware fields: scan the hypervisors (internal
 
 ## Your account
 
-The account menu (top right) has **Change password** and **Sign out**. Changing your password signs out your other sessions. If you sign in with your Active Directory account, change your password in Windows instead.
+**Signing in.** Use your NKeeper username or email and password, or your domain account if Active Directory sign-in is set up. If the sign-in page shows **Sign in with …** (for example *Sign in with Microsoft*), you can use your organization's account instead: NKeeper sends you to its sign-in page and back. **Remember me** applies to both.
+
+**Sign-in codes.** If an administrator turned on **Email 2FA challenge code** for your account, NKeeper emails you a 9-digit code after your password (or single sign-on). Enter it on the **Check your email** page. Spaces or dashes are fine. The code works once, for 10 minutes. **Send a new code** replaces it if the email doesn't arrive. After five wrong codes, sign in again. If no code arrives at all, ask an administrator to check the email settings.
+
+The account menu (top right) has **Change password** and **Sign out**. Changing your password signs out your other sessions. If you sign in with your Active Directory account, change your password in Windows instead. Accounts that use single sign-on have no NKeeper password: their password is managed by the identity provider.
 
 If an administrator set a temporary password, NKeeper asks you to choose your own at your first sign-in. There's no self-service password reset; ask an administrator.
