@@ -7,11 +7,12 @@ using NKeeper.Infrastructure.Identity;
 
 namespace NKeeper.Infrastructure.Persistence;
 
-/// <summary>Runs optional startup migrations and the optional bootstrap administrator setup.</summary>
+/// <summary>Runs optional startup migrations, secures the stored keys, and the optional bootstrap administrator setup.</summary>
 public sealed class DatabaseInitializer(
     NKeeperDbContext db,
     UserManager<ApplicationUser> userManager,
     RoleManager<ApplicationRole> roleManager,
+    KeyRingEncryption keyRing,
     IOptions<DatabaseOptions> databaseOptions,
     IOptions<BootstrapAdminOptions> bootstrapOptions,
     IHostEnvironment environment,
@@ -25,6 +26,8 @@ public sealed class DatabaseInitializer(
             await db.Database.MigrateAsync(cancellationToken);
         }
 
+        // Before anything loads the keys.
+        await keyRing.SecureStoredKeysAsync(cancellationToken);
         await EnsureBootstrapAdministratorAsync(cancellationToken);
     }
 

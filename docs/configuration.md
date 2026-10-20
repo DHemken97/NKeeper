@@ -15,6 +15,7 @@ The API reads `appsettings.json`, `appsettings.{Environment}.json`, user secrets
 | --- | --- | --- |
 | `ConnectionStrings__NKeeper` | — (**required**) | PostgreSQL connection string |
 | `Database__MigrateOnStartup` | `false` (`true` in Development and in every setup-script install) | Apply pending migrations at start-up |
+| `DataProtection__CertificatePath` | empty (`/etc/nkeeper/data-protection.pem` in native Linux) | PEM file with an RSA certificate and its private key. The keys that encrypt stored credentials are encrypted with it before they're saved in the database. Keys stored before it was set are encrypted at start-up. Once set, NKeeper won't start without the same file. See [Security](security.md#stored-secrets). |
 | `Authentication__CookieName` | `NKeeper.Session` | Session cookie name |
 | `Authentication__SessionTimeout` | `08:00:00` | Sliding lifetime of a sign-in |
 | `Authentication__RememberMeDuration` | `14.00:00:00` | Sliding lifetime with "Remember me" |
@@ -81,6 +82,7 @@ Other API settings can be added to the `backend` service's `environment` in a `d
 | --- | --- | --- |
 | Application | `/opt/nkeeper/api`, `/opt/nkeeper/frontend` | `C:\inetpub\nkeeper` (frontend in `wwwroot`) |
 | Settings and secrets | `/etc/nkeeper/nkeeper.env` (root only; systemd `EnvironmentFile`) | `C:\inetpub\nkeeper\web.config` (administrators and the app pool only) |
+| Key certificate | `/etc/nkeeper/data-protection.pem` (owner root, readable by `nkeeper`); encrypts the stored keys | none: the keys are stored unencrypted |
 | Setup state | the same file | `C:\ProgramData\NKeeper\state.json` (administrators only) |
 | Service | `nkeeper.service` (systemd), user `nkeeper` | IIS site **NKeeper**, app pool **NKeeper**; redirect site **NKeeper HTTP redirect** |
 | Web server config | `/etc/nginx/conf.d/nkeeper.conf`, `nkeeper-tls.conf`, `/etc/nginx/snippets/nkeeper/` | IIS bindings |

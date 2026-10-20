@@ -81,7 +81,7 @@ NKeeper is young. It's usable and well tested, but it hasn't had an independent 
 - **KVM:** one SPICE console at a time (VNC consoles aren't limited). SPICE configured for TLS only isn't supported.
 - **Web sessions** from other machines need a wildcard DNS record. Links that hard-code a host's absolute address leave the session.
 - **Passwords:** there's no self-service password reset; an administrator resets passwords.
-- **Data Protection keys** are stored in PostgreSQL next to the secrets they encrypt. Protect the database and its backups accordingly.
+- **Data Protection keys** are stored in PostgreSQL next to the secrets they encrypt. Native Linux installs encrypt them with a certificate kept in `/etc/nkeeper`; in Docker and IIS installs they're unencrypted, so protect the database and its backups accordingly.
 - **The IIS install mode** has not been tested on a real IIS server yet. The Docker and native Linux modes have been tested end to end.
 
 ## Licence and third-party code

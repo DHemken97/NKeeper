@@ -52,10 +52,19 @@ public static class DependencyInjection
             })
             .AddEntityFrameworkStores<NKeeperDbContext>();
 
-        // Keys live in PostgreSQL so cookies and antiforgery tokens survive container restarts.
-        services.AddDataProtection()
+        // Keys live in PostgreSQL so cookies and antiforgery tokens survive container restarts. With
+        // DataProtection:CertificatePath set, they're encrypted with a certificate kept outside it.
+        var keyRing = KeyRingCertificate.Load(configuration);
+        var dataProtection = services.AddDataProtection()
             .SetApplicationName("NKeeper")
             .PersistKeysToDbContext<NKeeperDbContext>();
+        if (keyRing.Certificate is { } keyCertificate)
+        {
+            dataProtection.ProtectKeysWithCertificate(keyCertificate);
+        }
+
+        services.AddSingleton(keyRing);
+        services.AddScoped<KeyRingEncryption>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<DatabaseTicketStore>();

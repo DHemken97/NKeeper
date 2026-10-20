@@ -120,11 +120,14 @@ services:
 
 > Backups aren't automated yet. Schedule one of the commands below (cron, systemd timer or Task Scheduler), keep copies off the server, and test a restore.
 
-Everything NKeeper stores is in its PostgreSQL database: hosts, credentials, accounts, trusted keys, and the **Data Protection keys** that encrypt the stored passwords. A database backup is therefore complete. Keep it as safe as the passwords themselves. Without the database, the stored secrets can't be recovered; with it, anyone can decrypt them.
+Everything NKeeper stores is in its PostgreSQL database: hosts, credentials, accounts, trusted keys, and the **Data Protection keys** that encrypt the stored passwords.
+
+- **Native Linux:** those keys are themselves encrypted with `/etc/nkeeper/data-protection.pem`. A database backup can't decrypt anything without that file, and the file is useless without the database. **Back up the file once, and keep it apart from the database backups** (e.g. in a password manager or a separate vault). If it's lost, the stored credentials can't be recovered: NKeeper won't start until it's restored. Backups taken before the file existed (installs upgraded from earlier versions) still hold the keys unencrypted: destroy them, or protect them like the passwords themselves.
+- **Docker and IIS:** the keys are stored unencrypted, so a database backup is complete. Keep it as safe as the passwords themselves. Without the database, the stored secrets can't be recovered; with it, anyone can decrypt them.
 
 Also keep:
 - **Docker:** `.env`, for its database password and settings;
-- **Native Linux:** `/etc/nkeeper/nkeeper.env`;
+- **Native Linux:** `/etc/nkeeper/nkeeper.env`, and `data-protection.pem` as above;
 - **IIS:** `C:\ProgramData\NKeeper\state.json`.
 
 Optionally keep the certificates too: the `nkeeper_tls` volume, `/etc/nginx/nkeeper-tls`, or the IIS certificates. If they're lost, NKeeper issues a new private CA, and clients must trust the new one.
@@ -162,7 +165,9 @@ These use the same PostgreSQL tools as the Docker commands; adjust paths to tast
 
 ```bash
 sudo -u postgres pg_dump -d nkeeper -Fc -f /var/backups/nkeeper-$(date +%F).dump
-# Restore:
+# Once, kept somewhere else: the certificate that decrypts the keys in those dumps.
+sudo cat /etc/nkeeper/data-protection.pem
+# Restore (to a new machine: put data-protection.pem back first, owner root:nkeeper, mode 640):
 sudo systemctl stop nkeeper
 sudo -u postgres pg_restore -d nkeeper --clean --if-exists --no-owner --role=nkeeper /var/backups/nkeeper-2026-10-16.dump
 sudo systemctl start nkeeper

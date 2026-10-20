@@ -547,6 +547,20 @@ native_config() {
     set_env "$env" NKEEPER_HTTPS_PORT "$https_port"
     set_env "$env" NKEEPER_HTTP_PORT "$http_port"
 
+    # The certificate that encrypts the keys NKeeper stores in the database, so a copy of the
+    # database alone can't decrypt the stored credentials. The API can read it but not change it.
+    local keyring="$NATIVE_CONFIG/data-protection.pem"
+    if [ ! -s "$keyring" ]; then
+        (umask 077 && openssl req -x509 -newkey rsa:3072 -nodes -days 36500 -subj "/CN=NKeeper Data Protection" \
+            -keyout "$keyring.key" -out "$keyring.crt" 2>/dev/null && cat "$keyring.crt" "$keyring.key" >"$keyring") ||
+            die "Couldn't generate $keyring."
+        rm -f "$keyring.crt" "$keyring.key"
+        ok "Generated $keyring: back it up apart from the database. Without it, stored credentials can't be decrypted."
+    fi
+    chown root:nkeeper "$keyring"
+    chmod 640 "$keyring"
+    set_env "$env" DataProtection__CertificatePath "$keyring"
+
     if $fresh; then
         choose_admin
         set_env "$env" BootstrapAdmin__Enabled true
