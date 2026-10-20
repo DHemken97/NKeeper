@@ -21,6 +21,8 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
 - **Trust on first use**: SSH host keys, RDP certificates and self-signed HTTPS certificates are confirmed once, then pinned. A changed key or certificate is refused.
 - **Moving servers**: export a whole instance into one passphrase-encrypted file and import it on a fresh NKeeper, between any install modes. Stored passwords are re-encrypted with the new server's keys.
 - **Users and access**: administrators and users. Users get access to tag-based groups of hosts or to single hosts, at *Use* or *Manage* level. Changes apply immediately.
+- **Sign-in your way**: local accounts, **Active Directory** (LDAPS), or **single sign-on** with an OpenID Connect provider such as Microsoft Entra ID, Okta, Google or Amazon Cognito. Accounts are created at first sign-in, and groups can decide who may sign in and who is an administrator.
+- **Two-step sign-in**: per user, **Email 2FA challenge code** emails a 9-digit code at every sign-in, which must be entered before there's any access. Administrators set up the SMTP server under **Settings**.
 - **Secure by default**:
   - stored secrets are encrypted and write-only;
   - sessions are server-side;
@@ -53,7 +55,7 @@ For Proxmox VE or another host that wants a single container, `scripts/build-ima
 | --- | --- |
 | [Installation](docs/installation.md) | Setup scripts, Docker Compose by hand, HTTPS and certificates, upgrades, running behind another proxy, uninstalling |
 | [User guide](docs/user-guide.md) | The workspace, hosts and tags, cloning, scanning, connecting with SSH, RDP, VNC, web, KVM/SPICE and iDRAC, files, jump hosts, and reports |
-| [Administration](docs/administration.md) | The first administrator, users and access, backups and restores, logs, database migrations |
+| [Administration](docs/administration.md) | The first administrator, users and access, email and sign-in codes, Active Directory and single sign-on, backups and restores, logs, database migrations |
 | [Configuration](docs/configuration.md) | Every API setting and `.env` variable, and where native installs keep their files |
 | [Security](docs/security.md) | How NKeeper protects accounts, secrets, sessions and the network path |
 | [Development](docs/development.md) | Running from source, repository layout, how sessions work, tests, migrations |
@@ -66,7 +68,7 @@ For Proxmox VE or another host that wants a single container, `scripts/build-ima
 | Frontend | React 19, TypeScript 6, Vite 8, React Router 8, CSS Modules; xterm.js, Apache Guacamole 1.6 client, spice-html5 |
 | Backend | ASP.NET Core on .NET 10 (LTS); SSH.NET; YARP (web sessions) |
 | Remote desktops | Apache Guacamole `guacd` 1.6.0 (RDP and VNC) |
-| Auth | ASP.NET Core Identity, cookie authentication with a server-side session store |
+| Auth | ASP.NET Core Identity, cookie authentication with a server-side session store; OpenID Connect (single sign-on); MailKit (SMTP for sign-in codes) |
 | Data | PostgreSQL 17, Entity Framework Core 10 (Npgsql), committed migrations |
 | Deployment | Docker Compose with nginx (HTTPS); or systemd + nginx on Linux; or IIS on Windows |
 | Tests | xUnit v3 with real PostgreSQL, OpenSSH, xrdp, VNC and guacd in Testcontainers; Vitest + Testing Library |
@@ -75,7 +77,8 @@ For Proxmox VE or another host that wants a single container, `scripts/build-ima
 
 NKeeper is young. It's usable and well tested, but it hasn't had an independent security review. Treat it accordingly before storing production credentials.
 
-- **Not yet automated:** backups (see [Administration](docs/administration.md#backups-and-restores) for the manual commands), two-factor sign-in, and recording RDP and VNC sessions.
+- **Not yet automated:** backups (see [Administration](docs/administration.md#backups-and-restores) for the manual commands), and recording RDP and VNC sessions.
+- **Sign-in:** two-step sign-in is by emailed code only (no authenticator apps or security keys yet). Single sign-on is OpenID Connect only (no SAML), and signing out of NKeeper doesn't sign out of the identity provider.
 - **Services** are SSH, Telnet, RDP, RPC, VNC, HTTP(S), KVM and iDRAC. SSMS, FTP, WinRM and PowerShell aren't supported, nor SFTP as a service of its own (files open on an SSH service): imports and scans leave them out, and ones an older version stored are removed when the host is next edited.
 - **Sessions live in the API process.** Restarting it ends open sessions, and limits are per API instance. There's no SSH port forwarding. RDP, VNC and RPC can't go through a jump host yet, and hosts behind one aren't health-checked. RDP file transfer, drives, printing and microphone are off.
 - **KVM:** one SPICE console at a time (VNC consoles aren't limited). SPICE configured for TLS only isn't supported.
@@ -86,4 +89,4 @@ NKeeper is young. It's usable and well tested, but it hasn't had an independent 
 
 ## Licence and third-party code
 
-NKeeper's own licence hasn't been chosen yet: the repository has no LICENSE file, so add one before publishing or sharing the code. NKeeper vendors the Apache Guacamole JavaScript client (Apache License 2.0) and spice-html5 (LGPL v3), unmodified apart from what their READMEs describe. See [frontend/src/vendor/guacamole-common-js](frontend/src/vendor/guacamole-common-js/README.md) and [frontend/src/vendor/spice-html5](frontend/src/vendor/spice-html5/README.md).
+NKeeper is released under the [MIT License](LICENSE). It vendors the Apache Guacamole JavaScript client (Apache License 2.0) and spice-html5 (LGPL v3), unmodified apart from what their READMEs describe. See [frontend/src/vendor/guacamole-common-js](frontend/src/vendor/guacamole-common-js/README.md) and [frontend/src/vendor/spice-html5](frontend/src/vendor/spice-html5/README.md).

@@ -18,6 +18,7 @@ public sealed class UserAdministration(
     NKeeperDbContext db,
     UserManager<ApplicationUser> userManager,
     SessionRevoker sessions,
+    Infrastructure.Email.EmailSender email,
     SessionLimiter remoteSessions,
     Web.WebSessionStore webSessions,
     Kvm.ConsoleSessionStore consoles,
@@ -40,12 +41,13 @@ public sealed class UserAdministration(
                 u.LockoutEnd,
                 u.IsDirectoryAccount,
                 IsSingleSignOnAccount = u.SingleSignOnSubject != null,
+                u.TwoFactorEnabled,
                 u.CreatedAtUtc,
                 Grants = db.HostAccessGrants.Count(g => g.UserId == u.Id),
             })
             .ToListAsync(cancellationToken);
         return [.. users.Select(u => new UserSummaryResponse(
-            u.Id, u.UserName!, u.Email, RoleOf(u.Id, admins), u.IsDisabled, u.MustChangePassword, u.LockoutEnd > now, u.IsDirectoryAccount, u.IsSingleSignOnAccount, u.Grants, u.CreatedAtUtc))];
+            u.Id, u.UserName!, u.Email, RoleOf(u.Id, admins), u.IsDisabled, u.MustChangePassword, u.LockoutEnd > now, u.IsDirectoryAccount, u.IsSingleSignOnAccount, u.TwoFactorEnabled, u.Grants, u.CreatedAtUtc))];
     }
 
     public async Task<UserResponse?> GetAsync(Guid id, CancellationToken cancellationToken)
@@ -65,17 +67,23 @@ public sealed class UserAdministration(
         var admins = await AdministratorIdsAsync(cancellationToken);
         return new UserResponse(
             user.Id, user.UserName!, user.Email, RoleOf(user.Id, admins), user.IsDisabled, user.MustChangePassword,
-            user.LockoutEnd > timeProvider.GetUtcNow(), user.IsDirectoryAccount, user.IsSingleSignOnAccount, user.CreatedAtUtc, grants);
+            user.LockoutEnd > timeProvider.GetUtcNow(), user.IsDirectoryAccount, user.IsSingleSignOnAccount, user.TwoFactorEnabled, user.CreatedAtUtc, grants);
     }
 
     public async Task<UserResponse> CreateAsync(CreateUserRequest request, Guid actorId, CancellationToken cancellationToken)
     {
+        if (request.EmailTwoFactor)
+        {
+            await EnsureEmailEnabledAsync(cancellationToken);
+        }
+
         var user = new ApplicationUser
         {
             UserName = request.UserName.Trim(),
             Email = request.Email.Trim(),
             EmailConfirmed = true,
             MustChangePassword = request.MustChangePassword,
+            TwoFactorEnabled = request.EmailTwoFactor,
             CreatedAtUtc = timeProvider.GetUtcNow(),
         };
         ThrowOnFailure(await userManager.CreateAsync(user, request.Password), defaultField: "password");
@@ -108,9 +116,15 @@ public sealed class UserAdministration(
             await EnsureAnotherActiveAdministratorAsync(id, request.IsDisabled ? "isDisabled" : "role", cancellationToken);
         }
 
+        if (request.EmailTwoFactor == true && !user.TwoFactorEnabled)
+        {
+            await EnsureEmailEnabledAsync(cancellationToken);
+        }
+
         var accessCut = (wasAdmin && !makeAdmin) || (request.IsDisabled && !user.IsDisabled);
         user.Email = request.Email.Trim();
         user.IsDisabled = request.IsDisabled;
+        user.TwoFactorEnabled = request.EmailTwoFactor ?? user.TwoFactorEnabled;
         ThrowOnFailure(await userManager.UpdateAsync(user), defaultField: "email");
         if (makeAdmin && !wasAdmin)
         {
@@ -240,6 +254,15 @@ public sealed class UserAdministration(
         remoteSessions.TerminateAll(userId);
         webSessions.EndAll(userId);
         consoles.EndAll(userId);
+    }
+
+    /// <summary>Sign-in codes are emailed, so requiring one needs working email first.</summary>
+    private async Task EnsureEmailEnabledAsync(CancellationToken cancellationToken)
+    {
+        if (!await email.IsEnabledAsync(cancellationToken))
+        {
+            throw new InventoryValidationException("emailTwoFactor", "Set up email under Settings first: the code is sent by email.");
+        }
     }
 
     private async Task EnsureAnotherActiveAdministratorAsync(Guid exceptUserId, string field, CancellationToken cancellationToken)

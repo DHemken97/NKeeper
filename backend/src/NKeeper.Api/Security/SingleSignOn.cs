@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using NKeeper.Api.Auditing;
 using NKeeper.Api.Configuration;
+using NKeeper.Infrastructure.Email;
 using NKeeper.Infrastructure.Identity;
 
 namespace NKeeper.Api.Security;
@@ -23,6 +24,8 @@ internal static class SingleSignOn
     /// <summary>Back to the sign-in page, which explains the code.</summary>
     public const string FailedRedirect = "/login?sso=failed";
     public const string RefusedRedirect = "/login?sso=refused";
+    public const string EmailFailedRedirect = "/login?sso=email";
+    public const string TwoFactorRedirect = "/login?twoFactor=1";
 
     private static readonly string[] StandardScopes = ["openid", "profile", "email"];
 
@@ -72,6 +75,7 @@ internal static class SingleSignOn
 internal sealed class SingleSignOnEvents(
     SingleSignOnAccounts accounts,
     SignInManager<ApplicationUser> signInManager,
+    TwoFactorSignIn twoFactor,
     IOptions<SingleSignOnOptions> options,
     IOptions<AuthenticationSettings> authenticationSettings,
     AuditLog audit,
@@ -109,6 +113,24 @@ internal sealed class SingleSignOnEvents(
 
         var items = context.Properties?.Items;
         var rememberMe = items?.TryGetValue(SingleSignOn.RememberMeKey, out var remember) == true && remember == "true";
+        if (user.TwoFactorEnabled)
+        {
+            // The sign-in page picks up the pending sign-in and asks for the emailed code.
+            try
+            {
+                await twoFactor.StartAsync(context.HttpContext, user, rememberMe, "Single sign-on", null, context.HttpContext.RequestAborted);
+                Finish(context, SingleSignOn.TwoFactorRedirect);
+            }
+            catch (EmailException)
+            {
+                await audit.RecordAsync(new AuditEntry(
+                    AuditActions.SignInFailed, Detail: "Single sign-on: the sign-in code couldn't be emailed", UserId: user.Id, UserName: user.UserName));
+                Finish(context, SingleSignOn.EmailFailedRedirect);
+            }
+
+            return;
+        }
+
         var auth = authenticationSettings.Value;
         await signInManager.SignInAsync(user, new AuthenticationProperties
         {

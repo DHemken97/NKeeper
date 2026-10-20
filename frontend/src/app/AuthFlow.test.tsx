@@ -99,3 +99,67 @@ describe('single sign-on', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('isn’t allowed to sign in')
   })
 })
+
+describe('email sign-in codes', () => {
+  it('asks for the emailed code after the password, then signs in', async () => {
+    let verifiedWith: unknown
+    mockFetch({
+      ...antiforgeryRoute,
+      ...emptyInventory,
+      'GET /api/auth/me': () => jsonResponse(401, { status: 401 }),
+      'GET /api/auth/options': () => jsonResponse(200, { singleSignOnName: null }),
+      'POST /api/auth/login': () => jsonResponse(202, { twoFactorRequired: true, codeSentTo: 'a•••@example.com' }),
+      'POST /api/auth/two-factor': (_url, init) => {
+        verifiedWith = JSON.parse(String(init.body))
+        return jsonResponse(200, adminUser)
+      },
+    })
+    const { user } = renderApp('/')
+
+    await user.type(await screen.findByLabelText('Username or email'), 'admin')
+    await user.type(screen.getByLabelText('Password'), 'correct-password')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeInTheDocument()
+    expect(screen.getByText(/a•••@example.com/)).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Sign-in code'), '123 456 789')
+    await user.click(screen.getByRole('button', { name: 'Verify' }))
+
+    expect(await screen.findByText('Your inventory is empty')).toBeInTheDocument()
+    expect(verifiedWith).toEqual({ code: '123 456 789' })
+  })
+
+  it('explains a wrong code and lets the user try again', async () => {
+    mockFetch({
+      ...antiforgeryRoute,
+      'GET /api/auth/me': () => jsonResponse(401, { status: 401 }),
+      'GET /api/auth/options': () => jsonResponse(200, { singleSignOnName: null }),
+      'GET /api/auth/two-factor': () => jsonResponse(200, { twoFactorRequired: true, codeSentTo: 'a•••@example.com' }),
+      'POST /api/auth/two-factor': () => jsonResponse(401, { status: 401, code: 'invalid_code' }),
+    })
+    const { user } = renderApp('/login?twoFactor=1')
+
+    await user.type(await screen.findByLabelText('Sign-in code'), '000000000')
+    await user.click(screen.getByRole('button', { name: 'Verify' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('That code isn’t right.')
+    expect(screen.getByLabelText('Sign-in code')).toHaveValue('')
+  })
+
+  it('goes back to the password form when the sign-in expired', async () => {
+    mockFetch({
+      ...antiforgeryRoute,
+      'GET /api/auth/me': () => jsonResponse(401, { status: 401 }),
+      'GET /api/auth/options': () => jsonResponse(200, { singleSignOnName: null }),
+      'GET /api/auth/two-factor': () => jsonResponse(200, { twoFactorRequired: true, codeSentTo: 'a•••@example.com' }),
+      'POST /api/auth/two-factor': () => jsonResponse(401, { status: 401, code: 'challenge_expired' }),
+    })
+    const { user } = renderApp('/login?twoFactor=1')
+
+    await user.type(await screen.findByLabelText('Sign-in code'), '123456789')
+    await user.click(screen.getByRole('button', { name: 'Verify' }))
+
+    expect(await screen.findByRole('heading', { name: 'Sign in to NKeeper' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Sign in again to get a new code.')
+  })
+})

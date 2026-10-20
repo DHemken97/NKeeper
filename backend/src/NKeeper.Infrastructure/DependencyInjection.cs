@@ -79,6 +79,8 @@ public static class DependencyInjection
         services.AddScoped<CredentialValidator>();
         services.AddSingleton<IDirectoryAuthenticator, LdapDirectoryAuthenticator>();
         services.AddScoped<SingleSignOnAccounts>();
+        services.AddScoped<Email.EmailSender>();
+        services.TryAddSingleton<Email.IEmailTransport, Email.SmtpEmailTransport>();
         services.AddScoped<SignInCredentialStore>();
         services.AddScoped<SessionRevoker>();
         services.AddScoped<DatabaseInitializer>();

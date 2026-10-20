@@ -23,6 +23,7 @@ public sealed record UserSummaryResponse(
     bool IsLockedOut,
     bool IsDirectoryAccount,
     bool IsSingleSignOnAccount,
+    bool EmailTwoFactor,
     int GrantCount,
     DateTimeOffset CreatedAtUtc);
 
@@ -38,6 +39,7 @@ public sealed record UserResponse(
     bool IsLockedOut,
     bool IsDirectoryAccount,
     bool IsSingleSignOnAccount,
+    bool EmailTwoFactor,
     DateTimeOffset CreatedAtUtc,
     IReadOnlyList<HostAccessGrantResponse> Grants);
 
@@ -63,6 +65,9 @@ public sealed record CreateUserRequest
     public string Password { get; init; } = string.Empty;
 
     public bool MustChangePassword { get; init; } = true;
+
+    /// <summary>Ask for a code sent by email at every sign-in. Needs email set up.</summary>
+    public bool EmailTwoFactor { get; init; }
 }
 
 public sealed record UpdateUserRequest
@@ -77,6 +82,9 @@ public sealed record UpdateUserRequest
     public UserRole? Role { get; init; }
 
     public bool IsDisabled { get; init; }
+
+    /// <summary>Ask for a code sent by email at every sign-in; null leaves it as it is.</summary>
+    public bool? EmailTwoFactor { get; init; }
 }
 
 public sealed record ResetPasswordRequest

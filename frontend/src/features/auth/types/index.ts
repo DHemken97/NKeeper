@@ -30,6 +30,13 @@ export interface LoginCredentials {
   rememberMe: boolean
 }
 
+/** The password was right; the account also needs the code just emailed. */
+export interface TwoFactorChallenge {
+  twoFactorRequired: true
+  /** Where the code went, partly hidden (j•••@example.com). */
+  codeSentTo: string
+}
+
 /** Ways to sign in besides a password. */
 export interface SignInOptions {
   /** The identity provider's name for the "Sign in with …" button, or null without single sign-on. */

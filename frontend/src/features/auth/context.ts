@@ -1,10 +1,13 @@
 import { createContext, useContext } from 'react'
-import type { AuthStatus, LoginCredentials, User } from './types'
+import type { AuthStatus, LoginCredentials, TwoFactorChallenge, User } from './types'
 
 export interface AuthContextValue {
   status: AuthStatus
   user: User | null
-  login: (credentials: LoginCredentials) => Promise<void>
+  /** Resolves with the emailed-code step when the account needs it, else null (signed in). */
+  login: (credentials: LoginCredentials) => Promise<TwoFactorChallenge | null>
+  /** Finishes a sign-in with the emailed code. */
+  verifyTwoFactor: (code: string) => Promise<void>
   logout: () => Promise<void>
   /** Re-checks the session, e.g. after the server was unreachable. */
   refresh: () => Promise<void>

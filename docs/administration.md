@@ -2,7 +2,9 @@
 
 - [The first administrator](#the-first-administrator)
 - [Users and access](#users-and-access)
+- [Email and sign-in codes](#email-and-sign-in-codes)
 - [Active Directory sign-in](#active-directory-sign-in)
+- [Single sign-on](#single-sign-on)
 - [Moving to a new server](#moving-to-a-new-server)
 - [Backups and restores](#backups-and-restores)
 - [Audit log](#audit-log)
@@ -57,12 +59,27 @@ Account changes are logged with who made them.
 
 **Limits per user:** 20 open SSH/RDP/VNC sessions, 20 web sessions and 10 VM consoles. The interface shows one console at a time.
 
+## Email and sign-in codes
+
+**Settings → Email** (administrators only) is where NKeeper's SMTP server is set: server, port, encryption (STARTTLS, TLS from the start, or none for a local relay), optional username and password, and the sender address. **Send test email** sends a message to your own address with the values in the form, before you save them. The password is stored encrypted like host credentials and is never shown again: leave the field empty to keep it.
+
+With email set up, **Email 2FA challenge code** can be turned on for any user, when creating them or under **Users**. Their sign-in then has a second step:
+
+1. They sign in as usual: password, Active Directory or single sign-on.
+2. NKeeper emails a random 9-digit code to the account's address. Until it's entered, they have no access at all.
+3. They type the code on the sign-in page. It expires after 10 minutes. **Send a new code** replaces it (at most every 30 seconds). Five wrong codes cancel the sign-in.
+
+- **Email must stay working.** The option can't be turned on while email is off, and email can't be turned off while any user has it. If the server can't send the code, the sign-in fails with a message to contact an administrator. Keep one administrator without the option as a way in.
+- **Audit log.** Sign-ins completed with a code are recorded as *emailed code*. Wrong codes are recorded as failed sign-ins.
+- **Moving to a new server** carries the email settings (password included, inside the encrypted file) and each user's option.
+
 ## Moving to a new server
 
 Move a whole instance (Docker, native Linux or IIS, to any of them) from the UI. Use this, not a database dump: a dump also carries the old server's encryption keys, and needs the same database tools on both sides.
 
 **What moves:**
-- user accounts, with their roles, passwords (as hashes), lockouts, access grants and saved workspace grouping and sort. [Active Directory](#active-directory-sign-in) accounts stay domain accounts: configure `ActiveDirectory__*` on the new server the same way before importing;
+- user accounts, with their roles, passwords (as hashes), lockouts, access grants and saved workspace grouping and sort. [Active Directory](#active-directory-sign-in) accounts stay domain accounts: configure `ActiveDirectory__*` on the new server the same way before importing. [Single sign-on](#single-sign-on) accounts stay tied to their provider: configure `SingleSignOn__*` with the same provider and claims first. Each user's **Email 2FA challenge code** option moves too;
+- the [email settings](#email-and-sign-in-codes), password included (inside the encrypted file);
 - hosts, with their tags, services, credentials, hardware details, VM links, jump hosts and trusted keys.
 
 **What doesn't move:**

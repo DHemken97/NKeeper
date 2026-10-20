@@ -35,6 +35,10 @@ public sealed class NKeeperDbContext(DbContextOptions<NKeeperDbContext> options)
 
     public DbSet<ServiceCheck> ServiceChecks => Set<ServiceCheck>();
 
+    public DbSet<Email.EmailSettings> EmailSettings => Set<Email.EmailSettings>();
+
+    public DbSet<TwoFactorChallenge> TwoFactorChallenges => Set<TwoFactorChallenge>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);

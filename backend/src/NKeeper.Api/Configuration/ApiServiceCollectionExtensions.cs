@@ -135,6 +135,7 @@ internal static class ApiServiceCollectionExtensions
                 };
             });
 
+        services.AddScoped<TwoFactorSignIn>();
         services.AddNKeeperSingleSignOn(configuration);
 
         // Secure by default: every endpoint requires an authenticated user unless it opts out.

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using NKeeper.Infrastructure.Access;
+using NKeeper.Infrastructure.Email;
 using NKeeper.Infrastructure.Inventory;
 
 namespace NKeeper.Api.Transfer;
@@ -12,15 +13,28 @@ namespace NKeeper.Api.Transfer;
  * with its own keys. Password hashes are Identity's own (salted PBKDF2), not reversible.
  */
 
+/// <param name="Email">The SMTP settings, password in plain text; absent from older files.</param>
 public sealed record BundleV1(
     IReadOnlyList<BundleUser> Users,
     IReadOnlyList<BundleGrant> Grants,
-    IReadOnlyList<BundleHost> Hosts);
+    IReadOnlyList<BundleHost> Hosts,
+    BundleEmail? Email = null);
+
+public sealed record BundleEmail(
+    bool Enabled,
+    string Host,
+    int Port,
+    SmtpSecurity Security,
+    string? UserName,
+    string? Password,
+    string FromAddress,
+    string? FromName);
 
 /// <param name="IsDirectoryAccount">An Active Directory account (no local password). Absent from files written before AD sign-in, which means false.</param>
 /// <param name="WorkspaceGroupBy">The user's saved host-tree grouping; absent from older files, which means none.</param>
 /// <param name="WorkspaceSort">The user's saved host-tree sort; absent from older files, which means by name.</param>
 /// <param name="SingleSignOnSubject">The identity provider's id for a single sign-on account (no local password); absent from older files.</param>
+/// <param name="EmailTwoFactor">Also signs in with a code sent by email; absent from older files.</param>
 public sealed record BundleUser(
     Guid Id,
     string UserName,
@@ -38,7 +52,8 @@ public sealed record BundleUser(
     bool IsDirectoryAccount = false,
     IReadOnlyList<string>? WorkspaceGroupBy = null,
     string? WorkspaceSort = null,
-    string? SingleSignOnSubject = null);
+    string? SingleSignOnSubject = null,
+    bool EmailTwoFactor = false);
 
 public sealed record BundleGrant(
     Guid Id,

@@ -22,6 +22,7 @@ export function NewUserDialog({ onClose, onCreated }: NewUserDialogProps) {
   const [role, setRole] = useState<UserRole>('User')
   const [password, setPassword] = useState('')
   const [mustChange, setMustChange] = useState(true)
+  const [emailTwoFactor, setEmailTwoFactor] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -46,9 +47,9 @@ export function NewUserDialog({ onClose, onCreated }: NewUserDialogProps) {
 
     setSaving(true)
     try {
-      onCreated(await usersApi.create({ userName: userName.trim(), email: email.trim(), role, password, mustChangePassword: mustChange }))
+      onCreated(await usersApi.create({ userName: userName.trim(), email: email.trim(), role, password, mustChangePassword: mustChange, emailTwoFactor }))
     } catch (error) {
-      const { fields, message } = toFormErrors(error, ['userName', 'email', 'role', 'password'])
+      const { fields, message } = toFormErrors(error, ['userName', 'email', 'role', 'password', 'emailTwoFactor'])
       setErrors(fields)
       setFormError(message)
       setSaving(false)
@@ -96,6 +97,12 @@ export function NewUserDialog({ onClose, onCreated }: NewUserDialogProps) {
         <RoleSelect value={role} onChange={setRole} error={errors.role} />
         <TemporaryPasswordField value={password} onChange={setPassword} error={errors.password} />
         <Checkbox label="Require a new password at first sign-in" checked={mustChange} onChange={(e) => setMustChange(e.target.checked)} />
+        <Checkbox
+          label="Email 2FA challenge code (a 9-digit code is emailed at every sign-in)"
+          checked={emailTwoFactor}
+          onChange={(e) => setEmailTwoFactor(e.target.checked)}
+        />
+        {errors.emailTwoFactor ? <Alert>{errors.emailTwoFactor}</Alert> : null}
       </form>
     </Dialog>
   )
