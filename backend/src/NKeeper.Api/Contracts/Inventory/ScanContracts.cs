@@ -13,6 +13,10 @@ public sealed record InternalScanRequest : SessionStartMessage
 {
     [StringLength(128)]
     public string? TrustFingerprint { get; init; }
+
+    /// <summary>Windows (RPC) scans: the domain for a one-off login.</summary>
+    [StringLength(256)]
+    public string? Domain { get; init; }
 }
 
 /// <summary>A listening (internal scan) or open (external scan) TCP port, with a well-known name when there is one.</summary>
@@ -37,6 +41,8 @@ public sealed record ScannedUser(string Username, int Uid, string? FullName, str
 /// <param name="LinkProposed">Whether linking the guest to that host would change something.</param>
 /// <param name="Note">Why it can't be linked, or what linking would change.</param>
 /// <param name="NewHost">For a guest that isn't in NKeeper: the host that could be added for it, when there's an address to give it.</param>
+/// <param name="CpuCores">The vCPUs the hypervisor gives it, when known.</param>
+/// <param name="MemoryMiB">The memory the hypervisor gives it, in MiB, when known.</param>
 public sealed record ScannedGuest(
     string Platform,
     string VirtualMachineId,
@@ -53,7 +59,9 @@ public sealed record ScannedGuest(
     string? HypervisorHostName = null,
     bool LinkProposed = false,
     string? Note = null,
-    ProposedHost? NewHost = null);
+    ProposedHost? NewHost = null,
+    int? CpuCores = null,
+    int? MemoryMiB = null);
 
 /// <summary>A host a scan could add for a guest NKeeper doesn't have yet.</summary>
 public sealed record ProposedHost(string Name, string? Hostname, string? IpAddress, string? MacAddress, string Description);
@@ -68,6 +76,9 @@ public sealed record ProposedHost(string Name, string? Hostname, string? IpAddre
 /// <param name="Virtualization">Internal scans: what the host itself runs under (e.g. "kvm", "vmware", "lxc"), or null for physical hardware.</param>
 /// <param name="Guests">Internal scans of hypervisors: the VMs and containers found there.</param>
 /// <param name="Notes">How values were found, and what couldn't be (e.g. no MAC address across a router).</param>
+/// <param name="CpuCores">Internal scans: logical processors.</param>
+/// <param name="MemoryMiB">Internal scans: memory in MiB.</param>
+/// <param name="SerialNumber">Internal scans of physical hardware: the serial number (a Dell service tag).</param>
 public sealed record ScanFindings(
     string? Hostname,
     string? IpAddress,
@@ -78,7 +89,10 @@ public sealed record ScanFindings(
     IReadOnlyList<ScannedUser> Users,
     IReadOnlyList<string> Notes,
     string? Virtualization,
-    IReadOnlyList<ScannedGuest> Guests);
+    IReadOnlyList<ScannedGuest> Guests,
+    int? CpuCores = null,
+    int? MemoryMiB = null,
+    string? SerialNumber = null);
 
 /// <param name="Status">"ready", or "trustRequired" when the SSH host key must be confirmed first (internal scans).</param>
 public sealed record ScanResponse(string Status, ScanFindings? Findings, HostKeyPromptResponse? HostKey);

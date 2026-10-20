@@ -7,7 +7,7 @@ namespace NKeeper.Api.RemoteSessions;
  * Remote session WebSocket protocols (GET /api/ssh/session, GET /api/rdp/session) share a JSON
  * control phase in text frames, each with a "type" field:
  *
- *   client → server  start           { hostId, serviceIndex, credentialId? | username + password (+ domain)?, ...protocol fields }
+ *   client → server  start           { hostId, serviceIndex, credentialId? | useSignInCredentials? | username + password (+ domain)?, ...protocol fields }
  *                    hostKeyDecision { trust }                         (reply to hostKey "unknown")
  *   server → client  status          { status: "connecting", target }
  *                    hostKey         { status: "unknown" | "changed", kind: "ssh" | "certificate", port, algorithm,
@@ -37,6 +37,12 @@ public abstract record SessionStartMessage
 
     [StringLength(1024)]
     public string? Password { get; init; }
+
+    /// <summary>
+    /// RDP: log in with the domain account the user signed in to NKeeper with (Active Directory).
+    /// The password stays on the server; the browser only asks for it to be used.
+    /// </summary>
+    public bool UseSignInCredentials { get; init; }
 }
 
 /// <summary>Error codes sent in "error" messages, so the client can tailor its message.</summary>
@@ -47,6 +53,9 @@ public static class SessionErrorCodes
     public const string HostNotFound = "host_not_found";
     public const string WrongService = "wrong_service";
     public const string CredentialNotFound = "credential_not_found";
+
+    /// <summary>The sign-in session holds no domain login to pass on (not an Active Directory sign-in, or pass-through is off).</summary>
+    public const string SignInCredentialsUnavailable = "sign_in_credentials_unavailable";
     public const string MissingUsername = "missing_username";
     public const string MissingSecret = "missing_secret";
     public const string InvalidPrivateKey = "invalid_private_key";
@@ -56,11 +65,31 @@ public static class SessionErrorCodes
     public const string ConnectionFailed = "connection_failed";
     public const string Timeout = "timeout";
 
+    /// <summary>SFTP: the server refused a file operation (missing, not allowed, not empty…).</summary>
+    public const string FileOperationFailed = "file_operation_failed";
+
+    /// <summary>SFTP: an upload would replace a file that exists.</summary>
+    public const string FileExists = "file_exists";
+
     /// <summary>RDP: the server's security does not match the service's setting, or is insecure.</summary>
     public const string SecurityNegotiationFailed = "security_negotiation_failed";
 
     /// <summary>RDP: the connection gateway (guacd) is not reachable.</summary>
     public const string GatewayUnavailable = "gateway_unavailable";
+}
+
+/// <summary>Checks shared by session types.</summary>
+internal static class SessionChecks
+{
+    internal static void RefuseJumpHost(SessionTarget target, string what)
+    {
+        if (target.Jump is not null)
+        {
+            throw new SessionException(
+                SessionErrorCodes.ConnectionFailed,
+                $"{what} can't go through a jump host yet, and “{target.HostName}” is reached through “{target.Jump.HostName}”. Use SSH, Telnet or a web session, or connect from a computer that can reach it.");
+        }
+    }
 }
 
 internal static class SessionJson

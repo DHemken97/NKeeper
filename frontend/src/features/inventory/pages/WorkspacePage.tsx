@@ -1,11 +1,12 @@
-import { lazy, Suspense, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
 import { ContextMenu } from '../../../components/ui/ContextMenu'
 import { Spinner } from '../../../components/ui/Spinner'
 import { toFormErrors } from '../../../lib/formErrors'
-import { hostsApi } from '../api/inventoryApi'
+import { accountApi } from '../../account/api/accountApi'
+import { healthApi, hostsApi } from '../api/inventoryApi'
 import { BulkEditPanel } from '../components/BulkEditPanel'
 import { GroupByPicker } from '../components/GroupByPicker'
 import { HostDetails } from '../components/HostDetails'
@@ -35,18 +36,31 @@ import {
   defaultConnection,
   directWebUrl,
   hostMenuEntries,
+  IDRAC_MODES,
   serviceLabel,
   WEB_PROTOCOLS,
   type HostMenuActions,
+  type ConnectMode,
+  type IdracMode,
 } from '../hostMenu'
 import { matchesSearch, parseSearch, tagSearchTerm } from '../search'
-import { formatAccount, primaryAddress, type Host, type HostCredential, type HostTag, type InternalScanLogin, type ServiceProtocol } from '../types'
+import {
+  formatAccount,
+  hostHealth,
+  type Host,
+  type HostCredential,
+  type HostTag,
+  type InternalScanLogin,
+  type ServiceCheck,
+  type ServiceProtocol,
+} from '../types'
 import { useAuth } from '../../auth/context'
 import { isAdministrator } from '../../auth/types'
 import styles from './WorkspacePage.module.css'
 
 const NEW_HOST = 'new'
 const DETAILS_TAB = 'details'
+const EMPTY_GROUP_BY: string[] = []
 let nextSessionId = 1
 
 // xterm.js is large; load it on the first connection rather than with the page.
@@ -58,6 +72,9 @@ const VirtualMachinesView = lazy(() =>
 )
 const SpiceConsole = lazy(() => import('../../terminal/components/SpiceConsole').then((m) => ({ default: m.SpiceConsole })))
 const VncConsole = lazy(() => import('../../terminal/components/VncConsole').then((m) => ({ default: m.VncConsole })))
+const FileBrowser = lazy(() => import('../../terminal/components/FileBrowser').then((m) => ({ default: m.FileBrowser })))
+const IdracView = lazy(() => import('../../terminal/components/IdracView').then((m) => ({ default: m.IdracView })))
+const RpcSession = lazy(() => import('../../terminal/components/RpcSession').then((m) => ({ default: m.RpcSession })))
 const SORTS: { value: HostSort; label: string }[] = [
   { value: 'name', label: 'Name' },
   { value: 'address', label: 'Address' },
@@ -70,12 +87,22 @@ interface LocalChanges {
   hosts: Host[]
 }
 
-/** Which session view a service opens in. */
-function sessionProtocol(protocol: ServiceProtocol): RemoteSession['protocol'] {
-  if (WEB_PROTOCOLS.has(protocol)) {
+/** What a session on a service opens: for an iDRAC, one of its modes or its web interface. */
+type OpenMode = ConnectMode | 'web'
+
+/** Which session view a service opens in. An iDRAC opens its console unless asked for something else. */
+function sessionProtocol(protocol: ServiceProtocol, mode?: OpenMode): RemoteSession['protocol'] {
+  if (WEB_PROTOCOLS.has(protocol) || mode === 'web') {
     return 'web'
   }
-  return protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : 'ssh'
+  if (mode === 'files') {
+    return 'sftp'
+  }
+  if (protocol === 'Idrac') {
+    // RACADM is the iDRAC's SSH command line.
+    return mode === 'overview' ? 'idrac' : mode === 'racadm' ? 'ssh' : 'idracconsole'
+  }
+  return protocol === 'Telnet' ? 'telnet' : protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : protocol === 'Rpc' ? 'rpc' : 'ssh'
 }
 
 /** Host ids in the order the tree shows them (skipping collapsed groups), each once. */
@@ -133,13 +160,38 @@ export function WorkspacePage() {
   const { user } = useAuth()
   const admin = isAdministrator(user)
   const resource = useResource((signal) => hostsApi.list(signal))
+  // Service health, refreshed every minute (the server checks every few minutes).
+  const health = useResource((signal) => healthApi.list(signal))
+  const reloadHealth = health.reload
+  useEffect(() => {
+    const timer = setInterval(reloadHealth, 60_000)
+    return () => clearInterval(timer)
+  }, [reloadHealth])
+  const checksByHost = useMemo(() => {
+    const byHost = new Map<string, ServiceCheck[]>()
+    for (const check of health.data ?? []) {
+      byHost.set(check.hostId, [...(byHost.get(check.hostId) ?? []), check])
+    }
+    return byHost
+  }, [health.data])
+  const healthByHost = useMemo(
+    () => new Map([...checksByHost].flatMap(([id, checks]) => (hostHealth(checks) ? [[id, hostHealth(checks)!] as const] : []))),
+    [checksByHost],
+  )
+  const [wakeNotice, setWakeNotice] = useState<{ text: string; error: boolean } | null>(null)
   const [local, setLocal] = useState<LocalChanges>({ basedOn: undefined, hosts: [] })
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const [sessions, setSessions] = useState<RemoteSession[]>([])
   const [activeTab, setActiveTab] = useState(DETAILS_TAB)
   const [menu, setMenu] = useState<MenuState | null>(null)
   /** Asking for a login: to connect, or for an internal scan. `account` prefills a credential without a secret. */
-  const [prompt, setPrompt] = useState<{ host: Host; serviceIndex: number; account?: HostCredential; purpose: 'connect' | 'scan' } | null>(null)
+  const [prompt, setPrompt] = useState<{
+    host: Host
+    serviceIndex: number
+    account?: HostCredential
+    purpose: 'connect' | 'scan'
+    mode?: ConnectMode
+  } | null>(null)
   const [scan, setScan] = useState<{ host: Host; kind: 'internal' | 'external'; login?: InternalScanLogin } | null>(null)
   const [importing, setImporting] = useState(false)
   /** Hosts selected together for bulk changes; two or more replace the details with the bulk panel. */
@@ -147,11 +199,25 @@ export function WorkspacePage() {
   /** Where a Shift+click range starts. */
   const [anchor, setAnchor] = useState<string | null>(null)
   const [groupMenu, setGroupMenu] = useState<{ groupId: string; x: number; y: number } | null>(null)
+  const [savedPreferences, setSavedPreferences] = useState<{
+    userId: string
+    groupBy: string[]
+    sort: HostSort
+  } | null>(null)
+  const [preferencesError, setPreferencesError] = useState<string | null>(null)
+  const preferenceSave = useRef<Promise<void>>(Promise.resolve())
 
   const allHosts = local.basedOn !== undefined && local.basedOn === resource.data ? local.hosts : resource.data
   const query = params.get('q') ?? ''
-  const groupKeys = useMemo(() => params.getAll('group').map(decodeGroupKey), [params])
-  const sort = (SORTS.find((s) => s.value === params.get('sort'))?.value ?? 'name') as HostSort
+  const savedGroupBy =
+    savedPreferences && savedPreferences.userId === user?.id ? savedPreferences.groupBy : user?.workspaceGroupBy ?? EMPTY_GROUP_BY
+  const savedSort =
+    savedPreferences && savedPreferences.userId === user?.id ? savedPreferences.sort : user?.workspaceSort ?? 'name'
+  const groupKeys = useMemo(
+    () => (params.has('group') ? params.getAll('group').map(decodeGroupKey) : savedGroupBy.map(decodeGroupKey)),
+    [params, savedGroupBy],
+  )
+  const sort = SORTS.find((s) => s.value === params.get('sort'))?.value ?? (params.has('sort') ? 'name' : savedSort)
   const selectedId = params.get('host')
   const editRequested = selectedId === NEW_HOST || params.get('edit') === '1'
 
@@ -188,6 +254,22 @@ export function WorkspacePage() {
 
   function applyLocally(change: (hosts: Host[]) => Host[]) {
     setLocal({ basedOn: resource.data, hosts: change(allHosts ?? []) })
+  }
+
+  function saveWorkspacePreferences(groupBy: string[], nextSort: HostSort) {
+    if (!user) {
+      return
+    }
+
+    setSavedPreferences({ userId: user.id, groupBy, sort: nextSort })
+    setPreferencesError(null)
+    preferenceSave.current = preferenceSave.current
+      .catch(() => undefined)
+      .then(() => accountApi.updateWorkspacePreferences(groupBy, nextSort))
+      .then((preferences) => {
+        setSavedPreferences({ userId: user.id, groupBy: preferences.groupBy, sort: preferences.sort })
+      })
+      .catch((error: unknown) => setPreferencesError(toFormErrors(error).message))
   }
 
   function showHost(id: string | null, edit = false) {
@@ -242,19 +324,24 @@ export function WorkspacePage() {
     serviceIndex: number,
     credential?: HostCredential,
     oneOff?: { username: string; password: string; domain?: string },
+    mode?: OpenMode,
+    useSignIn?: boolean,
   ) {
     const id = `session-${nextSessionId++}`
-    const account = credential ? (formatAccount(credential) ?? credential.label) : oneOff?.username
+    const account = credential ? (formatAccount(credential) ?? credential.label) : useSignIn ? user?.signInAccount : oneOff?.username
     const sameHost = sessions.filter((s) => s.hostId === host.id).length
+    const service = host.services[serviceIndex]
+    const modeLabel =
+      mode === 'files' ? 'Files' : service.protocol !== 'Idrac' ? null : mode === 'web' ? 'Web interface' : IDRAC_MODES[(mode as IdracMode | undefined) ?? 'console'].label
     setSessions((current) => [
       ...current,
       {
         id,
         hostId: host.id,
-        protocol: sessionProtocol(host.services[serviceIndex].protocol),
+        protocol: sessionProtocol(service.protocol, mode),
         title: sameHost > 0 ? `${host.name} (${sameHost + 1})` : host.name,
-        detail: [serviceLabel(host.services[serviceIndex]), account].filter(Boolean).join(' · '),
-        request: { hostId: host.id, serviceIndex, credentialId: credential?.id, oneOff },
+        detail: [serviceLabel(service), modeLabel, account].filter(Boolean).join(' · '),
+        request: { hostId: host.id, serviceIndex, credentialId: credential?.id, oneOff, ...(useSignIn ? { useSignIn } : {}) },
       },
     ])
     setActiveTab(id)
@@ -279,6 +366,16 @@ export function WorkspacePage() {
     setActiveTab(id)
   }
 
+  /** Opens an iDRAC's console, RACADM or web interface from its status tab, with the same login. */
+  function openFromIdrac(source: RemoteSession, mode: OpenMode) {
+    const host = allHosts?.find((h) => h.id === source.hostId)
+    if (!host) {
+      return
+    }
+    const credential = host.credentials.find((c) => c.id === source.request.credentialId)
+    openSession(host, source.request.serviceIndex, credential, source.request.oneOff, mode)
+  }
+
   function closeSession(id: string) {
     const index = sessions.findIndex((s) => s.id === id)
     const remaining = sessions.filter((s) => s.id !== id)
@@ -289,16 +386,24 @@ export function WorkspacePage() {
   }
 
   const menuActions: HostMenuActions = {
-    connect: (host, serviceIndex, credential) => openSession(host, serviceIndex, credential),
-    connectWithPrompt: (host, serviceIndex, account) => setPrompt({ host, serviceIndex, account, purpose: 'connect' }),
-    connectWeb: (host, serviceIndex) => openSession(host, serviceIndex),
+    connect: (host, serviceIndex, credential, mode) => openSession(host, serviceIndex, credential, undefined, mode),
+    connectWithPrompt: (host, serviceIndex, account, mode) => setPrompt({ host, serviceIndex, account, purpose: 'connect', mode }),
+    connectWithoutLogin: (host, serviceIndex) => openSession(host, serviceIndex),
+    connectWeb: (host, serviceIndex) => openSession(host, serviceIndex, undefined, undefined, 'web'),
+    signIn: user?.signInAccount
+      ? { account: user.signInAccount, connect: (host, serviceIndex) => openSession(host, serviceIndex, undefined, undefined, undefined, true) }
+      : undefined,
     // Called from the menu click itself, so the browser allows the new tab.
     openDirect: (host, serviceIndex) => void window.open(directWebUrl(host, host.services[serviceIndex]), '_blank', 'noopener,noreferrer'),
     edit: (host) => showHost(host.id, true),
-    clone: admin ? cloneHost : undefined,
-    copyAddress: (host) => void navigator.clipboard?.writeText(primaryAddress(host)),
+    copyText: (text) => void navigator.clipboard?.writeText(text),
+    wake: (host) =>
+      void hostsApi.wake(host.id).then(
+        () => setWakeNotice({ text: `Wake-on-LAN sent to ${host.name} (${host.macAddress}).`, error: false }),
+        (err: unknown) => setWakeNotice({ text: toFormErrors(err).message ?? 'The Wake-on-LAN packet couldn’t be sent.', error: true }),
+      ),
     scanInternal: (host, serviceIndex, credential) =>
-      credential && !credentialNeedsPassword(credential, 'Ssh')
+      credential && !credentialNeedsPassword(credential, host.services[serviceIndex].protocol)
         ? setScan({ host, kind: 'internal', login: { serviceIndex, credentialId: credential.id } })
         : setPrompt({ host, serviceIndex, account: credential, purpose: 'scan' }),
     scanExternal: (host) => setScan({ host, kind: 'external' }),
@@ -314,6 +419,12 @@ export function WorkspacePage() {
       openSession(host, connection.serviceIndex)
     } else if (connection.credential && !credentialNeedsPassword(connection.credential, host.services[connection.serviceIndex].protocol)) {
       openSession(host, connection.serviceIndex, connection.credential)
+    } else if (!connection.credential && host.services[connection.serviceIndex].protocol === 'Rdp' && user?.signInAccount) {
+      // No saved login for this desktop: the user's own domain sign-in rather than a prompt.
+      openSession(host, connection.serviceIndex, undefined, undefined, undefined, true)
+    } else if (host.services[connection.serviceIndex].protocol === 'Telnet') {
+      // No saved login: the device asks for it in the terminal.
+      openSession(host, connection.serviceIndex)
     } else {
       setPrompt({ host, serviceIndex: connection.serviceIndex, account: connection.credential ?? undefined, purpose: 'connect' })
     }
@@ -437,13 +548,22 @@ export function WorkspacePage() {
             value={groupKeys}
             onChange={(keys: GroupKey[]) => {
               setCollapsed(new Set())
-              update({ group: keys.map(encodeGroupKey) })
+              const groupBy = keys.map(encodeGroupKey)
+              update({ group: groupBy })
+              saveWorkspacePreferences(groupBy, sort)
             }}
             tagNames={knownTagNames}
           />
           <label className={styles.sort}>
             <span>Sort</span>
-            <select value={sort} onChange={(event) => update({ sort: event.target.value === 'name' ? null : event.target.value })}>
+            <select
+              value={sort}
+              onChange={(event) => {
+                const nextSort = event.target.value as HostSort
+                update({ sort: nextSort === 'name' ? null : nextSort })
+                saveWorkspacePreferences(groupKeys.map(encodeGroupKey), nextSort)
+              }}
+            >
               {SORTS.map((s) => (
                 <option key={s.value} value={s.value}>
                   {s.label}
@@ -452,6 +572,7 @@ export function WorkspacePage() {
             </select>
           </label>
         </div>
+        {preferencesError ? <Alert>{`Couldn’t save your host tree preferences. ${preferencesError}`}</Alert> : null}
 
         <div className={styles.treeScroll}>
           {resource.error && !allHosts ? (
@@ -486,12 +607,21 @@ export function WorkspacePage() {
               onContextMenu={(hostId, x, y) => setMenu({ hostId, x, y })}
               onGroupContextMenu={(groupId, x, y) => setGroupMenu({ groupId, x, y })}
               menuHostId={menu?.hostId ?? null}
+              health={healthByHost}
             />
           )}
         </div>
       </aside>
 
       <main className={styles.main}>
+        {wakeNotice ? (
+          <div className={styles.notice}>
+            <Alert variant={wakeNotice.error ? 'error' : 'info'}>{wakeNotice.text}</Alert>
+            <Button variant="ghost" size="sm" onClick={() => setWakeNotice(null)}>
+              Dismiss
+            </Button>
+          </div>
+        ) : null}
         {showingPanel ? (
           <button type="button" className={styles.back} onClick={() => showHost(null)}>
             ‹ All hosts
@@ -554,6 +684,7 @@ export function WorkspacePage() {
               key={`${selectedId}:${cloneSource?.id ?? ''}`}
               host={selectedHost ?? null}
               cloneOf={cloneSource}
+              onClone={admin && selectedHost ? () => cloneHost(selectedHost) : undefined}
               knownTagNames={knownTagNames}
               knownTagValues={(name) => tagValues(allHosts ?? [], name)}
               allHosts={allHosts ?? []}
@@ -565,13 +696,14 @@ export function WorkspacePage() {
               key={selectedHost.id}
               host={selectedHost}
               onEdit={() => update({ edit: '1' })}
-              onClone={admin ? () => cloneHost(selectedHost) : undefined}
               onDeleted={handleDeleted}
               onTagClick={filterByTag}
               onConnectMenu={(anchor) => setMenu({ hostId: selectedHost.id, x: anchor.left, y: anchor.bottom + 4, connectOnly: true })}
               onChanged={handleChanged}
               allHosts={allHosts ?? []}
               onShowHost={(id) => showHost(id)}
+              checks={checksByHost.get(selectedHost.id)}
+              onHealthChanged={reloadHealth}
             />
           ) : selectedId && allHosts ? (
             <div className={styles.mainState}>
@@ -611,7 +743,7 @@ export function WorkspacePage() {
           }
         >
           {sessions.map((session) => (
-            session.protocol === 'web' ? (
+            session.protocol === 'web' || session.protocol === 'idracconsole' ? (
               <WebSession
                 key={session.id}
                 session={session}
@@ -627,10 +759,24 @@ export function WorkspacePage() {
                 onShowHost={(id) => showHost(id)}
                 onOpenConsole={(vm) => openConsole(session, vm)}
               />
+            ) : session.protocol === 'sftp' ? (
+              <FileBrowser key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'idrac' ? (
+              <IdracView
+                key={session.id}
+                session={session}
+                active={activeTab === session.id}
+                onShowHost={(id) => showHost(id)}
+                onOpen={(mode) => openFromIdrac(session, mode)}
+                host={allHosts?.find((h) => h.id === session.hostId)}
+                onHostChanged={handleChanged}
+              />
             ) : session.protocol === 'spice' ? (
               <SpiceConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'vmvnc' ? (
               <VncConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'rpc' ? (
+              <RpcSession key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'rdp' || session.protocol === 'vnc' ? (
               <DesktopSession
                 key={session.id}
@@ -667,15 +813,15 @@ export function WorkspacePage() {
       {prompt ? (
         <CredentialPromptDialog
           target={`${prompt.host.name} · ${serviceLabel(prompt.host.services[prompt.serviceIndex])}`}
-          usernameOptional={prompt.host.services[prompt.serviceIndex].protocol === 'Vnc'}
+          usernameOptional={['Vnc', 'Telnet'].includes(prompt.host.services[prompt.serviceIndex].protocol)}
           initialUsername={prompt.account?.username ?? undefined}
           submitLabel={prompt.purpose === 'scan' ? 'Scan' : undefined}
           onConnect={(username, password) => {
+            const domain = prompt.account?.domain ?? undefined
             if (prompt.purpose === 'scan') {
-              setScan({ host: prompt.host, kind: 'internal', login: { serviceIndex: prompt.serviceIndex, username, password } })
+              setScan({ host: prompt.host, kind: 'internal', login: { serviceIndex: prompt.serviceIndex, username, password, ...(domain ? { domain } : {}) } })
             } else {
-              const domain = prompt.account?.domain ?? undefined
-              openSession(prompt.host, prompt.serviceIndex, undefined, { username, password, ...(domain ? { domain } : {}) })
+              openSession(prompt.host, prompt.serviceIndex, undefined, { username, password, ...(domain ? { domain } : {}) }, prompt.mode)
             }
             setPrompt(null)
           }}

@@ -30,6 +30,31 @@ public sealed class UserAccessTests(PostgresServerFixture postgres) : IAsyncLife
     public async ValueTask DisposeAsync() => await _factory.DisposeAsync();
 
     [Fact]
+    public async Task WorkspacePreferences_AreSavedPerUser_AndReturnedWithCurrentUser()
+    {
+        var initial = await _admin.GetFromJsonAsync<JsonElement>("/api/auth/me", Ct);
+        Assert.Equal([], initial.GetProperty("workspaceGroupBy").EnumerateArray().Select(v => v.GetString()));
+        Assert.Equal("name", initial.GetProperty("workspaceSort").GetString());
+
+        var saved = await _admin.SendJsonAsync(HttpMethod.Put, "/api/account/workspace-preferences",
+            new { groupBy = new[] { "site", "@service" }, sort = "updated" }, Ct);
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var current = await _admin.GetFromJsonAsync<JsonElement>("/api/auth/me", Ct);
+        Assert.Equal(["site", "@service"], current.GetProperty("workspaceGroupBy").EnumerateArray().Select(v => v.GetString()));
+        Assert.Equal("updated", current.GetProperty("workspaceSort").GetString());
+
+        var bob = await CreateUserAsync("bob", mustChangePassword: false);
+        var (client, _) = await SignInAsync(bob.UserName, BobPassword);
+        var bobCurrent = await client.GetFromJsonAsync<JsonElement>("/api/auth/me", Ct);
+        Assert.Equal([], bobCurrent.GetProperty("workspaceGroupBy").EnumerateArray().Select(v => v.GetString()));
+        Assert.Equal("name", bobCurrent.GetProperty("workspaceSort").GetString());
+
+        var invalid = await _admin.SendJsonAsync(HttpMethod.Put, "/api/account/workspace-preferences",
+            new { groupBy = new[] { "site", "site" }, sort = "unknown" }, Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+    }
+
+    [Fact]
     public async Task User_SeesOnlyGrantedHosts_WithTheGrantedLevel()
     {
         var dc1 = await CreateHostAsync("dc1-web", ("site", "DC1"));

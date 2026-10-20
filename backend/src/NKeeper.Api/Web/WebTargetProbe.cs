@@ -21,14 +21,15 @@ public static class WebTargetProbe
         return string.Join(':', Enumerable.Range(0, hex.Length / 2).Select(i => hex.Substring(i * 2, 2)));
     }
 
-    public static async Task<WebCertificate> ProbeAsync(string host, int port, CancellationToken cancellationToken)
+    /// <param name="dialAddress">Where to connect instead (a jump-host tunnel); the certificate is still checked for <paramref name="host"/>.</param>
+    public static async Task<WebCertificate> ProbeAsync(string host, int port, CancellationToken cancellationToken, string? dialAddress = null, int? dialPort = null)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(Timeout);
         try
         {
             using var client = new TcpClient();
-            await client.ConnectAsync(host, port, timeout.Token);
+            await client.ConnectAsync(dialAddress ?? host, dialPort ?? port, timeout.Token);
             var errors = SslPolicyErrors.None;
             await using var tls = new SslStream(client.GetStream(), leaveInnerStreamOpen: false);
             await tls.AuthenticateAsClientAsync(

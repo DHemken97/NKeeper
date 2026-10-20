@@ -15,6 +15,7 @@ The API reads `appsettings.json`, `appsettings.{Environment}.json`, user secrets
 | --- | --- | --- |
 | `ConnectionStrings__NKeeper` | — (**required**) | PostgreSQL connection string |
 | `Database__MigrateOnStartup` | `false` (`true` in Development and in every setup-script install) | Apply pending migrations at start-up |
+| `DataProtection__CertificatePath` | empty (`/etc/nkeeper/data-protection.pem` in native Linux) | PEM file with an RSA certificate and its private key. The keys that encrypt stored credentials are encrypted with it before they're saved in the database. Keys stored before it was set are encrypted at start-up. Once set, NKeeper won't start without the same file. See [Security](security.md#stored-secrets). |
 | `Authentication__CookieName` | `NKeeper.Session` | Session cookie name |
 | `Authentication__SessionTimeout` | `08:00:00` | Sliding lifetime of a sign-in |
 | `Authentication__RememberMeDuration` | `14.00:00:00` | Sliding lifetime with "Remember me" |
@@ -30,6 +31,34 @@ The API reads `appsettings.json`, `appsettings.{Environment}.json`, user secrets
 | `WebProxy__IdleTimeout` | `00:30:00` | A web session ends after this long without requests |
 | `WebProxy__MaxLifetime` | `12:00:00` | A web session ends this long after it started |
 | `BootstrapAdmin__Enabled`, `__AllowOutsideDevelopment`, `__UserName`, `__Email`, `__Password` | disabled | First administrator; see [Administration](administration.md#the-first-administrator) |
+| `ActiveDirectory__Enabled` | `false` | Let users sign in with their domain account; see [Administration](administration.md#active-directory-sign-in) |
+| `ActiveDirectory__Domain` | — (**required** when enabled) | NetBIOS domain name, e.g. `CORP`. Accepted as `CORP\user` at sign-in, and sent as the domain of RDP sessions that use the user's sign-in. |
+| `ActiveDirectory__DnsDomain` | — (**required** when enabled) | DNS domain name, e.g. `corp.example.com`. Sign-in binds as `user@DnsDomain`. |
+| `ActiveDirectory__Server` / `__Port` | the DNS domain / `636` (LDAPS) or `389` | Domain controller to query |
+| `ActiveDirectory__Transport` | `Ldaps` | `Ldaps`, `StartTls`, or `None` (clear text; refused unless `ActiveDirectory__AllowInsecureTransport` is `true`) |
+| `ActiveDirectory__SearchBase` | from the DNS domain (`DC=corp,DC=example,DC=com`) | Where user accounts are looked up |
+| `ActiveDirectory__RequiredGroup` | empty (any enabled domain user) | Distinguished name of the group allowed to sign in. Nested membership counts. |
+| `ActiveDirectory__AdministratorsGroup` | empty (roles are assigned in NKeeper) | Distinguished name of a group whose members become NKeeper administrators. It's checked at every sign-in. |
+| `ActiveDirectory__PassCredentialsToRemoteSessions` | `true` | Keep the user's domain password, encrypted, with their NKeeper session, so RDP can log in as them (**My sign-in**) |
+| `ActiveDirectory__Timeout` | `00:00:10` | LDAP timeout |
+| `SingleSignOn__Enabled` | `false` | Add a **Sign in with …** button for an OpenID Connect provider (Microsoft Entra ID, Okta, Google, Keycloak, Amazon Cognito); see [Administration](administration.md#single-sign-on) |
+| `SingleSignOn__DisplayName` | `single sign-on` | The provider's name on the button, e.g. `Microsoft` |
+| `SingleSignOn__Authority` | — (**required** when enabled) | The provider's issuer URL (`https://`), e.g. `https://login.microsoftonline.com/<tenant-id>/v2.0` |
+| `SingleSignOn__ClientId` / `__ClientSecret` | — (**required** when enabled) / empty | The app registration's client id and secret. Without a secret, NKeeper signs in as a public client with PKCE only. |
+| `SingleSignOn__Scopes__0`, `__1`, … | none | Scopes requested on top of `openid profile email` |
+| `SingleSignOn__SubjectClaim` | `sub` | The claim that identifies a person for good. With Entra ID, `oid` survives recreating the app registration. |
+| `SingleSignOn__UserNameClaim` / `__EmailClaim` | `preferred_username` / `email` | Where a new account's username and its email come from. The email is updated at every sign-in. |
+| `SingleSignOn__GroupsClaim` | `groups` | The claim listing the user's groups; `roles` for Entra ID app roles |
+| `SingleSignOn__RequiredGroups__0`, `__1`, … | none (anyone the provider signs in) | A user must be in one of these groups to sign in, as the provider sends them (Entra ID: group object ids) |
+| `SingleSignOn__AdministratorGroups__0`, `__1`, … | none (roles are assigned in NKeeper) | Members of any of these groups become NKeeper administrators. It's checked at every sign-in. |
+| `Auditing__RecordTerminalSessions` | `true` | Keep a playable recording of what SSH and Telnet sessions showed (output only, never keystrokes); see [Administration](administration.md#audit-log) |
+| `Auditing__MaxRecordingMegabytes` | `50` | A recording stops growing at this size (the session goes on) |
+| `Auditing__RetentionDays` | `365` | Audit events older than this are deleted (daily) |
+| `Auditing__RecordingRetentionDays` | `90` | Recordings older than this are deleted (daily) |
+| `Health__Enabled` | `true` | Check every host's services in the background; see the [User guide](user-guide.md#health-and-wake-on-lan) |
+| `Health__Interval` | `00:05:00` | Time between checks (1 minute to 1 day) |
+| `Health__Timeout` | `00:00:05` | A service that hasn't answered by then counts as down |
+| `Health__Parallelism` | `32` | Hosts checked at the same time |
 | `ASPNETCORE_ENVIRONMENT` | `Production` in every install | `Development` enables the OpenAPI document and the developer error page |
 | `ASPNETCORE_URLS` / `ASPNETCORE_HTTP_PORTS` | `8080` in the container; `http://127.0.0.1:5080` in native Linux | Where the API listens (behind nginx) |
 | `Logging__LogLevel__Default` | `Information` | Log level (`Microsoft.AspNetCore` is `Warning`) |
@@ -63,6 +92,7 @@ Other API settings can be added to the `backend` service's `environment` in a `d
 | --- | --- | --- |
 | Application | `/opt/nkeeper/api`, `/opt/nkeeper/frontend` | `C:\inetpub\nkeeper` (frontend in `wwwroot`) |
 | Settings and secrets | `/etc/nkeeper/nkeeper.env` (root only; systemd `EnvironmentFile`) | `C:\inetpub\nkeeper\web.config` (administrators and the app pool only) |
+| Key certificate | `/etc/nkeeper/data-protection.pem` (owner root, readable by `nkeeper`); encrypts the stored keys | none: the keys are stored unencrypted |
 | Setup state | the same file | `C:\ProgramData\NKeeper\state.json` (administrators only) |
 | Service | `nkeeper.service` (systemd), user `nkeeper` | IIS site **NKeeper**, app pool **NKeeper**; redirect site **NKeeper HTTP redirect** |
 | Web server config | `/etc/nginx/conf.d/nkeeper.conf`, `nkeeper-tls.conf`, `/etc/nginx/snippets/nkeeper/` | IIS bindings |

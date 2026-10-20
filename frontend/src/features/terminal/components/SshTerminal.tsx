@@ -37,8 +37,12 @@ function fitIfVisible(fit: FitAddon, element: HTMLElement | null) {
   }
 }
 
-/** One interactive SSH session: an xterm.js terminal bridged to the server over a WebSocket. */
+/**
+ * One interactive SSH or Telnet session: an xterm.js terminal bridged to the server over a WebSocket.
+ * Both speak the same messages; Telnet has no host key to trust and isn't encrypted to the host.
+ */
 export function SshTerminal({ session, active, onShowHost, onEnded }: SshTerminalProps) {
+  const telnet = session.protocol === 'telnet'
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -98,7 +102,7 @@ export function SshTerminal({ session, active, onShowHost, onEnded }: SshTermina
   useEffect(() => {
     const terminal = terminalRef.current!
     const request = requestRef.current
-    const socket = new WebSocket(apiWebSocketUrl('/api/ssh/session'))
+    const socket = new WebSocket(apiWebSocketUrl(telnet ? '/api/telnet/session' : '/api/ssh/session'))
     socket.binaryType = 'arraybuffer'
     socketRef.current = socket
     connectedRef.current = false
@@ -169,7 +173,7 @@ export function SshTerminal({ session, active, onShowHost, onEnded }: SshTermina
       socket.onmessage = null
       socket.close()
     }
-  }, [attempt])
+  }, [attempt, telnet])
 
   // Fit and focus when the tab becomes visible.
   useEffect(() => {
@@ -197,6 +201,14 @@ export function SshTerminal({ session, active, onShowHost, onEnded }: SshTermina
   return (
     <div className={styles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} terminal`}>
       <SessionStatusBar phase={phase}>
+        {telnet && phase.kind === 'connected' ? (
+          <span
+            className={styles.notice}
+            title="Telnet doesn't encrypt its traffic, passwords included. Your browser's connection to NKeeper is protected; the hop from NKeeper to the host is not."
+          >
+            Unencrypted to host
+          </span>
+        ) : null}
         {phase.kind === 'ended' && canReconnect ? (
           <Button variant="secondary" size="sm" onClick={reconnect}>
             Reconnect

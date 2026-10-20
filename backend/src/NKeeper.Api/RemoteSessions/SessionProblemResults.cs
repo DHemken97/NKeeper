@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using NKeeper.Api.Web;
 
 namespace NKeeper.Api.RemoteSessions;
 
@@ -10,7 +11,7 @@ internal static class SessionProblemResults
         var status = ex.Code switch
         {
             SessionErrorCodes.HostNotFound or SessionErrorCodes.CredentialNotFound => StatusCodes.Status404NotFound,
-            SessionErrorCodes.HostKeyChanged => StatusCodes.Status409Conflict,
+            SessionErrorCodes.HostKeyChanged or SessionErrorCodes.FileExists => StatusCodes.Status409Conflict,
             SessionErrorCodes.TooManySessions => StatusCodes.Status429TooManyRequests,
             SessionErrorCodes.ConnectionFailed or SessionErrorCodes.Timeout => StatusCodes.Status502BadGateway,
             _ => StatusCodes.Status400BadRequest,
@@ -18,5 +19,15 @@ internal static class SessionProblemResults
         var problem = controller.ProblemDetailsFactory.CreateProblemDetails(controller.HttpContext, status, detail: ex.Message);
         problem.Extensions["code"] = ex.Code;
         return new ObjectResult(problem) { StatusCode = status };
+    }
+
+    /// <summary>A changed HTTPS certificate: 409 with both fingerprints, so the user can compare them.</summary>
+    public static ObjectResult CertificateChanged(this ControllerBase controller, CertificateChangedException ex)
+    {
+        var result = controller.SessionFailure(new SessionException(SessionErrorCodes.HostKeyChanged, ex.Message));
+        var problem = (ProblemDetails)result.Value!;
+        problem.Extensions["fingerprint"] = ex.Fingerprint;
+        problem.Extensions["trustedFingerprint"] = ex.TrustedFingerprint;
+        return result;
     }
 }

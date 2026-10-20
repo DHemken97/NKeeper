@@ -96,6 +96,18 @@ public sealed class TerminalClient : IAsyncDisposable
         }
     }
 
+    /// <summary>Waits for the server to close the socket (it starts the close after "closed").</summary>
+    public async Task WaitForCloseAsync(CancellationToken cancellationToken)
+    {
+        using var timeout = Timeout(cancellationToken);
+        while (!Closed)
+        {
+            await ReceiveOneAsync(timeout.Token);
+        }
+
+        await _socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "done", timeout.Token);
+    }
+
     private async Task ReceiveOneAsync(CancellationToken cancellationToken)
     {
         if (Closed)

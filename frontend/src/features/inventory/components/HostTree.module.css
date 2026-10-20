@@ -149,3 +149,23 @@
   margin-left: -1rem;
   color: var(--color-accent-text);
 }
+
+/* Service health: a dot before the name. */
+.health {
+  flex-shrink: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+}
+
+.health.up {
+  background: #4ade80;
+}
+
+.health.partial {
+  background: #fbbf24;
+}
+
+.health.down {
+  background: #f87171;
+}

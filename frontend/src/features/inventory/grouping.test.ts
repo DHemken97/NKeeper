@@ -16,6 +16,11 @@ function host(name: string, tags: HostTag[] = [], options: Partial<Host> & { pro
     hypervisorId: null,
     virtualMachineId: null,
     hypervisorSeenAtUtc: null,
+    cpuCores: null,
+    memoryMiB: null,
+    serialNumber: null,
+    jumpHostId: null,
+    jumpCredentialId: null,
     tags,
     services: protocols.map((protocol) => ({ protocol, port: null, label: null })),
     credentials: [],
@@ -93,7 +98,7 @@ describe('buildTree', () => {
     ])
   })
 
-  it('groups by the host VMs run on, named even when the search hides it', () => {
+  it('groups by the host VMs run on, with that host at the top of its group', () => {
     const vms = [
       host('app01', [t('site', 'DC-A')], { isVirtualMachine: true, hypervisorId: 'node1' }),
       host('app02', [t('site', 'DC-B')], { isVirtualMachine: true, hypervisorId: 'node1' }),
@@ -106,16 +111,34 @@ describe('buildTree', () => {
     expect(outline(buildTree(vms, [{ kind: 'hypervisor' }], all))).toEqual([
       'A host you can’t see (1)',
       ['orphan'],
-      'node1 (2)',
-      ['app01', 'app02'],
+      // node1 runs on its own hardware, so it heads its group instead of being "not on a known host".
+      'node1 (3)',
+      ['node1', 'app01', 'app02'],
+      // Named even though the search hides node2 itself.
       'node2 (1)',
       ['db01'],
-      'Not on a known host (1)',
-      ['node1'],
     ])
     expect(outline(buildTree(vms.slice(0, 2), [{ kind: 'hypervisor' }, { kind: 'tag', name: 'site' }], all))).toEqual([
       'node1 (2)',
       ['DC-A (1)', ['app01'], 'DC-B (1)', ['app02']],
+    ])
+  })
+
+  it('shows a nested hypervisor under the host it runs on and at the top of its own group', () => {
+    const hosts = [
+      host('metal'),
+      host('pve-vm', [], { isVirtualMachine: true, hypervisorId: 'metal' }),
+      host('guest', [], { isVirtualMachine: true, hypervisorId: 'pve-vm' }),
+      host('printer'),
+    ]
+
+    expect(outline(buildTree(hosts, [{ kind: 'hypervisor' }]))).toEqual([
+      'metal (2)',
+      ['metal', 'pve-vm'],
+      'pve-vm (2)',
+      ['pve-vm', 'guest'],
+      'Not on a known host (1)',
+      ['printer'],
     ])
   })
 })

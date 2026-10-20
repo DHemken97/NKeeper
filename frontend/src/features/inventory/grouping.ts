@@ -57,17 +57,29 @@ export function sortHosts(hosts: Host[], sort: HostSort): Host[] {
   return [...hosts].sort(compare)
 }
 
+/** What grouping needs to know about the whole inventory, not just the hosts being grouped. */
+interface Context {
+  /** Host names by id, to label "Runs on" groups. */
+  names: ReadonlyMap<string, string>
+  /** Hosts that VMs run on. */
+  hypervisors: ReadonlySet<string>
+}
+
 /**
  * The groups a host belongs to for a key, as a bucket key and a label; empty when it has none.
  * Tag values are matched case-insensitively. "Runs on" groups by the hypervisor's id (names can
- * repeat), labelled with its name.
+ * repeat), labelled with its name; a hypervisor is in its own group too (it runs on its hardware),
+ * and a nested one also in the group of the host it runs on.
  */
-function valuesFor(host: Host, key: GroupKey, names: ReadonlyMap<string, string>): { key: string; label: string }[] {
+function valuesFor(host: Host, key: GroupKey, { names, hypervisors }: Context): { key: string; label: string }[] {
   if (key.kind === 'service') {
     return [...new Set(host.services.map((s) => PROTOCOL_INFO[s.protocol].label))].map((label) => ({ key: label.toLowerCase(), label }))
   }
   if (key.kind === 'hypervisor') {
-    return host.hypervisorId ? [{ key: host.hypervisorId, label: names.get(host.hypervisorId) ?? 'A host you can’t see' }] : []
+    return [
+      ...(hypervisors.has(host.id) ? [{ key: host.id, label: host.name }] : []),
+      ...(host.hypervisorId ? [{ key: host.hypervisorId, label: names.get(host.hypervisorId) ?? 'A host you can’t see' }] : []),
+    ]
   }
   const name = key.name.toLowerCase()
   return host.tags
@@ -83,14 +95,18 @@ function missingLabel(key: GroupKey): string {
  * Groups (already sorted) hosts by each key in turn, e.g. [site, role] gives site → role → hosts.
  * A host with several values for a key (two `role` tags) appears under each; hosts without
  * the key are collected in a trailing "No <key>" group.
- * @param allHosts Every host, to name the hypervisors of "Runs on" groups even when a search hides them.
+ * @param allHosts Every host, to name the hypervisors of "Runs on" groups (and know which hosts
+ *   are hypervisors) even when a search hides them.
  */
 export function buildTree(hosts: Host[], keys: GroupKey[], allHosts: Host[] = hosts, parentId = ''): TreeNode[] {
-  const names = new Map(allHosts.map((h) => [h.id, h.name]))
-  return build(hosts, keys, names, parentId)
+  const context: Context = {
+    names: new Map(allHosts.map((h) => [h.id, h.name])),
+    hypervisors: new Set(allHosts.flatMap((h) => (h.hypervisorId ? [h.hypervisorId] : []))),
+  }
+  return build(hosts, keys, context, parentId)
 }
 
-function build(hosts: Host[], keys: GroupKey[], names: ReadonlyMap<string, string>, parentId: string): TreeNode[] {
+function build(hosts: Host[], keys: GroupKey[], context: Context, parentId: string): TreeNode[] {
   if (keys.length === 0) {
     return hosts.map((host) => ({ type: 'host', id: `${parentId}#${host.id}`, host }))
   }
@@ -100,7 +116,7 @@ function build(hosts: Host[], keys: GroupKey[], names: ReadonlyMap<string, strin
   const missing: Host[] = []
 
   for (const host of hosts) {
-    const values = valuesFor(host, key, names)
+    const values = valuesFor(host, key, context)
     if (values.length === 0) {
       missing.push(host)
     }
@@ -114,13 +130,20 @@ function build(hosts: Host[], keys: GroupKey[], names: ReadonlyMap<string, strin
     }
   }
 
+  // A hypervisor heads its own "Runs on" group.
+  if (key.kind === 'hypervisor') {
+    for (const [bucketKey, bucket] of buckets) {
+      bucket.hosts.sort((a, b) => Number(b.id === bucketKey) - Number(a.id === bucketKey))
+    }
+  }
+
   const keyId = encodeGroupKey(key)
   const groups: TreeGroup[] = [...buckets.entries()]
     .sort(([, a], [, b]) => collator.compare(a.label, b.label))
-    .map(([bucketKey, bucket]) => makeGroup(`${parentId}/${keyId}=${bucketKey}`, key, bucket.label, false, bucket.hosts, rest, names))
+    .map(([bucketKey, bucket]) => makeGroup(`${parentId}/${keyId}=${bucketKey}`, key, bucket.label, false, bucket.hosts, rest, context))
 
   if (missing.length > 0) {
-    groups.push(makeGroup(`${parentId}/${keyId}!`, key, missingLabel(key), true, missing, rest, names))
+    groups.push(makeGroup(`${parentId}/${keyId}!`, key, missingLabel(key), true, missing, rest, context))
   }
   return groups
 }
@@ -132,9 +155,9 @@ function makeGroup(
   missing: boolean,
   hosts: Host[],
   rest: GroupKey[],
-  names: ReadonlyMap<string, string>,
+  context: Context,
 ): TreeGroup {
-  return { type: 'group', id, key, label, missing, hostCount: hosts.length, children: build(hosts, rest, names, id) }
+  return { type: 'group', id, key, label, missing, hostCount: hosts.length, children: build(hosts, rest, context, id) }
 }
 
 /** Tag names in use across the inventory, for the group-by picker and tag autocomplete. */

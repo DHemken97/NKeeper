@@ -30,6 +30,20 @@ public static class DependencyInjection
                 "BootstrapAdmin:UserName, BootstrapAdmin:Email and BootstrapAdmin:Password are required when BootstrapAdmin:Enabled is true.")
             .ValidateOnStart();
 
+        services.AddOptions<ActiveDirectoryOptions>()
+            .Bind(configuration.GetSection(ActiveDirectoryOptions.SectionName))
+            .Validate(
+                o => o.IsValid(),
+                "ActiveDirectory:Domain and ActiveDirectory:DnsDomain are required when ActiveDirectory:Enabled is true, and ActiveDirectory:Transport None needs ActiveDirectory:AllowInsecureTransport.")
+            .ValidateOnStart();
+
+        services.AddOptions<SingleSignOnOptions>()
+            .Bind(configuration.GetSection(SingleSignOnOptions.SectionName))
+            .Validate(
+                o => o.IsValid(),
+                "SingleSignOn:Authority (an https:// URL) and SingleSignOn:ClientId are required when SingleSignOn:Enabled is true, and its display name and claim names can't be empty.")
+            .ValidateOnStart();
+
         // The connection string is validated at startup; tooling such as 'dotnet ef migrations add' runs without one.
         services.AddDbContext<NKeeperDbContext>(options => options.UseNpgsql(connectionString));
 
@@ -45,15 +59,29 @@ public static class DependencyInjection
             })
             .AddEntityFrameworkStores<NKeeperDbContext>();
 
-        // Keys live in PostgreSQL so cookies and antiforgery tokens survive container restarts.
-        services.AddDataProtection()
+        // Keys live in PostgreSQL so cookies and antiforgery tokens survive container restarts. With
+        // DataProtection:CertificatePath set, they're encrypted with a certificate kept outside it.
+        var keyRing = KeyRingCertificate.Load(configuration);
+        var dataProtection = services.AddDataProtection()
             .SetApplicationName("NKeeper")
             .PersistKeysToDbContext<NKeeperDbContext>();
+        if (keyRing.Certificate is { } keyCertificate)
+        {
+            dataProtection.ProtectKeysWithCertificate(keyCertificate);
+        }
+
+        services.AddSingleton(keyRing);
+        services.AddScoped<KeyRingEncryption>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<DatabaseTicketStore>();
         services.AddSingleton<IConfigureOptions<CookieAuthenticationOptions>, ConfigureSessionStore>();
         services.AddScoped<CredentialValidator>();
+        services.AddSingleton<IDirectoryAuthenticator, LdapDirectoryAuthenticator>();
+        services.AddScoped<SingleSignOnAccounts>();
+        services.AddScoped<Email.EmailSender>();
+        services.TryAddSingleton<Email.IEmailTransport, Email.SmtpEmailTransport>();
+        services.AddScoped<SignInCredentialStore>();
         services.AddScoped<SessionRevoker>();
         services.AddScoped<DatabaseInitializer>();
         services.AddSingleton<CredentialProtector>();

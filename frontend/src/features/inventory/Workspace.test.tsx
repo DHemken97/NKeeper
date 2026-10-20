@@ -5,9 +5,18 @@ import { describe, expect, it } from 'vitest'
 import { routes } from '../../app/router'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
 import { AuthProvider } from '../auth/components/AuthProvider'
+import type { User } from '../auth/types'
 import type { Host } from './types'
 
-const adminUser = { id: '6f1c0d4e-0000-4000-8000-000000000001', userName: 'admin', email: 'admin@example.com', roles: ['Administrator'] }
+const adminUser: User = {
+  id: '6f1c0d4e-0000-4000-8000-000000000001',
+  userName: 'admin',
+  email: 'admin@example.com',
+  roles: ['Administrator'],
+  mustChangePassword: false,
+  isDirectoryAccount: false,
+  signInAccount: null,
+}
 
 function makeHost(overrides: Partial<Host>): Host {
   return {
@@ -21,6 +30,11 @@ function makeHost(overrides: Partial<Host>): Host {
     hypervisorId: null,
     virtualMachineId: null,
     hypervisorSeenAtUtc: null,
+    cpuCores: null,
+    memoryMiB: null,
+    serialNumber: null,
+    jumpHostId: null,
+    jumpCredentialId: null,
     tags: [],
     services: [],
     credentials: [],
@@ -55,10 +69,10 @@ const web01 = makeHost({ id: 'h-web01', name: 'web01', hostname: 'web01', tags: 
 const fw01 = makeHost({ id: 'h-fw01', name: 'fw01', ipAddress: '10.9.0.1', tags: [{ name: 'site', value: 'Branch' }] })
 const laptop = makeHost({ id: 'h-laptop', name: 'laptop', hostname: 'laptop' })
 
-function renderAt(path: string, routesOverride: Parameters<typeof mockFetch>[0] = {}) {
+function renderAt(path: string, routesOverride: Parameters<typeof mockFetch>[0] = {}, user = adminUser) {
   const fetchMock = mockFetch({
     ...antiforgeryRoute,
-    'GET /api/auth/me': () => jsonResponse(200, adminUser),
+    'GET /api/auth/me': () => jsonResponse(200, user),
     'GET /api/hosts': () => jsonResponse(200, [fw01, laptop, sql01, web01]),
     ...routesOverride,
   })
@@ -199,6 +213,11 @@ describe('workspace', () => {
       description: null,
       isVirtualMachine: false,
       hypervisorId: null,
+      cpuCores: null,
+      memoryMiB: null,
+      serialNumber: null,
+      jumpHostId: null,
+      jumpCredentialId: null,
       tags: [{ name: 'site', value: 'DC-A' }],
       services: [{ protocol: 'Ssh', port: null, label: null }],
       credentials: [{ label: null, username: 'root', domain: null, notes: null, password: 's3cret!' }],
@@ -218,6 +237,8 @@ describe('workspace', () => {
 
     const form = await screen.findByRole('form', { name: 'Edit sql01' })
     expect(within(form).getByText('Stored. Leave empty to keep it.')).toBeInTheDocument()
+    // SSMS can't be connected with, so it isn't copied; the editor says so.
+    expect(within(form).getByRole('note')).toHaveTextContent('NKeeper can’t connect with SQL Server (SSMS), so that service is removed when you save.')
     await user.click(within(form).getByRole('button', { name: 'Add credential' }))
     await user.type(within(form).getAllByLabelText('Username')[1], 'sa')
     await user.click(within(form).getAllByRole('button', { name: 'Remove' })[0])
@@ -251,14 +272,14 @@ describe('workspace', () => {
   it('clones a host: a prefilled new host whose credentials are copied on the server', async () => {
     let body: Record<string, unknown> | undefined
     const created = makeHost({ id: 'h-sql02', name: 'sql02', ipAddress: '10.0.0.16' })
-    const { user, router } = renderAt('/?host=h-sql01', {
+    const { user, router } = renderAt('/?host=h-sql01&edit=1', {
       'POST /api/hosts': (_url, init) => {
         body = JSON.parse(String(init.body))
         return jsonResponse(201, created)
       },
     })
 
-    await user.click(await screen.findByRole('button', { name: 'Clone' }))
+    await user.click(await screen.findByRole('button', { name: 'Clone host' }))
     const form = await screen.findByRole('form', { name: 'Clone sql01' })
     expect(within(form).getByLabelText('Name')).toHaveValue('sql01 (copy)')
     expect(within(form).getByText('Stored. Leave empty to keep it.')).toBeInTheDocument()
@@ -279,27 +300,102 @@ describe('workspace', () => {
       description: null,
       isVirtualMachine: false,
       hypervisorId: null,
+      cpuCores: null,
+      memoryMiB: null,
+      serialNumber: null,
+      jumpHostId: null,
+      jumpCredentialId: null,
       tags: [
         { name: 'env', value: 'production' },
         { name: 'site', value: 'DC-A' },
       ],
       services: [
         { protocol: 'Rdp', port: null, label: null, rdpSecurity: 'Auto' },
-        { protocol: 'Ssms', port: 14330, label: 'Named instance' },
       ],
       credentials: [{ copyFromCredentialId: 'c-admin', label: 'Local admin', username: 'administrator', domain: null, notes: null }],
     })
   })
 
-  it('offers Clone in the host menu, and Cancel returns to the original', async () => {
-    const { user, router } = renderAt('/')
+  it('offers Clone in the host editor, and Cancel returns to the original', async () => {
+    const { user, router } = renderAt('/?host=h-web01&edit=1')
 
-    fireEvent.contextMenu(await screen.findByRole('button', { name: /web01/ }))
-    await user.click(screen.getByRole('menuitem', { name: /^Clone/ }))
+    await user.click(await screen.findByRole('button', { name: 'Clone host' }))
     expect(await screen.findByRole('form', { name: 'Clone web01' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
     await waitFor(() => expect(router.state.location.search).toBe('?host=h-web01'))
+  })
+
+  it('groups file access under Connect, Wake under Tasks, and host fields under Copy', async () => {
+    const fileHost = makeHost({
+      id: 'h-files',
+      name: 'files01',
+      hostname: 'files01.example.com',
+      ipAddress: '10.0.0.20',
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      serialNumber: 'SERIAL-01',
+      services: [{ protocol: 'Ssh', port: 22, label: null }],
+    })
+    const { user } = renderAt('/', { 'GET /api/hosts': () => jsonResponse(200, [fileHost]) })
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /files01/ }))
+    expect(screen.queryByRole('menuitem', { name: /^Clone/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /^Wake/ })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('menuitem', { name: 'Connect' }))
+    await user.click(screen.getByRole('menuitem', { name: /^Files/ }))
+    expect(screen.getByRole('menuitem', { name: 'Enter credentials…' })).toBeInTheDocument()
+
+    await user.keyboard('{Escape}{Escape}')
+    fireEvent.contextMenu(screen.getByRole('button', { name: /files01/ }))
+    await user.click(screen.getByRole('menuitem', { name: 'Tasks' }))
+    expect(screen.getByRole('menuitem', { name: /^Wake/ })).toBeInTheDocument()
+
+    await user.keyboard('{Escape}{Escape}')
+    fireEvent.contextMenu(screen.getByRole('button', { name: /files01/ }))
+    await user.click(screen.getByRole('menuitem', { name: 'Copy' }))
+    expect(screen.getByRole('menuitem', { name: /^MAC/ })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /^Hostname/ })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /^IP/ })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /^Serial Number/ })).toBeInTheDocument()
+  })
+
+  it('uses the signed-in user’s saved group and sort defaults and saves changes', async () => {
+    let saved: { groupBy: string[]; sort: string } | undefined
+    const { user } = renderAt(
+      '/',
+      {
+        'PUT /api/account/workspace-preferences': (_url, init) => {
+          saved = JSON.parse(String(init.body))
+          return jsonResponse(200, saved)
+        },
+      },
+      { ...adminUser, workspaceGroupBy: ['site'], workspaceSort: 'updated' },
+    )
+
+    expect((await screen.findByRole('button', { name: /site:\s*DC-A/ }))).toBeInTheDocument()
+    expect(screen.getByLabelText('Sort')).toHaveValue('updated')
+
+    await user.click(screen.getByRole('button', { name: 'Stop grouping by site' }))
+    await user.selectOptions(screen.getByLabelText('Sort'), 'address')
+
+    await waitFor(() => expect(saved).toEqual({ groupBy: [], sort: 'address' }))
+  })
+
+  it('saves a newly selected grouping under the signed-in user', async () => {
+    let saved: { groupBy: string[]; sort: string } | undefined
+    const { user } = renderAt('/', {
+      'PUT /api/account/workspace-preferences': (_url, init) => {
+        saved = JSON.parse(String(init.body))
+        return jsonResponse(200, saved)
+      },
+    })
+
+    await screen.findByRole('option', { name: 'Tag: site' })
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Group by' }), 'site')
+
+    await waitFor(() => expect(saved).toEqual({ groupBy: ['site'], sort: 'name' }))
+    expect(await screen.findByRole('button', { name: 'Stop grouping by site' })).toBeInTheDocument()
   })
 
   it('shows server validation errors on the matching rows', async () => {

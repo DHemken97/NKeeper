@@ -377,13 +377,29 @@ native_packages() {
         apt-get update -qq
         local icu
         icu=$(apt-cache search --names-only '^libicu[0-9]+$' | awk '{print $1}' | sort -V | tail -n 1)
-        apt-get install -y -qq postgresql nginx openssl curl ca-certificates tar xz-utils ${icu:+"$icu"} >/dev/null
+        apt-get install -y -qq postgresql nginx openssl curl ca-certificates tar xz-utils python3 python3-venv ${icu:+"$icu"} >/dev/null
     elif command -v dnf >/dev/null 2>&1; then
         pm=dnf
         # No curl package: RHEL 9's curl-minimal (already present, since this script needs curl) conflicts with it.
-        dnf install -y -q postgresql-server nginx openssl ca-certificates tar xz libicu policycoreutils-python-utils >/dev/null
+        dnf install -y -q postgresql-server nginx openssl ca-certificates tar xz libicu python3 policycoreutils-python-utils >/dev/null
     else
         die "Native mode supports apt (Debian/Ubuntu) and dnf (RHEL/Rocky/Alma/Fedora). Use --mode docker instead."
+    fi
+}
+
+# Impacket reads Windows hosts over DCOM/WMI for the RPC internal scan, as in the Docker image. The
+# API looks for it at /opt/impacket (NKEEPER_WMI_PYTHON overrides). Optional: without it, only
+# Windows scans fail, so a failed download is a warning.
+native_impacket() {
+    step "Installing Impacket (Windows scans)"
+    if [ ! -x /opt/impacket/bin/python3 ] && ! python3 -m venv /opt/impacket >/dev/null 2>&1; then
+        warn "Couldn't create /opt/impacket; scanning Windows hosts won't work."
+        return
+    fi
+    if /opt/impacket/bin/pip install -q --disable-pip-version-check impacket==0.12.0 >/dev/null 2>&1; then
+        ok "Impacket 0.12.0 in /opt/impacket"
+    else
+        warn "Couldn't install Impacket (no internet access?); scanning Windows hosts won't work."
     fi
 }
 
@@ -530,6 +546,20 @@ native_config() {
     set_env "$env" NKEEPER_SERVER_NAMES "\"$names\""
     set_env "$env" NKEEPER_HTTPS_PORT "$https_port"
     set_env "$env" NKEEPER_HTTP_PORT "$http_port"
+
+    # The certificate that encrypts the keys NKeeper stores in the database, so a copy of the
+    # database alone can't decrypt the stored credentials. The API can read it but not change it.
+    local keyring="$NATIVE_CONFIG/data-protection.pem"
+    if [ ! -s "$keyring" ]; then
+        (umask 077 && openssl req -x509 -newkey rsa:3072 -nodes -days 36500 -subj "/CN=NKeeper Data Protection" \
+            -keyout "$keyring.key" -out "$keyring.crt" 2>/dev/null && cat "$keyring.crt" "$keyring.key" >"$keyring") ||
+            die "Couldn't generate $keyring."
+        rm -f "$keyring.crt" "$keyring.key"
+        ok "Generated $keyring: back it up apart from the database. Without it, stored credentials can't be decrypted."
+    fi
+    chown root:nkeeper "$keyring"
+    chmod 640 "$keyring"
+    set_env "$env" DataProtection__CertificatePath "$keyring"
 
     if $fresh; then
         choose_admin
@@ -693,6 +723,7 @@ native_install() {
     native_build
     native_config
     native_install_files
+    native_impacket
     native_guacd
     native_nginx
     native_firewall
@@ -728,7 +759,7 @@ native_uninstall() {
     command -v docker >/dev/null 2>&1 && docker rm -f nkeeper-guacd >/dev/null 2>&1 || true
     rm -f /etc/systemd/system/nkeeper.service /etc/systemd/system/nkeeper-guacd.service
     systemctl daemon-reload
-    rm -rf "$NATIVE_PREFIX" /var/cache/nkeeper-build /etc/nginx/conf.d/nkeeper.conf /etc/nginx/conf.d/nkeeper-tls.conf /etc/nginx/snippets/nkeeper
+    rm -rf "$NATIVE_PREFIX" /opt/impacket /var/cache/nkeeper-build /etc/nginx/conf.d/nkeeper.conf /etc/nginx/conf.d/nkeeper-tls.conf /etc/nginx/snippets/nkeeper
     systemctl reload nginx >/dev/null 2>&1 || true
     if $purge; then
         postgres_psql -qc 'DROP DATABASE IF EXISTS nkeeper' -c 'DROP ROLE IF EXISTS nkeeper' >/dev/null 2>&1 || true

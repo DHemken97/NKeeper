@@ -23,6 +23,15 @@ public sealed class Host
 
     public string? Description { get; set; }
 
+    /// <summary>Logical processors (threads) a physical host has, or the vCPUs a virtual machine is given.</summary>
+    public int? CpuCores { get; set; }
+
+    /// <summary>Memory a physical host has, or a virtual machine is given, in MiB.</summary>
+    public int? MemoryMiB { get; set; }
+
+    /// <summary>The hardware's serial number (a Dell service tag); for physical hosts.</summary>
+    public string? SerialNumber { get; set; }
+
     /// <summary>A virtual machine (guest) rather than physical hardware.</summary>
     public bool IsVirtualMachine { get; set; }
 
@@ -41,6 +50,15 @@ public sealed class Host
 
     /// <summary>When a scan last found this VM on <see cref="HypervisorId"/>; null when the link was set by hand.</summary>
     public DateTimeOffset? HypervisorSeenAtUtc { get; set; }
+
+    /// <summary>
+    /// The host this one is reached through (a bastion): connections are tunnelled over SSH to it,
+    /// then on to this host. It can't itself have a jump host. Cleared when it's deleted.
+    /// </summary>
+    public Guid? JumpHostId { get; set; }
+
+    /// <summary>The jump host's credential to sign in to it with; null means its first usable one.</summary>
+    public Guid? JumpCredentialId { get; set; }
 
     public List<HostService> Services { get; set; } = [];
 
@@ -87,6 +105,12 @@ public sealed class HostService
 
     /// <summary>RDP only: how the connection is secured. Null means <see cref="RdpSecurityMode.Auto"/>.</summary>
     public RdpSecurityMode? RdpSecurity { get; set; }
+
+    /// <summary>
+    /// Where the service listens when that isn't the host's own address: an iDRAC has its own
+    /// management IP. Required for <see cref="ServiceProtocol.Idrac"/>; null for other services.
+    /// </summary>
+    public string? Address { get; set; }
 }
 
 /// <summary>
@@ -164,7 +188,11 @@ public sealed class HostTrustedKey
 
     public Guid HostId { get; set; }
 
-    /// <summary><see cref="ServiceProtocol.Ssh"/> or <see cref="ServiceProtocol.Rdp"/>.</summary>
+    /// <summary>
+    /// The protocol the identity was trusted for: <see cref="ServiceProtocol.Ssh"/>, <see cref="ServiceProtocol.Rdp"/>,
+    /// <see cref="ServiceProtocol.Https"/>, or <see cref="ServiceProtocol.Idrac"/> for the iDRAC's own address
+    /// (its HTTPS certificate and, for RACADM, its SSH host key).
+    /// </summary>
     public ServiceProtocol Protocol { get; set; }
 
     public int Port { get; set; }
@@ -197,7 +225,16 @@ public enum ServiceProtocol
     WinRm,
     PowerShell,
 
+    /// <summary>Windows RPC (DCE/RPC over TCP), usually through the endpoint mapper on port 135.</summary>
+    Rpc,
+
     /// <summary>A KVM hypervisor managed with libvirt, reached over SSH: lists VMs and opens their SPICE consoles.</summary>
     Kvm,
+
+    /// <summary>
+    /// A Dell iDRAC at its own management address: Redfish (over HTTPS) for status and power, the
+    /// HTML5 virtual console, and RACADM over SSH.
+    /// </summary>
+    Idrac,
     Other,
 }

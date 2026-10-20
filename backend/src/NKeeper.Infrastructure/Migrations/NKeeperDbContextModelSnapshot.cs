@@ -189,6 +189,172 @@ namespace NKeeper.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("NKeeper.Infrastructure.Auditing.AuditEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ClientAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid?>("HostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("HostName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RecordingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Action");
+
+                    b.HasIndex("OccurredAtUtc");
+
+                    b.HasIndex("HostId", "OccurredAtUtc");
+
+                    b.HasIndex("UserId", "OccurredAtUtc");
+
+                    b.ToTable("AuditEvents", (string)null);
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Auditing.SessionRecording", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("Data")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTimeOffset?>("EndedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("HostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("HostName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Protocol")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("Size")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Truncated")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionId");
+
+                    b.HasIndex("StartedAtUtc");
+
+                    b.ToTable("SessionRecordings", (string)null);
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Email.EmailSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("FromAddress")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("FromName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Host")
+                        .IsRequired()
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("ProtectedPassword")
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("Security")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.ToTable("EmailSettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_EmailSettings_Singleton", "\"Id\" = 1");
+                        });
+                });
+
             modelBuilder.Entity("NKeeper.Infrastructure.Identity.ApplicationRole", b =>
                 {
                     b.Property<Guid>("Id")
@@ -239,6 +405,9 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<bool>("EmailConfirmed")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsDirectoryAccount")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsDisabled")
                         .HasColumnType("boolean");
 
@@ -271,12 +440,24 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text");
 
+                    b.Property<string>("SingleSignOnSubject")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean");
 
                     b.Property<string>("UserName")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.PrimitiveCollection<string[]>("WorkspaceGroupBy")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<string>("WorkspaceSort")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -286,6 +467,9 @@ namespace NKeeper.Infrastructure.Migrations
                     b.HasIndex("NormalizedUserName")
                         .IsUnique()
                         .HasDatabaseName("UserNameIndex");
+
+                    b.HasIndex("SingleSignOnSubject")
+                        .IsUnique();
 
                     b.ToTable("AspNetUsers", (string)null);
                 });
@@ -304,6 +488,9 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<DateTimeOffset>("LastRenewedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<byte[]>("ProtectedSignInPassword")
+                        .HasColumnType("bytea");
+
                     b.Property<byte[]>("ProtectedTicket")
                         .IsRequired()
                         .HasColumnType("bytea");
@@ -320,11 +507,65 @@ namespace NKeeper.Infrastructure.Migrations
                     b.ToTable("AuthSessions", (string)null);
                 });
 
+            modelBuilder.Entity("NKeeper.Infrastructure.Identity.TwoFactorChallenge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("CodeHash")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("LastSentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("ProtectedSignInPassword")
+                        .HasColumnType("bytea");
+
+                    b.Property<bool>("RememberMe")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("SignInMethod")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("TwoFactorChallenges");
+                });
+
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Host", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<int?>("CpuCores")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -353,14 +594,27 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<bool>("IsVirtualMachine")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("JumpCredentialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("JumpHostId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("MacAddress")
                         .HasMaxLength(17)
                         .HasColumnType("character varying(17)");
+
+                    b.Property<int?>("MemoryMiB")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SerialNumber")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
 
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -387,6 +641,10 @@ namespace NKeeper.Infrastructure.Migrations
                     b.HasIndex("HypervisorId");
 
                     b.HasIndex("IpAddress");
+
+                    b.HasIndex("JumpCredentialId");
+
+                    b.HasIndex("JumpHostId");
 
                     b.HasIndex("Name");
 
@@ -446,6 +704,10 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)");
 
                     b.Property<Guid>("HostId")
                         .HasColumnType("uuid");
@@ -553,6 +815,83 @@ namespace NKeeper.Infrastructure.Migrations
                     b.ToTable("HostTrustedKeys", (string)null);
                 });
 
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.InstanceSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsLocked")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LockedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LockedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LockedByUserId");
+
+                    b.ToTable("InstanceSettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_InstanceSettings_Singleton", "\"Id\" = 1");
+                        });
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.ServiceCheck", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)");
+
+                    b.Property<DateTimeOffset?>("CertificateExpiresUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CertificateSubject")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("CheckedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DownSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("HostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsUp")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("LatencyMs")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Protocol")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HostId", "Protocol", "Port", "Address")
+                        .IsUnique();
+
+                    b.ToTable("ServiceChecks", (string)null);
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
                 {
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationRole", null)
@@ -623,7 +962,24 @@ namespace NKeeper.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("NKeeper.Infrastructure.Email.EmailSettings", b =>
+                {
+                    b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
             modelBuilder.Entity("NKeeper.Infrastructure.Identity.AuthSession", b =>
+                {
+                    b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Identity.TwoFactorChallenge", b =>
                 {
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
@@ -642,6 +998,16 @@ namespace NKeeper.Infrastructure.Migrations
                     b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
                         .WithMany()
                         .HasForeignKey("HypervisorId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("NKeeper.Infrastructure.Inventory.HostCredential", null)
+                        .WithMany()
+                        .HasForeignKey("JumpCredentialId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
+                        .WithMany()
+                        .HasForeignKey("JumpHostId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
@@ -689,6 +1055,23 @@ namespace NKeeper.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("TrustedByUserId")
                         .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.InstanceSettings", b =>
+                {
+                    b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("LockedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.ServiceCheck", b =>
+                {
+                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
+                        .WithMany()
+                        .HasForeignKey("HostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Host", b =>

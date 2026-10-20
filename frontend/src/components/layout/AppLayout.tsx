@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router'
+import { NavLink, Outlet, useNavigate } from 'react-router'
 import { ChangePasswordDialog } from '../../features/account/components/ChangePasswordDialog'
 import { useAuth } from '../../features/auth/context'
 import { isAdministrator } from '../../features/auth/types'
@@ -15,6 +15,7 @@ export function AppLayout() {
   const [changingPassword, setChangingPassword] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
   const admin = isAdministrator(user)
+  const navigate = useNavigate()
 
   async function handleSignOut() {
     setNotice(null)
@@ -33,9 +34,17 @@ export function AppLayout() {
           <NavLink to="/" end className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
             Hosts
           </NavLink>
+          <NavLink to="/reports" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
+            Reports
+          </NavLink>
           {admin ? (
             <NavLink to="/users" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
               Users
+            </NavLink>
+          ) : null}
+          {admin ? (
+            <NavLink to="/settings" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
+              Settings
             </NavLink>
           ) : null}
         </nav>
@@ -76,7 +85,9 @@ export function AppLayout() {
           onClose={() => setMenu(null)}
           entries={[
             { kind: 'header', label: user?.email ?? user?.userName ?? '' },
-            { kind: 'item', label: 'Change password', onSelect: () => setChangingPassword(true) },
+            // A domain account's password is changed in Windows; single sign-on accounts have none.
+            ...(user?.isDirectoryAccount || user?.isSingleSignOnAccount ? [] : [{ kind: 'item', label: 'Change password', onSelect: () => setChangingPassword(true) } as const]),
+            ...(admin ? [{ kind: 'item', label: 'Move to a new server…', onSelect: () => navigate('/transfer') } as const] : []),
             { kind: 'separator' },
             { kind: 'item', label: 'Sign out', onSelect: () => void handleSignOut() },
           ]}

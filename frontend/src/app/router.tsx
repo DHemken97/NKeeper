@@ -4,6 +4,14 @@ import { AdminRoute, ProtectedRoute, PublicOnlyRoute } from '../features/auth/co
 import { ForgotPasswordPage } from '../features/auth/pages/ForgotPasswordPage'
 import { LoginPage } from '../features/auth/pages/LoginPage'
 import { WorkspacePage } from '../features/inventory/pages/WorkspacePage'
+import { IpAddressReport } from '../features/reports/pages/IpAddressReport'
+import { ReportsLayout } from '../features/reports/pages/ReportsLayout'
+import { VmResourcesReport } from '../features/reports/pages/VmResourcesReport'
+import { HealthReport } from '../features/reports/pages/HealthReport'
+import { AuditLogReport } from '../features/audit/pages/AuditLogReport'
+import { RecordingPlayer } from '../features/audit/pages/RecordingPlayer'
+import { TransferPage } from '../features/transfer/pages/TransferPage'
+import { SettingsPage } from '../features/settings/pages/SettingsPage'
 import { UsersPage } from '../features/users/pages/UsersPage'
 
 /** Route table, kept separate from the router instance so tests can mount it in memory. */
@@ -23,7 +31,31 @@ export const routes: RouteObject[] = [
         // The workspace is a single page; view state (selection, search, grouping) lives in the query string.
         children: [
           { index: true, element: <WorkspacePage /> },
-          { element: <AdminRoute />, children: [{ path: '/users', element: <UsersPage /> }] },
+          {
+            path: '/reports',
+            element: <ReportsLayout />,
+            children: [
+              { index: true, element: <Navigate to="ip-addresses" replace /> },
+              { path: 'ip-addresses', element: <IpAddressReport /> },
+              { path: 'vm-resources', element: <VmResourcesReport /> },
+              { path: 'health', element: <HealthReport /> },
+              {
+                element: <AdminRoute />,
+                children: [
+                  { path: 'audit', element: <AuditLogReport /> },
+                  { path: 'audit/recordings/:id', element: <RecordingPlayer /> },
+                ],
+              },
+            ],
+          },
+          {
+            element: <AdminRoute />,
+            children: [
+              { path: '/users', element: <UsersPage /> },
+              { path: '/transfer', element: <TransferPage /> },
+              { path: '/settings', element: <SettingsPage /> },
+            ],
+          },
         ],
       },
     ],

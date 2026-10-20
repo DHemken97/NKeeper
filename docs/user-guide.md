@@ -6,11 +6,18 @@
 - [Scanning hosts](#scanning-hosts)
 - [Connecting](#connecting)
 - [SSH](#ssh)
+- [Telnet](#telnet)
+- [Files (SFTP)](#files-sftp)
+- [Jump hosts](#jump-hosts)
 - [RDP](#rdp)
 - [VNC](#vnc)
 - [Web interfaces (HTTP/HTTPS)](#web-interfaces-httphttps)
+- [Windows RPC](#windows-rpc)
 - [KVM virtual machines (SPICE and VNC consoles)](#kvm-virtual-machines-spice-and-vnc-consoles)
+- [Dell iDRAC (virtual console, status and power, RACADM)](#dell-idrac-virtual-console-status-and-power-racadm)
 - [Trusting servers](#trusting-servers)
+- [Health and Wake-on-LAN](#health-and-wake-on-lan)
+- [Reports](#reports)
 - [Your account](#your-account)
 
 ## The workspace
@@ -26,9 +33,9 @@ On a phone, the two panes show one at a time.
   - `site:"Datacenter A"` quotes a value with spaces;
   - `env:` means "has an env tag".
   - Clicking a tag on a host filters by it.
-- **Group by** up to three levels of tag names, the service type, or **Runs on** (the hypervisor a VM runs on), e.g. *site → role* or *Runs on → role*. A host appears under every value it has. Hosts without the tag collect in a "No site" group; hosts that run on no known host collect in "Not on a known host".
+- **Group by** up to three levels of tag names, the service type, or **Runs on** (the hypervisor a VM runs on), e.g. *site → role* or *Runs on → role*. A host appears under every value it has. Hosts without the tag collect in a "No site" group. Under **Runs on**, a hypervisor heads its own group, followed by its VMs, since it runs on its own hardware (a nested hypervisor also appears under the host it runs on). Other hosts that run on no known host collect in "Not on a known host". Your last grouping choice is saved to your account and used by default on your next visit; a grouping in the page URL takes precedence.
 - **Collapse all / Expand all** (the arrows next to **Refresh**, when the tree is grouped) closes or opens every group at once. After collapsing all, opening a group shows its subgroups still closed.
-- **Sort** by name, address or last update. Names sort naturally, so `srv2` comes before `srv10`.
+- **Sort** by name, address or last update. Names sort naturally, so `srv2` comes before `srv10`. Your last choice is saved to your account and used by default on your next visit; a sort in the page URL takes precedence.
 - **Select several hosts** to change them together:
   - **Ctrl+click** (**⌘+click** on a Mac) adds or removes a host, and **Ctrl+Space** does the same from the keyboard;
   - **Shift+click** selects every host between the last one you clicked and this one, as the tree shows them;
@@ -54,10 +61,12 @@ A host has:
 - a **name**;
 - a **hostname and/or IP address**. When both are set, NKeeper connects to the IP address, and shows and copies it;
 - an optional **MAC address** and **description**;
+- its **hardware**: CPU cores (logical processors), memory and, for physical servers, the **serial number** (a Dell service tag). For a virtual machine, the CPU cores and memory are what its hypervisor gives it (vCPUs and allocated memory). Scans fill these in; you can also type them, with memory in GiB;
 - whether it's a **virtual machine**, and if so, which host it **runs on** (its KVM or Proxmox node). The VM's details link to that host, and the host lists the VMs running on it. Deleting the host keeps its VMs and clears their link;
+- optionally, a **jump host** to **reach it through** (see [Jump hosts](#jump-hosts));
 - its own **tags**, **services** and **credentials**:
   - **Tags** are `name: value` pairs (the value is optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can have the same tag name twice with different values. Tags are what you group, search and grant access by; hosts don't live in folders.
-  - **Services** are the ways to connect: SSH, RDP, VNC, HTTP, HTTPS, KVM, and others stored for later (SSMS, Telnet, SFTP, FTP, WinRM, PowerShell, Other). Each has an optional port and label. The first one is the default.
+  - **Services** are the ways to connect: SSH, Telnet, RDP, RPC, VNC, HTTP, HTTPS, KVM and iDRAC. Those are the only types you can add. A host may still have an SSMS, SFTP, FTP, WinRM, PowerShell or Other service from an older version; its details mark it *Not supported*, and editing the host says it will be removed when you save (cancel to keep it). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's.
   - **Credentials** have a username, domain, label, password, SSH private key and notes. Passwords and keys are **write-only**: once saved, NKeeper only shows that one is stored. Leave the field empty when editing to keep it, or choose to clear it.
 
 Administrators add hosts with **New host**. Anyone with *Manage* access can **Edit** or **Delete** a host.
@@ -81,7 +90,7 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - **Delete** removes hosts whose names aren't in the file. It's off by default.
 - **Preview first:** **Preview** shows what would be added, updated, deleted, left unchanged or skipped, and why. Nothing is saved until you choose **Import**, and changing an option asks for a new preview.
 - **How connections map:**
-  - each connection becomes a host with one service (its protocol and port) and, when it has a username or password, a credential;
+  - each connection becomes a host with one service (its protocol and port) and, when it has a username or password, a credential. A protocol NKeeper can't connect with (PowerShell, raw sockets and the like) is left out with a warning; the host and its login are still imported;
   - the folder path becomes a `folder` tag, e.g. `folder: Servers/SQL`, so you can group by it;
   - values a connection inherits from its folders are resolved;
   - connections with the same name and address merge into one host with several services;
@@ -97,9 +106,12 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - the hostname and operating system;
   - the MAC address of the network interface NKeeper reached;
   - the TCP ports it listens on, except those that only listen on localhost;
-  - the local accounts that can log in (a real shell; root and regular users).
+  - the local accounts that can log in (a real shell; root and regular users);
+  - the CPU cores (`nproc`), installed memory (`lsmem`, else the kernel's total) and, on physical hardware, the serial number. Only root can read the serial number on most systems: scan as root, or as a user with passwordless sudo, to get it.
 
-  **On the network, an internal scan is a single SSH login**, like an administrator's, so it suits places that don't allow scanning. The commands only read local state and contact no other machines. It needs Linux or another Unix with `sh`. Windows isn't supported yet.
+  **On the network, an internal scan is a single SSH login**, like an administrator's, so it suits places that don't allow scanning. The commands only read local state and contact no other machines. It needs Linux or another Unix with `sh`.
+
+  **Windows hosts** are scanned over an **RPC** service instead (**Tasks ▸ Scan ▸ Internal**, *Over RPC (WMI)*), with a Windows login and its domain. It makes read-only WMI queries: the computer name, manufacturer and model, the Windows version, network adapters, listening TCP ports, enabled local accounts, logical processors, installed memory (the memory modules added up) and the BIOS serial number. WMI uses RPC on port 135 plus Windows' dynamic RPC ports, so the firewall must allow those from the NKeeper server, and the account must be allowed remote WMI (an administrator is). On Linux, NKeeper uses Impacket for this: the Docker image and the Linux installer include it.
 - **External** (**Tasks ▸ Scan ▸ External**) is run by the NKeeper server against the host's saved address, after you confirm. It reads:
   - which common ports are open (SSH, RDP, VNC, web, file sharing, mail, directory and database ports);
   - the SSH banner, which often names the operating system;
@@ -113,11 +125,13 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - a service for each open port NKeeper has a service for. Other open ports are listed for information;
   - a **KVM** service when libvirt is installed (internal scans);
   - each local account as a **credential without a password**. Using it asks for the password; set the password in the host's editor to save it;
-  - **Virtual machine**, when the scan finds the host runs under a hypervisor (it asks `systemd-detect-virt`).
+  - **Virtual machine**, when the scan finds the host runs under a hypervisor (it asks `systemd-detect-virt`);
+  - the **CPU cores**, **memory** and **serial number** (internal scans). A VM's serial number is invented by its hypervisor, so it's never offered.
 - **Which VMs run where** (internal scans of hypervisors): scanning a node lists its VMs and containers and matches each to an NKeeper host. A match uses the VM identity recorded by an earlier scan, else a MAC address, else the name (or the hostname's first part). Each match is offered as a link: *app01 runs on node1*.
   - **KVM / libvirt:** the node's VMs, read with `virsh` (read-only if possible). VMs often move between nodes. A VM moves to the scanned node only if it's **running** there; one that is merely defined there (shared storage) stays linked where it runs. Scan each node to keep the links current.
   - **Proxmox:** the VM and container configurations are shared by the whole cluster, so scanning **any one node** links every VM in the cluster to the node it's on. Other nodes must be NKeeper hosts named like the Proxmox node (e.g. `pve2`, or `pve2.example.com`). Reading the configurations needs **root**; as another user the scan says which it couldn't read.
   - A link records when a scan saw the VM there (shown on the VM). A link you set by hand in the editor has no such time.
+  - **What each VM is given** is recorded with its link: its vCPUs and memory, from libvirt (`virsh dominfo`) or the Proxmox configuration (cores × sockets, and memory). A linked VM whose allocation changed is offered again, as *Updates its resources to …*. A Proxmox container without a core limit has no vCPU count.
   - **VMs that aren't in NKeeper yet** can be added from the same scan (administrators). Tick **Add …** for each one you want; they start unticked, and **Select all** ticks them all. Each new host gets:
     - the VM's name;
     - an IP address the scan found, or the VM's name as its hostname when that's a valid DNS name;
@@ -149,6 +163,37 @@ A full terminal (xterm.js) that resizes with the tab.
 - **Domain accounts:** a credential's domain is sent as `DOMAIN\user`, which is what Windows OpenSSH expects.
 - **Idle sessions** stay open.
 
+## Telnet
+
+For switches, routers, serial-console servers and other devices that only offer Telnet (port 23 by default). It's the same terminal as SSH:
+- **Terminal:** NKeeper tells the device it's an `xterm-256color` terminal and keeps it informed of the window size, so full-screen menus fit the tab.
+- **Logging in:**
+  - Telnet has no login of its own: the device asks in the terminal.
+  - With a saved credential, NKeeper answers the first `login:` (or `Username:`) and `Password:` prompts for you, once, just after connecting. A password-only credential answers just the password prompt.
+  - **Without a login** (in the service's menu, and what double-click does when the host has no credential) connects and leaves the typing to you.
+- **Not encrypted:** Telnet sends everything, passwords included, in the clear between NKeeper and the device. The status bar says **Unencrypted to host**. Your browser's connection to NKeeper is still protected. Prefer SSH wherever the device offers it.
+
+## Files (SFTP)
+
+Any host with an SSH service has **Connect ▸ Files ▸ credential** (or **Files ▸ SSH service ▸ credential** when it has several). The files open in a tab:
+- **Browsing:** the tab starts in the login's home folder. Open a folder by clicking it, go back with **Up** or the path above the list, and **Refresh** to see changes made elsewhere.
+- **Upload:** choose one or more files, up to 2 GB each. They go into the folder shown. If a file with the same name exists, NKeeper asks before replacing it.
+- **Download:** files stream from the host through the NKeeper server to your browser.
+- **New folder**, **Rename** and **Delete**. Delete asks first, and only deletes empty folders.
+- **Logins and trust** are the same as SSH: the same credentials, host key check and trusted keys. The SSH server must have its SFTP subsystem enabled (OpenSSH does by default).
+- **Audit:** every upload, download, rename, delete and new folder is in the audit log, with its path and size.
+
+## Jump hosts
+
+A **jump host** (or bastion) is an SSH server that NKeeper signs in to first, then tunnels a host's connections through. Use it for sites, VLANs and customer networks that the NKeeper server can't reach directly.
+- **Setting one:** edit the host and choose a host under **Reach through**, then which of its credentials to **sign in as** (by default, its first credential with a username and a password or key).
+- **Which hosts can be jump hosts:** hosts with an SSH service that NKeeper reaches directly. There's one hop: a jump host can't have a jump host of its own, and a host that others go through can't get one.
+- **What goes through it:** SSH, Telnet, files, web sessions, iDRAC (console, status and power, and RACADM), KVM consoles and internal SSH scans. The host details show **Reached through**, with a link to the jump host.
+- **What doesn't yet:** RDP, VNC and RPC are greyed out in the Connect menu, since the RDP/VNC gateway dials hosts itself. External scans and health checks probe from the NKeeper server, so they skip these hosts.
+- **Trust:** connect to the jump host with SSH once and trust its host key first; the tunnel can't stop to ask. The target's own host key or certificate is still checked against the target itself, so the jump host can't pretend to be it.
+- **Access:** you need access to the jump host as well as the host. Without it, connecting says so.
+- **Port forwarding:** the jump host's SSH server must allow TCP forwarding (`AllowTcpForwarding yes`, the OpenSSH default).
+
 ## RDP
 
 Windows desktops through Apache Guacamole's guacd.
@@ -158,6 +203,7 @@ Windows desktops through Apache Guacamole's guacd.
 - **Sound** plays.
 - **Off:** file transfer, drives, printing, microphone and recording.
 - **Requirements:** RDP needs a credential with a username and password; the credential's domain is used as the Windows domain.
+- **My sign-in:** if you signed in to NKeeper with your Active Directory account, RDP services also offer **My sign-in** (`CORP\you`), which logs in to the desktop as you. Your password stays on the NKeeper server. Double-clicking a host with an RDP service and no saved credential uses it too. If you changed your domain password since signing in, sign out of NKeeper and back in.
 - **Security setting** (per RDP service): *Automatic* uses NLA when offered, otherwise TLS. You can also choose *NLA only* or *TLS only*. Insecure legacy RDP security is never used.
 
 ## VNC
@@ -186,6 +232,10 @@ A web session belongs to you and ends:
 
 If web sessions don't load from other computers, the server needs the wildcard DNS record and certificate described in [Installation](installation.md#dns-for-web-sessions). Links in a page that hard-code the host's absolute address (e.g. `https://10.0.0.5/…`) leave the session and connect directly; most web interfaces use relative links.
 
+## Windows RPC
+
+An **RPC** service (port 135, the endpoint mapper) is mainly for [scanning Windows hosts](#scanning-hosts). **Connect ▸ RPC** also opens a low-level tool for administrators who know DCE/RPC. NKeeper binds the interface and signs in with NTLM using the credential and its domain. You then send calls as an operation number and a request stub in hex, and see the response stub or the fault. Calls are authenticated but not signed or encrypted.
+
 ## KVM virtual machines (SPICE and VNC consoles)
 
 Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH credential. Then **Connect ▸ KVM ▸ credential**:
@@ -199,6 +249,22 @@ Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH cre
 - **On the hypervisor:** the SSH user must be able to use `qemu:///system` (usually by being in the `libvirt` group), and sshd must allow TCP forwarding (the OpenSSH default).
 - **Not supported:** SPICE configured for TLS only, and displays that listen on a Unix socket instead of a port. When a VM has both a SPICE and a VNC display, NKeeper opens the one libvirt lists first.
 
+## Dell iDRAC (virtual console, status and power, RACADM)
+
+Add an **iDRAC** service to the server's host, with the **iDRAC's IP address** (it has its own, separate from the server's). The port is the iDRAC's HTTPS port, 443 by default. Add the iDRAC login (e.g. `root`) as a credential with a password. Then **Connect ▸ iDRAC** offers:
+
+- **Virtual console:** the iDRAC's HTML5 console in a tab, like an RDP or VNC session. NKeeper asks the iDRAC over Redfish for one-time console credentials and relays the console page, so your browser never contacts the iDRAC and the iDRAC password stays on the server. **Reload** opens a fresh console. Double-clicking a host whose first service is an iDRAC opens its console.
+- **Status & power:** the server as Redfish reports it: model, service tag, power state, health, CPUs, memory, BIOS and iDRAC firmware. **Save to host** (with *Manage* access) records the service tag as the serial number, along with the CPU threads and memory, on the host. The **Power** buttons are the actions the server accepts: *Power on*, *Shut down* and *Restart* (through the operating system), *Reset* and *Power off* (immediate), *Power cycle*. Everything but *Power on* asks for confirmation. The tab also has buttons for the console, RACADM and the web interface.
+- **RACADM:** a terminal on the iDRAC's SSH command line (port 22 of the iDRAC's address), where `racadm` commands run.
+- **Web interface:** the iDRAC's own web pages, through NKeeper or directly, as for [web interfaces](#web-interfaces-httphttps).
+
+Requirements and limits:
+- **The console** needs iDRAC9 with firmware 4.x or later, a license that includes the virtual console (Enterprise or Datacenter), the virtual console enabled, and its **plug-in type set to HTML5 or eHTML5** (iDRAC Settings ▸ Services ▸ Virtual Console). When one is missing, *Status & power* says which, and the console explains why it can't open. For older iDRACs, open the web interface and launch the console from there.
+- **Web sessions** must work on your server (see [Installation](installation.md#dns-for-web-sessions)), since the console is one.
+- **Status and power** use standard Redfish, so they also work with other Redfish BMCs (e.g. HPE iLO 5 or later). The virtual console and RACADM are Dell-specific.
+- **The iDRAC account** decides what's allowed: power control needs an account with that privilege on the iDRAC.
+- **Certificates:** the iDRAC's self-signed certificate is shown for you to trust once, and covers Redfish, the console and the web interface. Its SSH host key (for RACADM) is trusted separately. Both are kept apart from the server's own keys, and are forgotten when the iDRAC's address changes.
+
 ## Trusting servers
 
 NKeeper verifies whom it connects to, using **trust on first use**:
@@ -206,8 +272,48 @@ NKeeper verifies whom it connects to, using **trust on first use**:
 - **Where it's kept:** trusted keys are stored per host and listed in its details. SSH sessions and KVM share SSH keys.
 - **If it changes:** NKeeper **refuses to connect** and says so, because a reinstalled server looks exactly like an attacker in the middle. When the change is expected (a rebuild, or a renewed certificate), an administrator or anyone with *Manage* access uses **Forget trusted keys…** in the host details, then connects again.
 
+## Health and Wake-on-LAN
+
+The NKeeper server checks every host's services every 5 minutes, the way a session would reach them:
+- **How:** a TCP connection to each service's port. For HTTPS, iDRAC and RDP services, it also reads the TLS certificate, to track when it expires. It never signs in, and uses no credentials.
+- **In the tree:** a dot before each host's name: green when every service answers, amber when some don't, red when none do. Hosts not checked yet have no dot.
+- **In the details:** each service shows *Up · 12 ms*, or *Down since …* with the reason, and its certificate's expiry. Expiries within 30 days are in red. **Check now** checks the host again at once.
+- **Reports ▸ Health:** what's down, longest first, and every certificate, soonest to expire first.
+
+The checks come from the server, so a host can be up for you but down for NKeeper (or the other way round) when firewalls differ. Change the interval, or turn checks off, with `Health__*` in [Configuration](configuration.md#api-settings).
+
+**Wake-on-LAN:** for a host with a MAC address, **Wake** (in its details or its menu) sends a magic packet from the NKeeper server, to UDP port 9. It goes to the local broadcast address, to the host's /24 broadcast address and to the host's own address. It's recorded in the audit log.
+- **Same network:** it works when the server is on the host's network.
+- **Routed networks:** the router must forward directed broadcasts.
+- **Docker:** a container's default network doesn't carry broadcasts onto your LAN. Run the backend with host networking, or wake hosts across a router that forwards directed broadcasts.
+
+## Reports
+
+**Reports** in the top bar lists NKeeper's reports. Each one covers only the hosts you can see.
+
+**VM hosts & resources** shows how your hypervisors are used:
+- **Each VM host** has a row with its serial number, CPU cores and memory. It also shows what its VMs are given in total, as a share of the host: e.g. *24 (75%)* vCPUs and *96 GiB (75%)* memory.
+- **Its VMs** are listed beneath it, each with its vCPUs and memory and its share of the host.
+- **Overcommitted** values are shown in red: VMs given more than the host has (common for vCPUs, risky for memory).
+- **Unknown values:** a VM whose vCPUs or memory aren't known is counted as *+1 unknown* rather than guessed. Scan the hypervisor to record them.
+- **Other rows:** physical servers that run no VMs are listed after the VM hosts with their serial numbers, then VMs whose host isn't known.
+- **Download CSV** saves one row per host.
+
+The figures come from the hosts' hardware fields: scan the hypervisors (internal scan) to fill in each VM's allocation, and scan the hosts themselves, or use the iDRAC's **Save to host**, for their cores, memory and serial number.
+
+**IP address map** is a spreadsheet of your address space:
+- **Columns** are /24 subnets, one for each subnet that has at least one host (e.g. `10.0.1.x`, `192.168.1.x`, `192.168.42.x`), in numeric order. Each header shows how many of the subnet's addresses are used.
+- **Rows** are the last octet, `.0` to `.255`.
+- **Cells** show the name of the host at that address. Hover for its hostname, and click to open it in the workspace. An address used by two or more hosts is highlighted as a conflict.
+- **Only used addresses** hides rows that are empty in every subnet. **Download CSV** saves the table, as shown, for Excel or another spreadsheet.
+- Hosts with only a hostname or an IPv6 address aren't in the map. The summary line counts them.
+
 ## Your account
 
-The account menu (top right) has **Change password** and **Sign out**. Changing your password signs out your other sessions.
+**Signing in.** Use your NKeeper username or email and password, or your domain account if Active Directory sign-in is set up. If the sign-in page shows **Sign in with …** (for example *Sign in with Microsoft*), you can use your organization's account instead: NKeeper sends you to its sign-in page and back. **Remember me** applies to both.
+
+**Sign-in codes.** If an administrator turned on **Email 2FA challenge code** for your account, NKeeper emails you a 9-digit code after your password (or single sign-on). Enter it on the **Check your email** page. Spaces or dashes are fine. The code works once, for 10 minutes. **Send a new code** replaces it if the email doesn't arrive. After five wrong codes, sign in again. If no code arrives at all, ask an administrator to check the email settings.
+
+The account menu (top right) has **Change password** and **Sign out**. Changing your password signs out your other sessions. If you sign in with your Active Directory account, change your password in Windows instead. Accounts that use single sign-on have no NKeeper password: their password is managed by the identity provider.
 
 If an administrator set a temporary password, NKeeper asks you to choose your own at your first sign-in. There's no self-service password reset; ask an administrator.

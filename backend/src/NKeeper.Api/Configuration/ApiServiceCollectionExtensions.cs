@@ -52,6 +52,7 @@ internal static class ApiServiceCollectionExtensions
                 options.Filters.Add<ValidateAntiforgeryTokenFilter>();
                 options.Filters.Add<AccountStatusFilter>();
                 options.Filters.Add<InventoryExceptionFilter>();
+                options.Filters.Add<InstanceLockFilter>();
                 // Validation error keys use JSON (camelCase) names so clients can map them to fields.
                 options.ModelMetadataDetailsProviders.Add(new SystemTextJsonValidationMetadataProvider());
             })
@@ -63,10 +64,29 @@ internal static class ApiServiceCollectionExtensions
         services.AddSingleton<NKeeper.Api.Inventory.Scanning.ExternalScan>();
         services.AddScoped<NKeeper.Api.Users.UserAdministration>();
         services.AddScoped<SessionTargetResolver>();
+        services.AddScoped<NKeeper.Api.Transfer.InstanceExporter>();
+        services.AddScoped<NKeeper.Api.Transfer.InstanceImporter>();
+        services.AddScoped<NKeeper.Api.Transfer.InstanceLock>();
         services.AddScoped<TrustedKeyStore>();
         services.AddScoped<SshTerminalSession>();
+        services.AddScoped<NKeeper.Api.Telnet.TelnetTerminalSession>();
         services.AddScoped<DesktopSession>();
+        services.AddScoped<NKeeper.Api.Rpc.RpcSession>();
         services.AddSingleton<SessionLimiter>();
+        services.AddHttpContextAccessor();
+        services.AddOptions<NKeeper.Api.Auditing.AuditSettings>()
+            .Bind(configuration.GetSection(NKeeper.Api.Auditing.AuditSettings.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddSingleton<NKeeper.Api.Auditing.AuditLog>();
+        services.AddHostedService<NKeeper.Api.Auditing.AuditRetention>();
+        services.AddOptions<NKeeper.Api.Health.HealthSettings>()
+            .Bind(configuration.GetSection(NKeeper.Api.Health.HealthSettings.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddSingleton<NKeeper.Api.Health.HostHealthChecker>();
+        services.AddSingleton<Controllers.SftpDownloadLinks>();
+        services.AddHostedService<NKeeper.Api.Health.HealthMonitor>();
         services.AddOptions<WebProxySettings>()
             .Bind(configuration.GetSection(WebProxySettings.SectionName))
             .ValidateDataAnnotations()
@@ -115,6 +135,9 @@ internal static class ApiServiceCollectionExtensions
                 };
             });
 
+        services.AddScoped<TwoFactorSignIn>();
+        services.AddNKeeperSingleSignOn(configuration);
+
         // Secure by default: every endpoint requires an authenticated user unless it opts out.
         services.AddAuthorizationBuilder()
             .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
@@ -149,6 +172,11 @@ internal static class ApiServiceCollectionExtensions
                     QueueLimit = 0,
                 });
             });
+            // Exports and imports are expensive (key derivation) and sensitive: a few per user at a time.
+            options.AddPolicy(Controllers.InstanceTransferController.RateLimitPolicy, context =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(10), QueueLimit = 0 }));
             options.OnRejected = async (context, cancellationToken) =>
             {
                 if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
@@ -160,7 +188,9 @@ internal static class ApiServiceCollectionExtensions
                 {
                     Status = StatusCodes.Status429TooManyRequests,
                     Title = "Too many attempts",
-                    Detail = "Too many sign-in attempts. Wait a moment and try again.",
+                    Detail = context.HttpContext.Request.Path.StartsWithSegments("/api/admin/transfer")
+                        ? "Too many export or import attempts. Wait a few minutes and try again."
+                        : "Too many sign-in attempts. Wait a moment and try again.",
                 };
                 problem.Extensions["code"] = RateLimitedCode;
                 await context.HttpContext.RequestServices.GetRequiredService<IProblemDetailsService>()

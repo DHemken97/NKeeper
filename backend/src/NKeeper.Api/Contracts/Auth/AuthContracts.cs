@@ -17,6 +17,64 @@ public sealed record LoginRequest
 }
 
 /// <summary>The safe, public view of the signed-in user. Never add Identity internals here.</summary>
-public sealed record CurrentUserResponse(Guid Id, string UserName, string? Email, IReadOnlyList<string> Roles, bool MustChangePassword);
+/// <param name="IsDirectoryAccount">An Active Directory account: its password is changed in Windows, not NKeeper.</param>
+/// <param name="IsSingleSignOnAccount">Signs in with the identity provider: it has no NKeeper password.</param>
+/// <param name="SignInAccount">The domain login (CORP\jdoe) this session can pass on to RDP sessions, or null when it has none.</param>
+public sealed record CurrentUserResponse(
+    Guid Id,
+    string UserName,
+    string? Email,
+    IReadOnlyList<string> Roles,
+    bool MustChangePassword,
+    bool IsDirectoryAccount,
+    bool IsSingleSignOnAccount,
+    string? SignInAccount,
+    IReadOnlyList<string> WorkspaceGroupBy,
+    string WorkspaceSort);
+
+public sealed record WorkspacePreferencesResponse(IReadOnlyList<string> GroupBy, string Sort);
+
+public sealed record WorkspacePreferencesRequest : IValidatableObject
+{
+    [MaxLength(3)]
+    public string[] GroupBy { get; init; } = [];
+
+    [Required]
+    [RegularExpression("^(name|address|updated)$")]
+    public string Sort { get; init; } = "name";
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (GroupBy is null)
+        {
+            yield return new ValidationResult("Choose valid grouping keys.", [nameof(GroupBy)]);
+            yield break;
+        }
+
+        if (GroupBy.Any(key => string.IsNullOrWhiteSpace(key) || key.Length > 253))
+        {
+            yield return new ValidationResult("Each grouping key must be between 1 and 253 characters.", [nameof(GroupBy)]);
+        }
+
+        if (GroupBy.Distinct(StringComparer.OrdinalIgnoreCase).Count() != GroupBy.Length)
+        {
+            yield return new ValidationResult("Grouping keys must be unique.", [nameof(GroupBy)]);
+        }
+    }
+}
 
 public sealed record AntiforgeryTokenResponse(string Token, string HeaderName);
+
+/// <summary>The password was right, and the account also needs the code just emailed (202 from login).</summary>
+/// <param name="CodeSentTo">The address it went to, partly hidden (j•••@example.com).</param>
+public sealed record TwoFactorChallengeResponse(bool TwoFactorRequired, string CodeSentTo);
+
+public sealed record TwoFactorCodeRequest
+{
+    [Required(ErrorMessage = "Enter the code from the email.")]
+    [StringLength(32)]
+    public string Code { get; init; } = string.Empty;
+}
+
+/// <param name="SingleSignOnName">The identity provider's name for the "Sign in with …" button, or null without single sign-on.</param>
+public sealed record SignInOptionsResponse(string? SingleSignOnName);

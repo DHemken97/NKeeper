@@ -7,9 +7,10 @@ import { TextField } from '../../../components/ui/TextField'
 import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
 import { toCloneDraft, toHostDraft, toHostInput, type HostDraft } from '../drafts'
-import type { Host } from '../types'
+import { isSupportedProtocol, type Host } from '../types'
 import { CredentialsEditor } from './CredentialsEditor'
 import { HypervisorField } from './HypervisorField'
+import { JumpHostField } from './JumpHostField'
 import styles from './HostPanel.module.css'
 import { ServicesEditor } from './ServicesEditor'
 import { TagEditor } from './TagEditor'
@@ -19,6 +20,8 @@ interface HostEditorProps {
   host: Host | null
   /** When creating: start from a copy of this host. */
   cloneOf?: Host
+  /** Start a new host from this one (available while editing an existing host). */
+  onClone?: () => void
   knownTagNames: string[]
   knownTagValues: (name: string) => string[]
   /** Every host, to choose the one a virtual machine runs on. */
@@ -27,10 +30,25 @@ interface HostEditorProps {
   onCancel: () => void
 }
 
-const FIELDS = ['name', 'hostname', 'ipAddress', 'macAddress', 'description', 'hypervisorId', 'tags', 'services', 'credentials']
+const FIELDS = [
+  'name',
+  'hostname',
+  'ipAddress',
+  'macAddress',
+  'description',
+  'cpuCores',
+  'memoryMiB',
+  'serialNumber',
+  'hypervisorId',
+  'jumpHostId',
+  'jumpCredentialId',
+  'tags',
+  'services',
+  'credentials',
+]
 
 /** Create or edit a host in the details panel, including its tags, services and credentials. */
-export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHosts, onSaved, onCancel }: HostEditorProps) {
+export function HostEditor({ host, cloneOf, onClone, knownTagNames, knownTagValues, allHosts, onSaved, onCancel }: HostEditorProps) {
   const [draft, setDraft] = useState<HostDraft>(() => (!host && cloneOf ? toCloneDraft(cloneOf) : toHostDraft(host)))
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
@@ -50,6 +68,13 @@ export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHo
     }
     if (!draft.hostname.trim() && !draft.ipAddress.trim()) {
       clientErrors.hostname = 'Enter a hostname or an IP address.'
+    }
+    if (draft.cpuCores.trim() && !/^\d+$/.test(draft.cpuCores.trim())) {
+      clientErrors.cpuCores = 'Enter a whole number of cores.'
+    }
+    const gib = Number(draft.memoryGiB.trim().replace(',', '.'))
+    if (draft.memoryGiB.trim() && !(gib > 0)) {
+      clientErrors.memoryMiB = 'Enter the memory in GiB, e.g. 64 or 0.5.'
     }
     draft.tags.forEach((tag, index) => {
       if (!tag.name.trim() && tag.value.trim()) {
@@ -147,6 +172,38 @@ export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHo
               autoComplete="off"
               spellCheck={false}
             />
+            <TextField
+              label={draft.isVirtualMachine ? 'vCPUs' : 'CPU cores'}
+              value={draft.cpuCores}
+              onChange={(e) => set('cpuCores', e.target.value)}
+              error={fieldErrors.cpuCores}
+              hint={draft.isVirtualMachine ? 'What the VM is given' : 'Logical processors (threads)'}
+              inputMode="numeric"
+              maxLength={6}
+              autoComplete="off"
+            />
+            <TextField
+              label="Memory (GiB)"
+              value={draft.memoryGiB}
+              onChange={(e) => set('memoryGiB', e.target.value)}
+              error={fieldErrors.memoryMiB}
+              hint={draft.isVirtualMachine ? 'What the VM is given' : 'Optional'}
+              inputMode="decimal"
+              maxLength={10}
+              autoComplete="off"
+            />
+            {!draft.isVirtualMachine ? (
+              <TextField
+                label="Serial number"
+                value={draft.serialNumber}
+                onChange={(e) => set('serialNumber', e.target.value)}
+                error={fieldErrors.serialNumber}
+                hint="Dell: the service tag"
+                maxLength={128}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            ) : null}
             <TextArea
               className={styles.full}
               label="Description"
@@ -171,6 +228,15 @@ export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHo
                 seenAtUtc={host && host.hypervisorId === draft.hypervisorId ? host.hypervisorSeenAtUtc : null}
               />
             ) : null}
+            <JumpHostField
+              // A jump host has an SSH service and is reached directly; a host others go through can't use one.
+              hosts={allHosts.filter((h) => h.id !== host?.id && !h.jumpHostId && h.services.some((s) => s.protocol === 'Ssh'))}
+              value={draft.jumpHostId}
+              credentialId={draft.jumpCredentialId}
+              onChange={(jumpHostId, jumpCredentialId) => setDraft((current) => ({ ...current, jumpHostId, jumpCredentialId }))}
+              error={fieldErrors.jumpHostId}
+              credentialError={fieldErrors.jumpCredentialId}
+            />
           </div>
         </section>
 
@@ -185,7 +251,12 @@ export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHo
         </section>
 
         <section className={styles.section}>
-          <ServicesEditor value={draft.services} onChange={(services) => set('services', services)} errors={fieldErrors} />
+          <ServicesEditor
+            value={draft.services}
+            onChange={(services) => set('services', services)}
+            errors={fieldErrors}
+            dropped={(host ?? cloneOf)?.services.filter((s) => !isSupportedProtocol(s.protocol))}
+          />
         </section>
 
         <section className={styles.section}>
@@ -194,6 +265,11 @@ export function HostEditor({ host, cloneOf, knownTagNames, knownTagValues, allHo
       </div>
 
       <footer className={styles.footer}>
+        {host && onClone ? (
+          <Button variant="secondary" onClick={onClone} disabled={saving}>
+            Clone host
+          </Button>
+        ) : null}
         <Button variant="secondary" onClick={onCancel} disabled={saving}>
           Cancel
         </Button>

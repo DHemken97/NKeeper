@@ -4,6 +4,7 @@ using System.Net.Security;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using NKeeper.Api.Configuration;
+using NKeeper.Api.RemoteSessions;
 
 namespace NKeeper.Api.Web;
 
@@ -14,9 +15,14 @@ namespace NKeeper.Api.Web;
 /// </summary>
 public sealed class WebSession : IDisposable
 {
-    internal WebSession(Guid userId, Guid hostId, Uri target, string? pinnedFingerprint, string? embedderOrigin, DateTimeOffset now)
+    private string? _startPath;
+    private readonly JumpTunnel? _tunnel;
+
+    internal WebSession(Guid userId, Guid hostId, Uri target, string? pinnedFingerprint, string? embedderOrigin, string startPath, DateTimeOffset now, JumpTunnel? tunnel)
     {
+        _tunnel = tunnel;
         EmbedderOrigin = embedderOrigin;
+        _startPath = startPath;
         Id = RandomId(16);
         Secret = Base64Url(32);
         LaunchToken = Base64Url(32);
@@ -34,6 +40,8 @@ public sealed class WebSession : IDisposable
             AutomaticDecompression = DecompressionMethods.None,
             ConnectTimeout = TimeSpan.FromSeconds(15),
             EnableMultipleHttp2Connections = true,
+            // Through a jump host: every connection goes to the tunnel's local end instead.
+            ConnectCallback = tunnel is { IsTunnel: true } ? (_, token) => JumpTunnel.ConnectStreamAsync(tunnel, token) : null,
             SslOptions = new SslClientAuthenticationOptions
             {
                 // Publicly valid certificates pass; otherwise only the exact certificate the user trusted.
@@ -90,10 +98,20 @@ public sealed class WebSession : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Where the launch link lands: the start path the session was opened with (e.g. an iDRAC console
+    /// login with one-time credentials), only the first time; "/" after that.
+    /// </summary>
+    internal string TakeStartPath() => Interlocked.Exchange(ref _startPath, null) ?? "/";
+
     internal bool HasSecret(string? value) =>
         value is not null && CryptographicOperations.FixedTimeEquals(System.Text.Encoding.ASCII.GetBytes(value), System.Text.Encoding.ASCII.GetBytes(Secret));
 
-    public void Dispose() => Client.Dispose();
+    public void Dispose()
+    {
+        Client.Dispose();
+        _tunnel?.Dispose();
+    }
 
     /// <summary>Random lower-case hex: unguessable and a valid DNS label.</summary>
     private static string RandomId(int bytes) => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(bytes));
@@ -103,21 +121,24 @@ public sealed class WebSession : IDisposable
 }
 
 /// <summary>Open web sessions, in memory (per API instance; restarting the API ends them).</summary>
-public sealed class WebSessionStore(IOptions<WebProxySettings> settings, TimeProvider timeProvider, ILogger<WebSessionStore> logger) : IDisposable
+public sealed class WebSessionStore(IOptions<WebProxySettings> settings, TimeProvider timeProvider, Auditing.AuditLog audit, ILogger<WebSessionStore> logger) : IDisposable
 {
     public const int MaxSessionsPerUser = 20;
 
     private readonly ConcurrentDictionary<string, WebSession> _sessions = new(StringComparer.Ordinal);
 
-    public WebSession? TryCreate(Guid userId, Guid hostId, Uri target, string? pinnedFingerprint, string? embedderOrigin)
+    /// <param name="startPath">The path (and query) the launch link opens on the target.</param>
+    /// <param name="tunnel">A jump-host tunnel the session owns from now on (also when it can't be created).</param>
+    internal WebSession? TryCreate(Guid userId, Guid hostId, Uri target, string? pinnedFingerprint, string? embedderOrigin, string startPath = "/", JumpTunnel? tunnel = null)
     {
         RemoveExpired();
         if (_sessions.Values.Count(s => s.UserId == userId) >= MaxSessionsPerUser)
         {
+            tunnel?.Dispose();
             return null;
         }
 
-        var session = new WebSession(userId, hostId, target, pinnedFingerprint, embedderOrigin, timeProvider.GetUtcNow());
+        var session = new WebSession(userId, hostId, target, pinnedFingerprint, embedderOrigin, startPath, timeProvider.GetUtcNow(), tunnel);
         _sessions[session.Id] = session;
         logger.LogInformation("Web session {SessionId} opened by user {UserId} for host {HostId} ({Target})", session.Id, userId, hostId, target);
         return session;
@@ -148,6 +169,12 @@ public sealed class WebSessionStore(IOptions<WebProxySettings> settings, TimePro
         }
 
         logger.LogInformation("Web session {SessionId} of user {UserId} ended: {Reason}", id, session.UserId, reason);
+        _ = audit.RecordAsync(new Auditing.AuditEntry(
+            Auditing.AuditActions.SessionEnd,
+            session.HostId,
+            $"Web · {session.Target} · after {Auditing.AuditedSession.FormatDuration(timeProvider.GetUtcNow() - session.CreatedAtUtc)} · {reason}",
+            session.Id,
+            UserId: session.UserId));
         session.Dispose();
         return true;
     }

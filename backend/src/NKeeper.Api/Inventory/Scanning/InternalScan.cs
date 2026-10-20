@@ -38,14 +38,26 @@ internal static class InternalScan
         s users; getent passwd 2>/dev/null || cat /etc/passwd 2>/dev/null
         s libvirt; command -v virsh >/dev/null 2>&1 && echo yes
         s virt; systemd-detect-virt 2>/dev/null
+        s cpus; nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null
+        s memory
+        # Installed memory (lsmem) is closer to what the hardware has than the kernel's MemTotal.
+        printf 'online %s\n' "$(lsmem -b --summary=only 2>/dev/null | sed -n 's/^Total online memory:[[:space:]]*//p')"
+        sed -n 's/^MemTotal:[[:space:]]*\([0-9]*\).*/memtotal \1/p' /proc/meminfo 2>/dev/null
+        printf 'bytes %s\n' "$(sysctl -n hw.memsize 2>/dev/null)"
+        s serial
+        # Only root may read it on most systems; sudo is tried only where it needs no password.
+        f=/sys/class/dmi/id/product_serial
+        if [ -r "$f" ]; then cat "$f"; elif [ -e "$f" ]; then sudo -n cat "$f" 2>/dev/null || echo '(unreadable)'; fi
         s libvirtvms
         if command -v virsh >/dev/null 2>&1; then
           v='virsh -r -c qemu:///system'; $v uri >/dev/null 2>&1 || v='virsh -c qemu:///system'
           for u in $($v list --all --uuid 2>/dev/null); do
-            # Addresses come from the node's own DHCP leases and ARP table (local reads).
-            printf '%s\t%s\t%s\t%s\t%s\n' "$u" "$($v domname "$u" 2>/dev/null)" "$($v domstate "$u" 2>/dev/null | head -n 1)" \
+            # Addresses come from the node's own DHCP leases and ARP table (local reads); vCPUs and
+            # memory (KiB) are what the domain is given.
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$u" "$($v domname "$u" 2>/dev/null)" "$($v domstate "$u" 2>/dev/null | head -n 1)" \
               "$($v domiflist "$u" 2>/dev/null | awk 'NR > 2 && $5 ~ /:/ { printf "%s,", $5 }')" \
-              "$( { $v domifaddr "$u" --source lease; $v domifaddr "$u" --source arp; } 2>/dev/null | awk '$3 ~ /^ipv/ { split($4, a, "/"); printf "%s,", a[1] }')"
+              "$( { $v domifaddr "$u" --source lease; $v domifaddr "$u" --source arp; } 2>/dev/null | awk '$3 ~ /^ipv/ { split($4, a, "/"); printf "%s,", a[1] }')" \
+              "$($v dominfo "$u" 2>/dev/null | awk -F': *' '/^CPU\(s\)/ { c = $2 } /^Max memory/ { split($2, m, " ") } END { printf "%s\t%s", c, m[1] }')"
           done
         fi
         s proxmox
@@ -61,7 +73,11 @@ internal static class InternalScan
             macs=$(sed -n '/^\[/q; /^net[0-9]*:/p' "$f" | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | tr '\n' ',')
             # Static addresses: containers' ip=/ip6=, and VMs' cloud-init ipconfigN.
             ips=$(sed -n '/^\[/q; /^net[0-9]*:/p; /^ipconfig[0-9]*:/p' "$f" | grep -oE 'ip6?=[^,/ ]+' | cut -d= -f2 | grep -vE '^(dhcp|auto|manual)$' | tr '\n' ',')
-            printf 'vm\t%s\t%s\t%s\t%s\t%s\t%s\n' "$kind" "$n" "$id" "$name" "$macs" "$ips"
+            # Resources as configured: cores and sockets (VMs default to 1 x 1), memory in MiB.
+            cores=$(sed -n '/^\[/q; s/^cores:[[:space:]]*//p' "$f" | head -n 1)
+            sockets=$(sed -n '/^\[/q; s/^sockets:[[:space:]]*//p' "$f" | head -n 1)
+            mem=$(sed -n '/^\[/q; s/^memory:[[:space:]]*\(current=\)\{0,1\}\([0-9]*\).*/\2/p' "$f" | head -n 1)
+            printf 'vm\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$kind" "$n" "$id" "$name" "$macs" "$ips" "$cores" "$sockets" "$mem"
           done
         fi
         s end
@@ -157,10 +173,51 @@ internal static class InternalScan
 
         var virtualization = First(sections, "virt") is { } virt && virt != "none" ? virt : null;
         var guests = ParseGuests(sections, notes);
-        return new ScanFindings(hostname, serverIp, mac, os, [.. ports.Select(ScanPorts.Describe)], isKvmHost, users, notes, virtualization, guests);
+        var cpus = PositiveInt(First(sections, "cpus"));
+        // A VM's "serial number" is made up by its hypervisor: only hardware's is worth recording.
+        var serial = virtualization is null ? Serial(First(sections, "serial"), notes) : null;
+        return new ScanFindings(
+            hostname, serverIp, mac, os, [.. ports.Select(ScanPorts.Describe)], isKvmHost, users, notes, virtualization, guests, cpus, MemoryMiB(sections), serial);
     }
 
-    /// <summary>libvirt domains ("uuid\tname\tstate\tmac,mac,") and Proxmox VMs/containers ("vm\tkind\tnode\tid\tname\tmac,").</summary>
+    /// <summary>Installed memory (lsmem, bytes), else the kernel's MemTotal (KiB), else macOS's hw.memsize (bytes), in MiB.</summary>
+    private static int? MemoryMiB(Dictionary<string, List<string>> sections)
+    {
+        long? Value(string key) =>
+            Lines(sections, "memory").Select(l => l.Split(' ', 2)).FirstOrDefault(f => f[0] == key && f.Length == 2) is { } found
+            && long.TryParse(found[1].Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value > 0 ? value : null;
+
+        var mib = Value("online") is { } online ? online / (1024 * 1024)
+            : Value("memtotal") is { } kib ? kib / 1024
+            : Value("bytes") is { } bytes ? bytes / (1024 * 1024)
+            : (long?)null;
+        return mib is > 0 and <= int.MaxValue ? (int)mib : null;
+    }
+
+    /// <summary>Placeholders firmware ships when no serial number was set.</summary>
+    private static readonly string[] SerialPlaceholders =
+        ["to be filled by o.e.m.", "default string", "system serial number", "not specified", "not applicable", "none", "n/a", "0123456789", "chassis serial number"];
+
+    /// <summary>A real serial number, or null for empty values and firmware placeholders.</summary>
+    internal static string? Serial(string? value, List<string>? notes = null)
+    {
+        if (value == "(unreadable)")
+        {
+            notes?.Add("The serial number can only be read as root: scan as root, or as a user with passwordless sudo, to record it.");
+            return null;
+        }
+
+        var serial = value?.Trim();
+        return string.IsNullOrEmpty(serial) || serial.Length > 128 || serial.All(c => c is '0' or ' ' or '.' or '-')
+            || SerialPlaceholders.Contains(serial, StringComparer.OrdinalIgnoreCase)
+            ? null
+            : serial;
+    }
+
+    private static int? PositiveInt(string? value) =>
+        int.TryParse(value?.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number > 0 ? number : null;
+
+    /// <summary>libvirt domains ("uuid\tname\tstate\tmac,\tip,\tvcpus\tKiB") and Proxmox VMs/containers ("vm\tkind\tnode\tid\tname\tmac,\tip,\tcores\tsockets\tMiB").</summary>
     private static List<ScannedGuest> ParseGuests(Dictionary<string, List<string>> sections, List<string> notes)
     {
         var guests = new List<ScannedGuest>();
@@ -169,8 +226,14 @@ internal static class InternalScan
             var fields = line.Split('\t');
             if (fields.Length >= 3 && Guid.TryParse(fields[0], out var uuid))
             {
+                // virsh reports memory in KiB.
+                var memoryKib = PositiveInt(fields.ElementAtOrDefault(6));
                 guests.Add(new ScannedGuest(
-                    "libvirt", $"libvirt:{uuid:D}", fields[1].Trim(), fields[2].Trim(), null, true, Macs(fields.ElementAtOrDefault(3)), Ips(fields.ElementAtOrDefault(4))));
+                    "libvirt", $"libvirt:{uuid:D}", fields[1].Trim(), fields[2].Trim(), null, true, Macs(fields.ElementAtOrDefault(3)), Ips(fields.ElementAtOrDefault(4)))
+                {
+                    CpuCores = PositiveInt(fields.ElementAtOrDefault(5)),
+                    MemoryMiB = memoryKib is >= 1024 ? memoryKib / 1024 : null,
+                });
             }
         }
 
@@ -190,7 +253,14 @@ internal static class InternalScan
                 node,
                 string.Equals(node, localNode, StringComparison.OrdinalIgnoreCase),
                 Macs(fields.ElementAtOrDefault(5)),
-                Ips(fields.ElementAtOrDefault(6))));
+                Ips(fields.ElementAtOrDefault(6)))
+            {
+                // VMs: cores x sockets, each 1 when not set. Containers without "cores" may use every core of the node.
+                CpuCores = kind == "lxc"
+                    ? PositiveInt(fields.ElementAtOrDefault(7))
+                    : (PositiveInt(fields.ElementAtOrDefault(7)) ?? 1) * (PositiveInt(fields.ElementAtOrDefault(8)) ?? 1),
+                MemoryMiB = PositiveInt(fields.ElementAtOrDefault(9)),
+            });
         }
 
         if (proxmox.Contains("unreadable"))

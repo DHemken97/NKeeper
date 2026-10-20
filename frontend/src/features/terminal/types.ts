@@ -1,6 +1,9 @@
-/** Protocols NKeeper opens sessions for. */
-/** kvm: a hypervisor's VM list; spice and vmvnc: one VM's console (vnc is a VNC server reached through guacd). */
-export type SessionProtocol = 'ssh' | 'rdp' | 'vnc' | 'web' | 'kvm' | 'spice' | 'vmvnc'
+/**
+ * Protocols NKeeper opens sessions for. kvm: a hypervisor's VM list; spice and vmvnc: one VM's
+ * console (vnc is a VNC server reached through guacd); idrac: a server's status and power over
+ * Redfish; idracconsole: its iDRAC's HTML5 virtual console (RACADM is an ssh session).
+ */
+export type SessionProtocol = 'ssh' | 'telnet' | 'sftp' | 'rdp' | 'rpc' | 'vnc' | 'web' | 'kvm' | 'spice' | 'vmvnc' | 'idrac' | 'idracconsole'
 
 /** What the browser asks the server to connect to. Secrets for saved credentials stay on the server. */
 export interface SessionRequest {
@@ -13,6 +16,8 @@ export interface SessionRequest {
    * (in memory, for the tab's lifetime) to open VM consoles.
    */
   oneOff?: { username: string; password: string; domain?: string }
+  /** RDP: log in as the user's own domain account, which they signed in to NKeeper with. The password stays on the server. */
+  useSignIn?: boolean
   /** For VM consoles: the virtual machine on the KVM host. */
   vm?: { uuid: string; name: string }
 }

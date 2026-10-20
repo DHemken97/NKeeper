@@ -35,16 +35,14 @@ public sealed record OpenWebSessionResponse(
     string Status, string? SessionId, string? LaunchPath, string? BaseDomain, string? Target, WebCertificateResponse? Certificate);
 
 /// <summary>
-/// Web (HTTP/HTTPS) sessions: NKeeper itself connects to the host's web interface and relays it
-/// to the browser on an isolated origin, so the browser never contacts the host directly.
+/// Web (HTTP/HTTPS) sessions: NKeeper itself connects to the host's web interface (or its iDRAC's)
+/// and relays it to the browser on an isolated origin, so the browser never contacts the host directly.
 /// </summary>
 [ApiController]
 [Route("api/web/sessions")]
 [Authorize]
 public sealed class WebSessionsController(HostAccess access, WebSessionStore sessions, IOptions<WebProxySettings> settings) : ControllerBase
 {
-    public const string CertificateAlgorithm = "x509";
-
     [HttpPost]
     [ProducesResponseType<OpenWebSessionResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
@@ -64,68 +62,57 @@ public sealed class WebSessionsController(HostAccess access, WebSessionStore ses
         }
 
         var service = host.Services.OrderBy(s => s.Position).ElementAtOrDefault(request.ServiceIndex);
-        if (service?.Protocol is not (ServiceProtocol.Http or ServiceProtocol.Https))
+        if (service?.Protocol is not (ServiceProtocol.Http or ServiceProtocol.Https or ServiceProtocol.Idrac))
         {
             return Problem(statusCode: StatusCodes.Status400BadRequest, detail: "The selected service is not a web (HTTP/HTTPS) service. Reload the host and try again.");
         }
 
-        var https = service.Protocol == ServiceProtocol.Https;
+        // An iDRAC's web interface is HTTPS on its own address.
+        var idrac = service.Protocol == ServiceProtocol.Idrac;
+        var https = service.Protocol != ServiceProtocol.Http;
         // An IP address is used over the hostname when both are set, as for every connection.
-        var address = host.IpAddress ?? host.Hostname!;
+        var address = service.Address ?? host.IpAddress ?? host.Hostname!;
         var port = service.Port ?? (https ? 443 : 80);
-        var target = new UriBuilder(https ? "https" : "http", address.Contains(':', StringComparison.Ordinal) ? $"[{address}]" : address, port).Uri;
+        var target = TargetUri(https, address, port);
 
+        JumpTunnel? tunnel = null;
         string? pinned = null;
-        if (https)
+        try
         {
-            WebCertificate certificate;
-            try
+            if (host.JumpHostId is { } jumpId)
             {
-                certificate = await WebTargetProbe.ProbeAsync(address, port, cancellationToken);
-            }
-            catch (SessionException ex)
-            {
-                return CodedProblem(StatusCodes.Status502BadGateway, ex.Code, ex.Message);
+                var jump = await HttpContext.RequestServices.GetRequiredService<SessionTargetResolver>().ResolveJumpAsync(jumpId, host.JumpCredentialId, user, cancellationToken);
+                tunnel = await JumpTunnel.OpenAsync(jump, address, port, cancellationToken);
             }
 
-            if (!certificate.IsValid)
+            if (https)
             {
-                var trustedKeys = HttpContext.RequestServices.GetRequiredService<TrustedKeyStore>();
-                var known = host.TrustedKeys.FirstOrDefault(k => k.Protocol == ServiceProtocol.Https && k.Port == port && k.Algorithm == CertificateAlgorithm);
-                if (known is not null && !string.Equals(known.Fingerprint, certificate.Fingerprint, StringComparison.OrdinalIgnoreCase))
+                var trust = await CertificateTrust.CheckAsync(
+                    host.Id, address, port, idrac ? ServiceProtocol.Idrac : ServiceProtocol.Https, host.TrustedKeys, request.TrustFingerprint, user.Id,
+                    HttpContext.RequestServices.GetRequiredService<TrustedKeyStore>(), cancellationToken, tunnel);
+                if (trust.Prompt is { } certificate)
                 {
-                    trustedKeys.LogChanged(host.Id, port, ServiceProtocol.Https, known.Fingerprint, certificate.Fingerprint);
-                    var problem = CodedProblem(
-                        StatusCodes.Status409Conflict,
-                        SessionErrorCodes.HostKeyChanged,
-                        TrustedKeyStore.ChangedMessage("TLS certificate", address, port));
-                    ((ProblemDetails)problem.Value!).Extensions["fingerprint"] = certificate.Fingerprint;
-                    ((ProblemDetails)problem.Value!).Extensions["trustedFingerprint"] = known.Fingerprint;
-                    return problem;
+                    tunnel?.Dispose();
+                    return TrustRequired(target, certificate);
                 }
 
-                if (known is null)
-                {
-                    if (!string.Equals(request.TrustFingerprint, certificate.Fingerprint, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return new OpenWebSessionResponse(
-                            "trustRequired", null, null, null, target.ToString(),
-                            new WebCertificateResponse(certificate.Fingerprint, certificate.Subject, certificate.Issuer, certificate.NotAfter));
-                    }
-
-                    await trustedKeys.TrustAsync(host.Id, port, ServiceProtocol.Https, CertificateAlgorithm, certificate.Fingerprint, user.Id);
-                }
-
-                pinned = certificate.Fingerprint;
+                pinned = trust.PinnedFingerprint;
             }
         }
+        catch (CertificateChangedException ex)
+        {
+            tunnel?.Dispose();
+            return this.CertificateChanged(ex);
+        }
+        catch (SessionException ex)
+        {
+            tunnel?.Dispose();
+            return CodedProblem(StatusCodes.Status502BadGateway, ex.Code, ex.Message);
+        }
 
-        // The page asking is NKeeper itself (antiforgery and SameSite cookies ensure it), so its
-        // Origin is where the session may be shown in a frame.
-        var embedder = Uri.TryCreate(Request.Headers.Origin.ToString(), UriKind.Absolute, out var origin) && origin.Scheme is "http" or "https"
-            ? origin.GetLeftPart(UriPartial.Authority)
-            : null;
-        var session = sessions.TryCreate(user.Id, host.Id, target, pinned, embedder);
+        var embedder = EmbedderOrigin(Request);
+        // The session owns the tunnel from here on.
+        var session = sessions.TryCreate(user.Id, host.Id, target, pinned, embedder, tunnel: tunnel);
         if (session is null)
         {
             return CodedProblem(
@@ -134,6 +121,8 @@ public sealed class WebSessionsController(HostAccess access, WebSessionStore ses
                 $"You already have {WebSessionStore.MaxSessionsPerUser} open web sessions. Close one and try again.");
         }
 
+        await HttpContext.RequestServices.GetRequiredService<Auditing.AuditLog>().RecordAsync(
+            new Auditing.AuditEntry(Auditing.AuditActions.SessionStart, host.Id, $"{(idrac ? "iDRAC web interface" : "Web")} · {target}", session.Id));
         return new OpenWebSessionResponse(
             "ready", session.Id, $"{WebProxyMiddleware.LaunchPath}?t={session.LaunchToken}", settings.Value.BaseDomain, target.ToString(), null);
     }
@@ -143,6 +132,22 @@ public sealed class WebSessionsController(HostAccess access, WebSessionStore ses
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public IActionResult Close(string id) => sessions.EndOwned(id, User.GetUserId()) ? NoContent() : NotFound();
+
+    /// <summary>The target's URL, e.g. https://10.0.0.5:8443/ (IPv6 addresses bracketed).</summary>
+    internal static Uri TargetUri(bool https, string address, int port) =>
+        new UriBuilder(https ? "https" : "http", address.Contains(':', StringComparison.Ordinal) ? $"[{address}]" : address, port).Uri;
+
+    internal static OpenWebSessionResponse TrustRequired(Uri target, WebCertificate certificate) =>
+        new("trustRequired", null, null, null, target.ToString(), new WebCertificateResponse(certificate.Fingerprint, certificate.Subject, certificate.Issuer, certificate.NotAfter));
+
+    /// <summary>
+    /// The page asking is NKeeper itself (antiforgery and SameSite cookies ensure it), so its
+    /// Origin is where the session may be shown in a frame.
+    /// </summary>
+    internal static string? EmbedderOrigin(HttpRequest request) =>
+        Uri.TryCreate(request.Headers.Origin.ToString(), UriKind.Absolute, out var origin) && origin.Scheme is "http" or "https"
+            ? origin.GetLeftPart(UriPartial.Authority)
+            : null;
 
     private ObjectResult CodedProblem(int status, string code, string detail)
     {

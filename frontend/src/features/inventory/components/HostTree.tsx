@@ -1,6 +1,6 @@
 import type { CSSProperties, KeyboardEvent, MouseEvent } from 'react'
 import type { TreeGroup, TreeNode } from '../grouping'
-import { PROTOCOL_INFO, primaryAddress } from '../types'
+import { PROTOCOL_INFO, primaryAddress, type HostHealth } from '../types'
 import styles from './HostTree.module.css'
 
 /** How a click selects: just this host, add/remove it (Ctrl/⌘), or a range (Shift). */
@@ -23,7 +23,11 @@ interface HostTreeProps {
   onGroupContextMenu: (groupId: string, x: number, y: number) => void
   /** The host whose context menu is open, highlighted while it is. */
   menuHostId: string | null
+  /** Hosts' service health, shown as a dot; hosts not checked yet have none. */
+  health?: ReadonlyMap<string, HostHealth>
 }
+
+const HEALTH_LABELS: Record<HostHealth, string> = { up: 'All services up', partial: 'Some services down', down: 'Not answering' }
 
 /**
  * The connection tree. Arrow keys move between rows; Left/Right collapse and expand groups.
@@ -103,7 +107,7 @@ interface NodesProps extends Omit<HostTreeProps, 'nodes'> {
 }
 
 function Nodes({ nodes, depth, ...rest }: NodesProps) {
-  const { selectedHostId, bulkIds, onSelect, onActivate, onContextMenu, menuHostId } = rest
+  const { selectedHostId, bulkIds, onSelect, onActivate, onContextMenu, menuHostId, health } = rest
   return nodes.map((node) =>
     node.type === 'group' ? (
       <GroupNode key={node.id} group={node} depth={depth} {...rest} />
@@ -130,6 +134,11 @@ function Nodes({ nodes, depth, ...rest }: NodesProps) {
             <svg className={styles.check} viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
               <path d="M2.5 6.5 5 9l4.5-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
+          ) : null}
+          {health?.get(node.host.id) ? (
+            <span className={`${styles.health} ${styles[health.get(node.host.id)!]}`} title={HEALTH_LABELS[health.get(node.host.id)!]}>
+              <span className="visually-hidden">{HEALTH_LABELS[health.get(node.host.id)!]}</span>
+            </span>
           ) : null}
           <span className={styles.hostText}>
             <span className={styles.hostName}>{node.host.name}</span>

@@ -26,6 +26,11 @@ Start with the logs: `docker compose logs -f backend` (Docker), `journalctl -u n
 | `429 Too many attempts` | The sign-in rate limit. Wait for the `Retry-After` time. |
 | The right password is rejected after several failures | The account is locked for 15 minutes after 5 failures. |
 | "Can't reach the server" on the sign-in page | The API isn't running, or (in development) the Vite proxy target is wrong (`DEV_API_PROXY_TARGET`). |
+| **Sign in with …** ends with "Single sign-on didn't complete" | The provider refused or the answer didn't check out. The API log has the reason. Common causes: the redirect URI registered at the provider isn't exactly `https://<address>/api/auth/sso/callback` (including the port), the client secret expired, `SingleSignOn__Authority` uses `common` instead of the tenant id, or the page isn't HTTPS (the provider's correlation cookie needs it). |
+| "Your account isn't allowed to sign in to NKeeper" after single sign-on | The user isn't in `SingleSignOn__RequiredGroups`, the account is disabled, or their username or email already belongs to another NKeeper account. The audit log's failed sign-in shows which. |
+| Single sign-on works, but nobody becomes an administrator | The groups claim isn't in the token, or holds different values. With Entra ID, add a groups claim to the app registration and use the groups' **object ids**. Users in more than 200 groups get no groups claim: use *Groups assigned to the application*, or app roles with `SingleSignOn__GroupsClaim: roles`. |
+| "Your account needs a sign-in code sent by email, and it couldn't be sent" | The SMTP server refused or couldn't be reached. Use **Settings → Email → Send test email** to see the error. In Docker, the backend container must be able to reach the SMTP server's port. |
+| The sign-in code email never arrives | Check the spam folder and the sender address (some servers only accept their own domain as sender). **Send a new code** after 30 seconds. An administrator can turn **Email 2FA challenge code** off for the user under **Users**. |
 | A custom client gets `400` with `"code": "csrf_token_invalid"` | Fetch `GET /api/auth/antiforgery` (keeping cookies) and send the token as `X-XSRF-TOKEN`. Fetch a new one after signing in or out. |
 
 ## Connecting

@@ -6,6 +6,8 @@ using NKeeper.Api.Configuration;
 using NKeeper.Api.Desktop;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Api.Rpc;
+using NKeeper.Api.Security;
 using NKeeper.Api.Ssh;
 
 namespace NKeeper.Api.Controllers;
@@ -23,9 +25,17 @@ public sealed class RemoteSessionsController(SessionLimiter limiter, IOptions<Co
     public Task<IActionResult> Ssh(CancellationToken cancellationToken) =>
         RunAsync((socket, user, token) => Session<SshTerminalSession>().RunAsync(socket, user, token), cancellationToken);
 
+    [HttpGet("api/telnet/session")]
+    public Task<IActionResult> Telnet(CancellationToken cancellationToken) =>
+        RunAsync((socket, user, token) => Session<NKeeper.Api.Telnet.TelnetTerminalSession>().RunAsync(socket, user, token), cancellationToken);
+
     [HttpGet("api/rdp/session")]
     public Task<IActionResult> Rdp(CancellationToken cancellationToken) =>
         RunAsync((socket, user, token) => Session<DesktopSession>().RunAsync(socket, user, ServiceProtocol.Rdp, token), cancellationToken);
+
+    [HttpGet("api/rpc/session")]
+    public Task<IActionResult> Rpc(CancellationToken cancellationToken) =>
+        RunAsync((socket, user, token) => Session<RpcSession>().RunAsync(socket, user, token), cancellationToken);
 
     [HttpGet("api/vnc/session")]
     public Task<IActionResult> Vnc(CancellationToken cancellationToken) =>
@@ -45,7 +55,7 @@ public sealed class RemoteSessionsController(SessionLimiter limiter, IOptions<Co
             return Problem(statusCode: StatusCodes.Status403Forbidden, detail: "Remote sessions can only be opened from NKeeper itself.");
         }
 
-        var user = RequestUser.From(User);
+        var user = RequestUser.From(User) with { SessionKey = CurrentSession.Key(HttpContext) };
         var userId = user.Id;
         using var webSocket = await HttpContext.WebSockets.AcceptWebSocketAsync();
         using var socket = new SessionSocket(webSocket);

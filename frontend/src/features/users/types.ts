@@ -16,6 +16,12 @@ export interface UserSummary {
   isDisabled: boolean
   mustChangePassword: boolean
   isLockedOut: boolean
+  /** Signs in with Active Directory; its password is managed there. */
+  isDirectoryAccount: boolean
+  /** Signs in with the identity provider (single sign-on): no NKeeper password. */
+  isSingleSignOnAccount?: boolean
+  /** Signs in with a code sent by email too ("Email 2FA challenge code"). */
+  emailTwoFactor?: boolean
   grantCount: number
   createdAtUtc: string
 }
@@ -40,12 +46,14 @@ export interface NewUserInput {
   role: UserRole
   password: string
   mustChangePassword: boolean
+  emailTwoFactor: boolean
 }
 
 export interface UserUpdateInput {
   email: string
   role: UserRole
   isDisabled: boolean
+  emailTwoFactor: boolean
 }
 
 /** Mirrors the server's rule (case-insensitive tag match; no value means any value). */

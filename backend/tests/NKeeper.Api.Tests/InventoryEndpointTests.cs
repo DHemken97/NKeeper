@@ -58,7 +58,7 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
             services = new object[]
             {
                 new { protocol = "Rdp" },
-                new { protocol = "Ssms", port = 1433, label = "Default instance" },
+                new { protocol = "Https", port = 8443, label = "Reporting" },
             },
             credentials = new object[]
             {
@@ -74,7 +74,7 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
         Assert.Equal(
             [new HostTagResponse("backup", null), new HostTagResponse("env", "production"), new HostTagResponse("site", "Datacenter A")],
             host.Tags);
-        Assert.Equal([ServiceProtocol.Rdp, ServiceProtocol.Ssms], host.Services.Select(s => s.Protocol));
+        Assert.Equal([ServiceProtocol.Rdp, ServiceProtocol.Https], host.Services.Select(s => s.Protocol));
         Assert.Equal(["Local admin", null], host.Credentials.Select(c => c.Label));
         Assert.Equal([true, false], host.Credentials.Select(c => c.HasPassword));
         Assert.Equal("CORP", host.Credentials[1].Domain);
@@ -320,6 +320,68 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
         Assert.Equal(0, await db.HostTags.CountAsync(Ct));
         Assert.Equal(0, await db.HostServices.CountAsync(Ct));
         Assert.Equal(0, await db.HostCredentials.CountAsync(Ct));
+    }
+
+    [Fact]
+    public async Task UnknownProtocolInTheDatabase_ReadsAsOther_InsteadOfBreakingTheHostList()
+    {
+        // As left by a newer or feature build that shares the database.
+        var host = await CreateHostAsync("future", ip: "10.0.0.9");
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NKeeperDbContext>();
+            await db.Database.ExecuteSqlAsync(
+                $"""INSERT INTO "HostServices" ("Id", "HostId", "Protocol", "Position") VALUES ({Guid.NewGuid()}, {host.Id}, 'TimeMachine', 0)""", Ct);
+        }
+
+        var response = await _client.GetAsync("/api/hosts", Ct);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var listed = (await ReadAsync<List<HostResponse>>(response)).Single(h => h.Id == host.Id);
+        Assert.Equal(ServiceProtocol.Other, Assert.Single(listed.Services).Protocol);
+    }
+
+    [Theory]
+    [InlineData("Ssms")]
+    [InlineData("Ftp")]
+    [InlineData("WinRm")]
+    [InlineData("Other")]
+    public async Task ServicesNKeeperCantConnectWith_CantBeAdded(string protocol)
+    {
+        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        {
+            name = "legacy",
+            ipAddress = "10.0.0.8",
+            services = new object[] { new { protocol = "Ssh" }, new { protocol } },
+        }, Ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("services[1].protocol", await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task StoredUnsupportedServices_StillLoad_AndGoWhenTheHostIsSavedWithoutThem()
+    {
+        var host = await CreateHostAsync("old", ip: "10.0.0.7");
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NKeeperDbContext>();
+            await db.Database.ExecuteSqlAsync(
+                $"""INSERT INTO "HostServices" ("Id", "HostId", "Protocol", "Position") VALUES ({Guid.NewGuid()}, {host.Id}, 'Ftp', 0)""", Ct);
+        }
+
+        var stored = await ReadAsync<HostResponse>(await _client.GetAsync($"/api/hosts/{host.Id}", Ct));
+        Assert.Equal(ServiceProtocol.Ftp, Assert.Single(stored.Services).Protocol);
+
+        var saved = await _client.SendJsonAsync(HttpMethod.Put, $"/api/hosts/{host.Id}", new
+        {
+            name = "old",
+            ipAddress = "10.0.0.7",
+            services = new object[] { new { protocol = "Ssh" } },
+            version = stored.Version,
+        }, Ct);
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        Assert.Equal(ServiceProtocol.Ssh, Assert.Single((await ReadAsync<HostResponse>(saved)).Services).Protocol);
     }
 
     private async Task<HostResponse> CreateHostAsync(

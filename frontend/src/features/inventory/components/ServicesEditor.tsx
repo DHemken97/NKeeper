@@ -1,7 +1,7 @@
 import { Button } from '../../../components/ui/Button'
 import { errorFor } from '../../../lib/formErrors'
 import { newServiceDraft, type ServiceDraft } from '../drafts'
-import { PROTOCOL_INFO, RDP_SECURITY_INFO, SERVICE_PROTOCOLS, type RdpSecurity, type ServiceProtocol } from '../types'
+import { PROTOCOL_INFO, RDP_SECURITY_INFO, SUPPORTED_PROTOCOLS, type HostService, type RdpSecurity, type ServiceProtocol } from '../types'
 import styles from './ListEditor.module.css'
 
 interface ServicesEditorProps {
@@ -9,12 +9,14 @@ interface ServicesEditorProps {
   onChange: (services: ServiceDraft[]) => void
   /** Field errors from the server, keyed like "services[0].port". */
   errors: Record<string, string>
+  /** Services of types NKeeper can't connect with, left out of the draft: saving removes them. */
+  dropped?: HostService[]
 }
 
 const MAX_SERVICES = 20
 
 /** Ordered list of the ways to connect to a host (the first one is the default). */
-export function ServicesEditor({ value, onChange, errors }: ServicesEditorProps) {
+export function ServicesEditor({ value, onChange, errors, dropped = [] }: ServicesEditorProps) {
   function update(key: number, patch: Partial<ServiceDraft>) {
     onChange(value.map((s) => (s.key === key ? { ...s, ...patch } : s)))
   }
@@ -28,14 +30,24 @@ export function ServicesEditor({ value, onChange, errors }: ServicesEditorProps)
 
   function addService() {
     // Suggest the first protocol not already on the host.
-    const unused = SERVICE_PROTOCOLS.find((p) => p !== 'Other' && !value.some((s) => s.protocol === p)) ?? 'Other'
+    const unused = SUPPORTED_PROTOCOLS.find((p) => !value.some((s) => s.protocol === p)) ?? 'Ssh'
     onChange([...value, newServiceDraft(unused)])
   }
 
   return (
     <fieldset className={styles.fieldset}>
       <legend className={styles.legend}>Services</legend>
-      <p className={styles.hint}>How you connect to this host. Leave the port empty to use the default.</p>
+      <p className={styles.hint}>
+        How you connect to this host. Leave the port empty to use the default. An iDRAC has its own address; its port is the HTTPS (Redfish) port.
+      </p>
+
+      {dropped.length > 0 ? (
+        <p className={styles.error} role="note">
+          NKeeper can’t connect with {[...new Set(dropped.map((s) => PROTOCOL_INFO[s.protocol].name))].join(', ')}, so{' '}
+          {dropped.length === 1 ? 'that service is' : 'those services are'} removed when you save. Cancel to keep{' '}
+          {dropped.length === 1 ? 'it' : 'them'}.
+        </p>
+      ) : null}
 
       {value.length === 0 ? <p className={styles.empty}>No services yet.</p> : null}
 
@@ -53,7 +65,7 @@ export function ServicesEditor({ value, onChange, errors }: ServicesEditorProps)
                 onChange={(event) => update(service.key, { protocol: event.target.value as ServiceProtocol })}
                 aria-label={`Type for ${position}`}
               >
-                {SERVICE_PROTOCOLS.map((protocol) => (
+                {SUPPORTED_PROTOCOLS.map((protocol) => (
                   <option key={protocol} value={protocol}>
                     {PROTOCOL_INFO[protocol].name}
                   </option>
@@ -119,6 +131,22 @@ export function ServicesEditor({ value, onChange, errors }: ServicesEditorProps)
                       </option>
                     ))}
                   </select>
+                </label>
+              ) : null}
+              {service.protocol === 'Idrac' ? (
+                <label className={styles.option}>
+                  <span>iDRAC address</span>
+                  <input
+                    className={styles.input}
+                    value={service.address}
+                    onChange={(event) => update(service.key, { address: event.target.value })}
+                    placeholder="e.g. 10.0.10.21"
+                    maxLength={253}
+                    required
+                    spellCheck={false}
+                    aria-label={`iDRAC address for ${position}`}
+                    aria-invalid={errors[`services[${index}].address`] ? true : undefined}
+                  />
                 </label>
               ) : null}
               {rowError ? <p className={styles.error}>{rowError}</p> : null}

@@ -76,6 +76,9 @@ export function UsersPage() {
                     </span>
                     <span className={styles.badges}>
                       {u.role === 'Administrator' ? <Badge variant="accent">Admin</Badge> : null}
+                      {u.isDirectoryAccount ? <Badge>AD</Badge> : null}
+                      {u.isSingleSignOnAccount ? <Badge>SSO</Badge> : null}
+                      {u.emailTwoFactor ? <Badge>2FA</Badge> : null}
                       {u.isDisabled ? <Badge>Disabled</Badge> : null}
                       {u.isLockedOut ? <Badge>Locked</Badge> : null}
                       {u.role === 'User' && !u.isDisabled ? <span className={styles.grants}>{u.grantCount === 1 ? '1 grant' : `${u.grantCount} grants`}</span> : null}

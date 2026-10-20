@@ -11,11 +11,23 @@ export const SERVICE_PROTOCOLS = [
   'Https',
   'WinRm',
   'PowerShell',
+  'Rpc',
   'Kvm',
+  'Idrac',
   'Other',
 ] as const
 
 export type ServiceProtocol = (typeof SERVICE_PROTOCOLS)[number]
+
+/**
+ * The service types NKeeper can connect with, in the order the editor offers them. The others are
+ * only read: older versions and imports may have stored them, but they can't be added any more.
+ */
+export const SUPPORTED_PROTOCOLS: readonly ServiceProtocol[] = ['Ssh', 'Telnet', 'Rdp', 'Rpc', 'Vnc', 'Http', 'Https', 'Kvm', 'Idrac']
+
+export function isSupportedProtocol(protocol: ServiceProtocol): boolean {
+  return SUPPORTED_PROTOCOLS.includes(protocol)
+}
 
 export const PROTOCOL_INFO: Record<ServiceProtocol, { label: string; name: string; defaultPort?: number }> = {
   Ssh: { label: 'SSH', name: 'SSH', defaultPort: 22 },
@@ -29,7 +41,9 @@ export const PROTOCOL_INFO: Record<ServiceProtocol, { label: string; name: strin
   Https: { label: 'HTTPS', name: 'Web (HTTPS)', defaultPort: 443 },
   WinRm: { label: 'WinRM', name: 'WinRM', defaultPort: 5985 },
   PowerShell: { label: 'PowerShell', name: 'PowerShell Remoting', defaultPort: 5985 },
+  Rpc: { label: 'RPC', name: 'Windows RPC', defaultPort: 135 },
   Kvm: { label: 'KVM', name: 'KVM / libvirt (over SSH)', defaultPort: 22 },
+  Idrac: { label: 'iDRAC', name: 'Dell iDRAC (Redfish, console, RACADM)', defaultPort: 443 },
   Other: { label: 'Other', name: 'Other' },
 }
 
@@ -54,6 +68,8 @@ export interface HostService {
   label: string | null
   /** RDP services only. */
   rdpSecurity?: RdpSecurity | null
+  /** iDRAC services only: the iDRAC's own IP address (or hostname), where it is reached instead of the host's. */
+  address?: string | null
 }
 
 /** A credential as returned by the API. Secrets are never included, only whether they are set. */
@@ -93,6 +109,16 @@ export interface Host {
   virtualMachineId: string | null
   /** When a scan last found the VM on that host; null when it was linked by hand. */
   hypervisorSeenAtUtc: string | null
+  /** Logical processors, or a VM's vCPUs. */
+  cpuCores: number | null
+  /** Memory in MiB (a VM's: what it's given). */
+  memoryMiB: number | null
+  /** The hardware's serial number (a Dell service tag). */
+  serialNumber: string | null
+  /** The host this one is reached through (a bastion), over SSH. */
+  jumpHostId: string | null
+  /** Which of the jump host's credentials to sign in to it with; null means its first usable one. */
+  jumpCredentialId: string | null
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredential[]
@@ -130,6 +156,11 @@ export interface HostInput {
   description: string | null
   isVirtualMachine: boolean
   hypervisorId: string | null
+  cpuCores: number | null
+  memoryMiB: number | null
+  serialNumber: string | null
+  jumpHostId: string | null
+  jumpCredentialId: string | null
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredentialInput[]
@@ -142,6 +173,57 @@ export function formatAccount(credential: Pick<HostCredential, 'username' | 'dom
     return null
   }
   return credential.domain ? `${credential.domain}\\${credential.username}` : credential.username
+}
+
+/** Memory for people: "512 GiB", "1.5 GiB", "512 MiB". */
+export function formatMemory(mib: number): string {
+  if (mib < 1024) {
+    return `${mib} MiB`
+  }
+  const gib = mib / 1024
+  return `${Number.isInteger(gib) ? gib : gib.toFixed(gib < 10 ? 2 : 1).replace(/\.?0+$/, '')} GiB`
+}
+
+/** The latest check of one of a host's services, from the NKeeper server. */
+export interface ServiceCheck {
+  hostId: string
+  protocol: ServiceProtocol
+  port: number
+  /** The address checked when it isn't the host's (an iDRAC's). */
+  address: string | null
+  isUp: boolean
+  latencyMs: number | null
+  error: string | null
+  checkedAtUtc: string
+  /** When it went down, in the current run of failed checks. */
+  downSinceUtc: string | null
+  certificateExpiresUtc: string | null
+  certificateSubject: string | null
+}
+
+/** All of a host's checked services up, some down, or all down. */
+export type HostHealth = 'up' | 'partial' | 'down'
+
+export function hostHealth(checks: ServiceCheck[] | undefined): HostHealth | undefined {
+  if (!checks || checks.length === 0) {
+    return undefined
+  }
+  const up = checks.filter((c) => c.isUp).length
+  return up === checks.length ? 'up' : up === 0 ? 'down' : 'partial'
+}
+
+/** The check of a service, matched by protocol, port (or its default) and address. */
+export function checkFor(checks: ServiceCheck[] | undefined, service: HostService): ServiceCheck | undefined {
+  const port = service.port ?? PROTOCOL_INFO[service.protocol].defaultPort
+  return checks?.find((c) => c.protocol === service.protocol && c.port === port && (c.address ?? null) === (service.address ?? null))
+}
+
+/** Certificates expiring within this many days are flagged. */
+export const CERTIFICATE_WARNING_DAYS = 30
+
+/** Whole days until a certificate expires (negative once it has). */
+export function daysUntil(date: string, now = Date.now()): number {
+  return Math.floor((new Date(date).getTime() - now) / (24 * 3600 * 1000))
 }
 
 /** "env: production", or just "backup" for a tag without a value. */
@@ -214,8 +296,12 @@ export interface ScannedGuest {
   matchedBy: 'id' | 'mac' | 'name' | null
   hypervisorHostId: string | null
   hypervisorHostName: string | null
-  /** Linking the guest to that host would change something. */
+  /** Linking the guest to that host would change something (including what it's given). */
   linkProposed: boolean
+  /** The vCPUs the hypervisor gives it, when known. */
+  cpuCores: number | null
+  /** The memory the hypervisor gives it, in MiB, when known. */
+  memoryMiB: number | null
   note: string | null
   /** For a guest that isn't in NKeeper: the host that could be added for it (null without an address). */
   newHost: ProposedHost | null
@@ -234,6 +320,8 @@ export interface ProposedHost {
 export interface ScannedHostInput extends ProposedHost {
   hypervisorId: string
   virtualMachineId: string
+  cpuCores?: number | null
+  memoryMiB?: number | null
 }
 
 /** What a scan found. Nothing is saved until the user applies findings to the host. */
@@ -252,6 +340,12 @@ export interface ScanFindings {
   virtualization: string | null
   /** Internal scans of hypervisors: their VMs and containers. */
   guests: ScannedGuest[]
+  /** Internal scans: logical processors. */
+  cpuCores: number | null
+  /** Internal scans: memory in MiB. */
+  memoryMiB: number | null
+  /** Internal scans of physical hardware: the serial number. */
+  serialNumber: string | null
 }
 
 /** Where a VM runs, as a scan of its hypervisor found it. */
@@ -259,6 +353,9 @@ export interface HypervisorLink {
   guestId: string
   hypervisorId: string
   virtualMachineId?: string
+  /** What the hypervisor gives it; kept when omitted. */
+  cpuCores?: number | null
+  memoryMiB?: number | null
 }
 
 export interface ScanResponse {
@@ -273,6 +370,8 @@ export interface InternalScanLogin {
   credentialId?: string
   username?: string
   password?: string
+  /** RPC (Windows) scans only. */
+  domain?: string
 }
 
 /** The same changes to many hosts: tags are removed, then set (replacing every value of the name), then added. */

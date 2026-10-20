@@ -1,5 +1,5 @@
 import { newCredentialDraft, newServiceDraft, newTagDraft, type HostDraft } from './drafts'
-import { PROTOCOL_INFO, type Host, type ScanFindings, type ScannedPort, type ServiceProtocol } from './types'
+import { formatMemory, PROTOCOL_INFO, type Host, type ScanFindings, type ScannedPort, type ServiceProtocol } from './types'
 
 /** The tag a scan records the operating system in, e.g. `os: Ubuntu 24.04.1 LTS`. */
 export const OS_TAG = 'os'
@@ -78,6 +78,42 @@ export function scanProposals(host: Host, findings: ScanFindings, sshPort: numbe
       detail: `it runs under ${findings.virtualization}`,
       checked: true,
       apply: (draft) => void (draft.isVirtualMachine = true),
+    })
+  }
+
+  if (findings.cpuCores && findings.cpuCores !== host.cpuCores) {
+    const cpus = findings.cpuCores
+    proposals.push({
+      key: 'cpus',
+      group: 'Host',
+      label: 'CPU cores',
+      detail: `${cpus}${now(host.cpuCores ? String(host.cpuCores) : null)}`,
+      checked: !host.cpuCores,
+      apply: (draft) => void (draft.cpuCores = String(cpus)),
+    })
+  }
+
+  if (findings.memoryMiB && findings.memoryMiB !== host.memoryMiB) {
+    const mib = findings.memoryMiB
+    proposals.push({
+      key: 'memory',
+      group: 'Host',
+      label: 'Memory',
+      detail: formatMemory(mib) + now(host.memoryMiB ? formatMemory(host.memoryMiB) : null),
+      checked: !host.memoryMiB,
+      apply: (draft) => void (draft.memoryGiB = String(mib / 1024)),
+    })
+  }
+
+  if (findings.serialNumber && findings.serialNumber !== host.serialNumber) {
+    const serial = findings.serialNumber
+    proposals.push({
+      key: 'serial',
+      group: 'Host',
+      label: 'Serial number',
+      detail: serial + now(host.serialNumber),
+      checked: !host.serialNumber,
+      apply: (draft) => void (draft.serialNumber = serial),
     })
   }
 

@@ -95,7 +95,7 @@ public sealed partial class WebProxyMiddleware(RequestDelegate next, WebSessionS
         }
     }
 
-    /// <summary>Exchanges the one-time launch token for the session cookie, then opens the site.</summary>
+    /// <summary>Exchanges the one-time launch token for the session cookie, then opens the site (at its start path).</summary>
     private static async Task LaunchAsync(HttpContext context, WebSession session, DateTimeOffset now)
     {
         if (!session.TryRedeemLaunchToken(context.Request.Query["t"].ToString(), now))
@@ -125,7 +125,7 @@ public sealed partial class WebProxyMiddleware(RequestDelegate next, WebSessionS
         options.Extensions.Add("Partitioned");
         context.Response.Cookies.Append(CookieName, session.Secret, options);
         context.Response.Headers.CacheControl = "no-store";
-        context.Response.Redirect("/");
+        context.Response.Redirect(session.TakeStartPath());
     }
 
     private static async Task<bool> StillAllowedAsync(HttpContext context, WebSession session)

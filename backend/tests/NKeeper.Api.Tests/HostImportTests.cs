@@ -206,6 +206,26 @@ public sealed class HostImportTests(PostgresServerFixture postgres) : IAsyncLife
         Assert.True(errors.TryGetProperty("masterPassword", out _), errors.ToString());
     }
 
+    [Fact]
+    public async Task ConnectionsNKeeperCantOpen_ImportTheHost_WithoutTheService()
+    {
+        var file = MRemoteFile(
+            MRemoteNgFile.DefaultMasterPassword,
+            Connection("switch01", "10.0.0.2", protocol: "PowerShell", port: "5985", username: "admin", password: "pw")
+            + Connection("switch01", "10.0.0.2", protocol: "SSH2", port: "22", username: "admin", password: "pw")
+            + Connection("kiosk", "10.0.0.3", protocol: "IntApp", port: "0"));
+
+        var result = await ImportAsync(file, add: true);
+
+        Assert.Equal(["kiosk", "switch01"], result.Added.Order());
+        Assert.Contains(result.Warnings, w => w == "switch01: NKeeper can't connect with PowerShell, so that service was left out.");
+        Assert.Contains(result.Warnings, w => w == "kiosk: NKeeper can't connect with IntApp, so that service was left out.");
+        var hosts = await HostsAsync();
+        Assert.Equal(ServiceProtocol.Ssh, Assert.Single(hosts.Single(h => h.Name == "switch01").Services).Protocol);
+        Assert.Empty(hosts.Single(h => h.Name == "kiosk").Services);
+        Assert.Single(hosts.Single(h => h.Name == "switch01").Credentials);
+    }
+
     private async Task<HostImportResponse> ImportAsync(string content, bool add = false, bool update = false, bool delete = false, bool dryRun = false)
     {
         var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts/import", new { content, add, update, delete, dryRun }, Ct);

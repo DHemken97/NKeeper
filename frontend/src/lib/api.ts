@@ -45,7 +45,10 @@ export class ApiError extends Error {
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export interface RequestOptions {
+  /** JSON-serialized, except FormData (sent as multipart, e.g. file uploads). */
   body?: unknown
+  /** 'blob' returns the response body as a Blob (file downloads) instead of parsing JSON. */
+  responseType?: 'json' | 'blob'
   signal?: AbortSignal
   /** Do not notify unauthorized listeners on 401 (e.g. a failed login is not an expired session). */
   suppressUnauthorizedEvent?: boolean
@@ -79,8 +82,9 @@ function getAntiforgeryToken(): Promise<AntiforgeryToken> {
 }
 
 async function send<T>(method: HttpMethod, path: string, options: RequestOptions): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' }
-  if (options.body !== undefined) {
+  const headers: Record<string, string> = { Accept: options.responseType === 'blob' ? '*/*' : 'application/json' }
+  const form = options.body instanceof FormData
+  if (options.body !== undefined && !form) {
     headers['Content-Type'] = 'application/json'
   }
   if (method !== 'GET') {
@@ -93,7 +97,8 @@ async function send<T>(method: HttpMethod, path: string, options: RequestOptions
     response = await fetch(`${API_BASE_URL}${path}`, {
       method,
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      // The browser sets the multipart Content-Type (with its boundary) for FormData.
+      body: options.body === undefined ? undefined : form ? (options.body as FormData) : JSON.stringify(options.body),
       credentials: 'include',
       signal: options.signal,
     })
@@ -105,6 +110,9 @@ async function send<T>(method: HttpMethod, path: string, options: RequestOptions
   }
 
   if (response.ok) {
+    if (options.responseType === 'blob') {
+      return (await response.blob()) as T
+    }
     return (response.status === 204 ? undefined : await response.json()) as T
   }
 
@@ -145,6 +153,11 @@ async function request<T>(method: HttpMethod, path: string, options: RequestOpti
     }
     throw error
   }
+}
+
+/** URL for an API path the browser navigates to (rather than fetches), on the same base as requests. */
+export function apiUrl(path: string): string {
+  return `${API_BASE_URL}${path}`
 }
 
 /** Absolute ws(s):// URL for an API path, on the same base as HTTP requests. */

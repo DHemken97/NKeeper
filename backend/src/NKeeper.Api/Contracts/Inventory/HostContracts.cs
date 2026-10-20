@@ -17,6 +17,10 @@ public sealed record HostServiceRequest
 
     /// <summary>RDP services only; defaults to <see cref="RdpSecurityMode.Auto"/>.</summary>
     public RdpSecurityMode? RdpSecurity { get; init; }
+
+    /// <summary>iDRAC services only (required there): the iDRAC's own IP address or hostname. Ignored for other services.</summary>
+    [StringLength(253)]
+    public string? Address { get; init; }
 }
 
 /// <summary>A <c>name: value</c> tag. The value is optional.</summary>
@@ -117,6 +121,23 @@ public sealed record HostRequest : IValidatableObject
     /// <summary>For a virtual machine: the host it runs on (a KVM or Proxmox node). Ignored for other hosts.</summary>
     public Guid? HypervisorId { get; init; }
 
+    /// <summary>A host with an SSH service to reach this one through (a bastion).</summary>
+    public Guid? JumpHostId { get; init; }
+
+    /// <summary>The jump host's credential to use; null means its first usable one.</summary>
+    public Guid? JumpCredentialId { get; init; }
+
+    /// <summary>Logical processors, or a VM's vCPUs.</summary>
+    [Range(1, 100_000, ErrorMessage = "CPU cores must be between 1 and 100000.")]
+    public int? CpuCores { get; init; }
+
+    /// <summary>Memory in MiB.</summary>
+    [Range(1, int.MaxValue, ErrorMessage = "Enter the memory as a positive amount.")]
+    public int? MemoryMiB { get; init; }
+
+    [StringLength(128)]
+    public string? SerialNumber { get; init; }
+
     [MaxLength(50, ErrorMessage = "A host can have at most 50 tags.")]
     public HostTagRequest[] Tags { get; init; } = [];
 
@@ -155,6 +176,29 @@ public sealed record HostRequest : IValidatableObject
             yield return new ValidationResult("Enter a MAC address like AA:BB:CC:DD:EE:FF.", ["macAddress"]);
         }
 
+        for (var index = 0; index < Services.Length; index++)
+        {
+            if (Services[index].Protocol is { } protocol && !SupportedServices.IsSupported(protocol))
+            {
+                yield return new ValidationResult($"NKeeper can't connect with {protocol} services, so they can't be added.", [$"services[{index}].protocol"]);
+            }
+
+            if (Services[index].Protocol != ServiceProtocol.Idrac)
+            {
+                continue;
+            }
+
+            var address = Services[index].Address?.Trim();
+            if (string.IsNullOrEmpty(address))
+            {
+                yield return new ValidationResult("Enter the iDRAC's IP address.", [$"services[{index}].address"]);
+            }
+            else if (!NetworkAddress.TryNormalizeIp(address, out _) && !NetworkAddress.IsValidHostname(address))
+            {
+                yield return new ValidationResult("Enter a valid IP address or hostname for the iDRAC.", [$"services[{index}].address"]);
+            }
+        }
+
         var duplicateIds = Credentials.Where(c => c.Id is not null).GroupBy(c => c.Id).Any(g => g.Count() > 1);
         if (duplicateIds)
         {
@@ -173,6 +217,14 @@ public sealed record HypervisorLinkRequest
     /// <summary>The VM's identity on the hypervisor, e.g. libvirt:&lt;uuid&gt;; kept when omitted.</summary>
     [StringLength(128)]
     public string? VirtualMachineId { get; init; }
+
+    /// <summary>The vCPUs the hypervisor gives it; kept when omitted.</summary>
+    [Range(1, 100_000)]
+    public int? CpuCores { get; init; }
+
+    /// <summary>The memory the hypervisor gives it, in MiB; kept when omitted.</summary>
+    [Range(1, int.MaxValue)]
+    public int? MemoryMiB { get; init; }
 }
 
 public sealed record HypervisorLinksRequest
@@ -185,8 +237,11 @@ public sealed record HypervisorLinksRequest
 
 public sealed record HostTagResponse(string Name, string? Value);
 
-/// <summary>A connection method. <see cref="RdpSecurity"/> is set for RDP services only.</summary>
-public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity);
+/// <summary>
+/// A connection method. <see cref="RdpSecurity"/> is set for RDP services only, <see cref="Address"/>
+/// for services with their own address (iDRAC) only.
+/// </summary>
+public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity, string? Address = null);
 
 /// <summary>A credential as seen by clients. Secret values are never included.</summary>
 public sealed record HostCredentialResponse(
@@ -204,6 +259,8 @@ public sealed record TrustedKeyResponse(ServiceProtocol Protocol, int Port, stri
 /// <param name="HypervisorId">For a virtual machine: the host it runs on, when known.</param>
 /// <param name="VirtualMachineId">The VM's identity on its hypervisor, recorded by scans (e.g. libvirt:&lt;uuid&gt;).</param>
 /// <param name="HypervisorSeenAtUtc">When a scan last found the VM on that host; null when it was linked by hand.</param>
+/// <param name="CpuCores">Logical processors, or a VM's vCPUs.</param>
+/// <param name="MemoryMiB">Memory in MiB.</param>
 public sealed record HostResponse(
     Guid Id,
     string Name,
@@ -215,6 +272,11 @@ public sealed record HostResponse(
     Guid? HypervisorId,
     string? VirtualMachineId,
     DateTimeOffset? HypervisorSeenAtUtc,
+    int? CpuCores,
+    int? MemoryMiB,
+    string? SerialNumber,
+    Guid? JumpHostId,
+    Guid? JumpCredentialId,
     IReadOnlyList<HostTagResponse> Tags,
     IReadOnlyList<HostServiceResponse> Services,
     IReadOnlyList<HostCredentialResponse> Credentials,
@@ -299,6 +361,14 @@ public sealed record ScannedHostRequest
     /// <summary>Its identity on the hypervisor, e.g. libvirt:&lt;uuid&gt;.</summary>
     [StringLength(128)]
     public string? VirtualMachineId { get; init; }
+
+    /// <summary>The vCPUs the hypervisor gives it.</summary>
+    [Range(1, 100_000)]
+    public int? CpuCores { get; init; }
+
+    /// <summary>The memory the hypervisor gives it, in MiB.</summary>
+    [Range(1, int.MaxValue)]
+    public int? MemoryMiB { get; init; }
 }
 
 public sealed record ScannedHostsRequest

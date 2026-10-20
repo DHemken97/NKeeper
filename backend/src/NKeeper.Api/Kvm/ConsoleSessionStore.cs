@@ -77,7 +77,7 @@ public sealed class ConsoleSession : IDisposable
 }
 
 /// <summary>Open VM consoles, in memory (per API instance).</summary>
-public sealed class ConsoleSessionStore(TimeProvider timeProvider, ILogger<ConsoleSessionStore> logger) : IDisposable
+public sealed class ConsoleSessionStore(TimeProvider timeProvider, Auditing.AuditLog audit, ILogger<ConsoleSessionStore> logger) : IDisposable
 {
     public const int MaxSessionsPerUser = 10;
 
@@ -100,6 +100,8 @@ public sealed class ConsoleSessionStore(TimeProvider timeProvider, ILogger<Conso
         logger.LogInformation(
             "{Protocol} console {SessionId} opened by user {UserId} for VM {Vm} on host {HostId}",
             ConsoleProtocols.DisplayName(session.Protocol), session.Id, userId, vmName, hostId);
+        _ = audit.RecordAsync(new Auditing.AuditEntry(
+            Auditing.AuditActions.SessionStart, hostId, $"{ConsoleProtocols.DisplayName(session.Protocol)} console · VM {vmName}", session.Id, UserId: userId));
         return session;
     }
 
@@ -114,6 +116,12 @@ public sealed class ConsoleSessionStore(TimeProvider timeProvider, ILogger<Conso
 
         logger.LogInformation(
             "{Protocol} console {SessionId} of user {UserId} ended: {Reason}", ConsoleProtocols.DisplayName(session.Protocol), id, session.UserId, reason);
+        _ = audit.RecordAsync(new Auditing.AuditEntry(
+            Auditing.AuditActions.SessionEnd,
+            session.HostId,
+            $"{ConsoleProtocols.DisplayName(session.Protocol)} console · VM {session.VmName} · after {Auditing.AuditedSession.FormatDuration(timeProvider.GetUtcNow() - session.CreatedAtUtc)} · {reason}",
+            session.Id,
+            UserId: session.UserId));
         session.Dispose();
         return true;
     }

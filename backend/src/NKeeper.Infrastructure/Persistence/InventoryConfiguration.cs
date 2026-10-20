@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NKeeper.Infrastructure.Access;
 using NKeeper.Infrastructure.Identity;
 using NKeeper.Infrastructure.Inventory;
@@ -17,11 +18,16 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
         builder.Property(h => h.MacAddress).HasMaxLength(17);
         builder.Property(h => h.Description).HasMaxLength(4000);
         builder.Property(h => h.VirtualMachineId).HasMaxLength(128);
+        builder.Property(h => h.SerialNumber).HasMaxLength(128);
         builder.ToTable(t => t.HasCheckConstraint("CK_Hosts_Address", "\"Hostname\" IS NOT NULL OR \"IpAddress\" IS NOT NULL"));
 
         // A VM's hypervisor is another host; deleting the hypervisor keeps its VMs and clears the link.
         builder.HasOne<Host>().WithMany().HasForeignKey(h => h.HypervisorId).OnDelete(DeleteBehavior.SetNull);
         builder.HasIndex(h => h.VirtualMachineId);
+
+        // A jump host is another host; deleting it (or its credential) clears the setting.
+        builder.HasOne<Host>().WithMany().HasForeignKey(h => h.JumpHostId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne<HostCredential>().WithMany().HasForeignKey(h => h.JumpCredentialId).OnDelete(DeleteBehavior.SetNull);
 
         builder.HasIndex(h => h.Name);
         builder.HasIndex(h => h.Hostname);
@@ -42,12 +48,26 @@ internal sealed class HostServiceConfiguration : IEntityTypeConfiguration<HostSe
     public void Configure(EntityTypeBuilder<HostService> builder)
     {
         builder.ToTable("HostServices", t => t.HasCheckConstraint("CK_HostServices_Port", "\"Port\" IS NULL OR (\"Port\" BETWEEN 1 AND 65535)"));
-        builder.Property(s => s.Protocol).HasConversion<string>().HasMaxLength(32);
+        builder.Property(s => s.Protocol).HasConversion(ProtocolConversion.Converter).HasMaxLength(32);
         builder.Property(s => s.Label).HasMaxLength(100);
         builder.Property(s => s.RdpSecurity).HasConversion<string>().HasMaxLength(16);
+        builder.Property(s => s.Address).HasMaxLength(253);
         builder.HasIndex(s => new { s.HostId, s.Position });
         builder.HasIndex(s => s.Protocol);
     }
+}
+
+/// <summary>
+/// Protocols are stored by name. A name this build doesn't know (written by a newer or a feature
+/// build sharing the database) reads as <see cref="ServiceProtocol.Other"/> instead of failing every
+/// query that loads services, which would take the whole host list down.
+/// </summary>
+internal static class ProtocolConversion
+{
+    public static readonly ValueConverter<ServiceProtocol, string> Converter = new(p => p.ToString(), s => Parse(s));
+
+    private static ServiceProtocol Parse(string value) =>
+        Enum.TryParse<ServiceProtocol>(value, ignoreCase: false, out var protocol) && Enum.IsDefined(protocol) ? protocol : ServiceProtocol.Other;
 }
 
 internal sealed class HostTagConfiguration : IEntityTypeConfiguration<HostTag>
@@ -68,7 +88,7 @@ internal sealed class HostTrustedKeyConfiguration : IEntityTypeConfiguration<Hos
     public void Configure(EntityTypeBuilder<HostTrustedKey> builder)
     {
         builder.ToTable("HostTrustedKeys");
-        builder.Property(k => k.Protocol).HasConversion<string>().HasMaxLength(32);
+        builder.Property(k => k.Protocol).HasConversion(ProtocolConversion.Converter).HasMaxLength(32);
         builder.Property(k => k.Algorithm).HasMaxLength(64).IsRequired();
         builder.Property(k => k.Fingerprint).HasMaxLength(128).IsRequired();
         builder.HasIndex(k => new { k.HostId, k.Protocol, k.Port, k.Algorithm }).IsUnique();

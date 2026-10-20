@@ -4,16 +4,28 @@ import { Badge } from '../../../components/ui/Badge'
 import { Button } from '../../../components/ui/Button'
 import { ApiError } from '../../../lib/api'
 import { toFormErrors } from '../../../lib/formErrors'
-import { hostsApi } from '../api/inventoryApi'
-import { formatAccount, formatTag, PROTOCOL_INFO, RDP_SECURITY_INFO, type Host, type HostTag, type TrustedKey } from '../types'
+import { healthApi, hostsApi } from '../api/inventoryApi'
+import {
+  CERTIFICATE_WARNING_DAYS,
+  checkFor,
+  daysUntil,
+  formatAccount,
+  formatMemory,
+  formatTag,
+  isSupportedProtocol,
+  PROTOCOL_INFO,
+  RDP_SECURITY_INFO,
+  type Host,
+  type HostTag,
+  type ServiceCheck,
+  type TrustedKey,
+} from '../types'
 import { DeleteButton } from './DeleteButton'
 import styles from './HostPanel.module.css'
 
 interface HostDetailsProps {
   host: Host
   onEdit: () => void
-  /** Start a new host from a copy of this one (shown to administrators only). */
-  onClone?: () => void
   onDeleted: (id: string) => void
   /** Filter the tree to hosts carrying this tag. */
   onTagClick: (tag: HostTag) => void
@@ -25,6 +37,10 @@ interface HostDetailsProps {
   allHosts: Host[]
   /** Show another host (e.g. the hypervisor, or a VM on this one). */
   onShowHost: (id: string) => void
+  /** The latest checks of the host's services. */
+  checks?: ServiceCheck[]
+  /** Fetch the latest checks again (after checking now). */
+  onHealthChanged?: () => void
 }
 
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
@@ -39,7 +55,41 @@ function describeKey(key: TrustedKey): string {
 }
 
 /** Read-only overview of a host: addresses, tags, services and credentials (never secrets). */
-export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onConnectMenu, onChanged, allHosts, onShowHost }: HostDetailsProps) {
+export function HostDetails({
+  host,
+  onEdit,
+  onDeleted,
+  onTagClick,
+  onConnectMenu,
+  onChanged,
+  allHosts,
+  onShowHost,
+  checks,
+  onHealthChanged,
+}: HostDetailsProps) {
+  const [checking, setChecking] = useState(false)
+  const [wake, setWake] = useState<{ busy: boolean; message?: string; error?: boolean }>({ busy: false })
+
+  async function checkNow() {
+    setChecking(true)
+    try {
+      await healthApi.check(host.id)
+      onHealthChanged?.()
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  async function sendWake() {
+    setWake({ busy: true })
+    try {
+      const result = await hostsApi.wake(host.id)
+      setWake({ busy: false, message: `Wake-on-LAN sent to ${host.macAddress} (via ${result.sentTo.join(', ')}). The host may take a minute to come up.` })
+    } catch (err) {
+      setWake({ busy: false, error: true, message: err instanceof ApiError ? err.message : 'The Wake-on-LAN packet couldn’t be sent.' })
+    }
+  }
+
   const [deleting, setDeleting] = useState(false)
   const [forgetting, setForgetting] = useState(false)
   const [confirmForget, setConfirmForget] = useState(false)
@@ -98,9 +148,9 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
               </Button>
             </>
           ) : null}
-          {onClone ? (
-            <Button variant="secondary" onClick={onClone} disabled={deleting}>
-              Clone
+          {host.macAddress ? (
+            <Button variant="secondary" onClick={() => void sendWake()} loading={wake.busy} disabled={deleting} title="Send a Wake-on-LAN packet">
+              Wake
             </Button>
           ) : null}
           <Button
@@ -127,6 +177,25 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
             <dd className={styles.mono}>{host.ipAddress ?? <span className={styles.muted}>—</span>}</dd>
             <dt>MAC address</dt>
             <dd className={styles.mono}>{host.macAddress ?? <span className={styles.muted}>—</span>}</dd>
+            {host.cpuCores || host.memoryMiB ? (
+              <>
+                <dt>{host.isVirtualMachine ? 'Resources' : 'Hardware'}</dt>
+                <dd>
+                  {[
+                    host.cpuCores ? `${host.cpuCores} ${host.isVirtualMachine ? 'vCPU' : 'core'}${host.cpuCores === 1 ? '' : 's'}` : null,
+                    host.memoryMiB ? formatMemory(host.memoryMiB) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </dd>
+              </>
+            ) : null}
+            {host.serialNumber ? (
+              <>
+                <dt>Serial number</dt>
+                <dd className={styles.mono}>{host.serialNumber}</dd>
+              </>
+            ) : null}
             <dt>Updated</dt>
             <dd>
               <time dateTime={host.updatedAtUtc}>{dateTimeFormat.format(new Date(host.updatedAtUtc))}</time>
@@ -135,6 +204,21 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
               <>
                 <dt>Description</dt>
                 <dd className={styles.description}>{host.description}</dd>
+              </>
+            ) : null}
+            {host.jumpHostId ? (
+              <>
+                <dt>Reached through</dt>
+                <dd>
+                  {allHosts.find((h) => h.id === host.jumpHostId) ? (
+                    <button type="button" className={styles.link} onClick={() => onShowHost(host.jumpHostId!)}>
+                      {allHosts.find((h) => h.id === host.jumpHostId)!.name}
+                    </button>
+                  ) : (
+                    <span className={styles.muted}>A jump host you can’t see</span>
+                  )}
+                  <span className={styles.muted}> · over SSH</span>
+                </dd>
               </>
             ) : null}
             {host.isVirtualMachine ? (
@@ -205,9 +289,17 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
         </section>
 
         <section className={styles.section} aria-labelledby="services-title">
-          <h2 id="services-title" className={styles.sectionTitle}>
-            Services
-          </h2>
+          <div className={styles.sectionHeader}>
+            <h2 id="services-title" className={styles.sectionTitle}>
+              Services
+            </h2>
+            {host.services.length > 0 ? (
+              <Button variant="ghost" size="sm" onClick={() => void checkNow()} loading={checking}>
+                Check now
+              </Button>
+            ) : null}
+          </div>
+          {wake.message ? <Alert variant={wake.error ? 'error' : 'info'}>{wake.message}</Alert> : null}
           {host.services.length === 0 ? (
             <p className={styles.muted}>No services. Edit the host to add SSH, RDP, VNC and more.</p>
           ) : (
@@ -222,10 +314,15 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
                       {service.protocol === 'Rdp' && service.rdpSecurity ? (
                         <span className={styles.muted}> · {RDP_SECURITY_INFO[service.rdpSecurity].label}</span>
                       ) : null}
+                      {!isSupportedProtocol(service.protocol) ? (
+                        <span className={styles.muted}> · Not supported: removed when the host is next edited</span>
+                      ) : null}
                     </span>
                     <span className={`${styles.mono} ${styles.muted}`}>
+                      {service.protocol === 'Idrac' && service.address ? `${service.address}, ` : ''}
                       {service.port ? `port ${service.port}` : info.defaultPort ? `port ${info.defaultPort} (default)` : ''}
                     </span>
+                    <ServiceStatus check={checkFor(checks, service)} />
                   </li>
                 )
               })}
@@ -300,5 +397,33 @@ export function HostDetails({ host, onEdit, onClone, onDeleted, onTagClick, onCo
         ) : null}
       </div>
     </article>
+  )
+}
+
+const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+/** A service's latest health check: up (and how fast), or down since when, plus its certificate's expiry. */
+function ServiceStatus({ check }: { check: ServiceCheck | undefined }) {
+  if (!check) {
+    return null
+  }
+  const days = check.certificateExpiresUtc ? daysUntil(check.certificateExpiresUtc) : null
+  return (
+    <span className={styles.status} title={`Checked ${timeFormat.format(new Date(check.checkedAtUtc))}`}>
+      {check.isUp ? (
+        <span className={styles.up}>Up{check.latencyMs !== null ? ` · ${check.latencyMs} ms` : ''}</span>
+      ) : (
+        <span className={styles.down}>
+          Down{check.downSinceUtc ? ` since ${timeFormat.format(new Date(check.downSinceUtc))}` : ''}
+          {check.error ? ` · ${check.error}` : ''}
+        </span>
+      )}
+      {days !== null ? (
+        <span className={days <= CERTIFICATE_WARNING_DAYS ? styles.down : styles.muted} title={check.certificateSubject ?? undefined}>
+          {' · '}
+          {days < 0 ? `Certificate expired ${-days} days ago` : `Certificate expires in ${days} days`}
+        </span>
+      ) : null}
+    </span>
   )
 }

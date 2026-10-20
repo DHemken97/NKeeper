@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using NKeeper.Infrastructure.Identity;
 
@@ -13,7 +14,9 @@ public sealed class NKeeperApiFactory(
     int loginPermitLimit = 100,
     string? adminPassword = null,
     bool requireSecureCookies = false,
-    IReadOnlyDictionary<string, string>? settings = null)
+    IReadOnlyDictionary<string, string>? settings = null,
+    IDirectoryAuthenticator? directory = null,
+    Action<IServiceCollection>? configureServices = null)
     : WebApplicationFactory<Program>
 {
     public const string AdminUserName = "admin";
@@ -37,6 +40,16 @@ public sealed class NKeeperApiFactory(
         foreach (var (key, value) in settings ?? new Dictionary<string, string>())
         {
             builder.UseSetting(key, value);
+        }
+
+        if (directory is not null)
+        {
+            builder.ConfigureTestServices(services => services.AddSingleton(directory));
+        }
+
+        if (configureServices is not null)
+        {
+            builder.ConfigureTestServices(configureServices);
         }
     }
 

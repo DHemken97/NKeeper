@@ -17,7 +17,9 @@ internal static class GuestMatcher
         bool IsVirtualMachine,
         Guid? HypervisorId,
         string? VirtualMachineId,
-        bool CanManage);
+        bool CanManage,
+        int? CpuCores = null,
+        int? MemoryMiB = null);
 
     /// <summary>
     /// A guest is the host with its stored VM identity, else the one with one of its MAC addresses,
@@ -73,14 +75,16 @@ internal static class GuestMatcher
             }
             else
             {
-                var changes = !host.IsVirtualMachine || host.HypervisorId != node.Id || host.VirtualMachineId != guest.VirtualMachineId;
+                var linkChanges = !host.IsVirtualMachine || host.HypervisorId != node.Id || host.VirtualMachineId != guest.VirtualMachineId;
+                var resourcesChange = (guest.CpuCores is { } cpus && cpus != host.CpuCores) || (guest.MemoryMiB is { } memory && memory != host.MemoryMiB);
                 matched.Add(result with
                 {
-                    LinkProposed = changes,
-                    Note = !changes ? "Already linked."
+                    LinkProposed = linkChanges || resourcesChange,
+                    Note = !linkChanges && !resourcesChange ? "Already linked."
                         : host.HypervisorId is { } previous && previous != node.Id ? $"Moved from {NameOf(byId, previous)}."
                         : host.HypervisorId is null ? "Not linked yet."
-                        : "Records its VM identity.",
+                        : linkChanges ? "Records its VM identity."
+                        : $"Updates its resources to {Resources(guest)}.",
                 });
             }
         }
@@ -147,6 +151,13 @@ internal static class GuestMatcher
             .OfType<string>()
             .Any(n => n.Equals(name, StringComparison.OrdinalIgnoreCase) || FirstLabel(n).Equals(name, StringComparison.OrdinalIgnoreCase));
     }
+
+    /// <summary>e.g. "4 vCPUs, 8 GiB".</summary>
+    internal static string Resources(ScannedGuest guest) => string.Join(", ", new[]
+    {
+        guest.CpuCores is { } cpus ? $"{cpus} vCPU{(cpus == 1 ? "" : "s")}" : null,
+        guest.MemoryMiB is { } memory ? (memory % 1024 == 0 ? $"{memory / 1024} GiB" : $"{memory} MiB") : null,
+    }.OfType<string>());
 
     private static string NameOf(Dictionary<Guid, Candidate> hosts, Guid id) => hosts.TryGetValue(id, out var host) ? $"“{host.Name}”" : "another host";
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { ApiError, onUnauthorized } from '../../../lib/api'
 import { authApi } from '../api/authApi'
 import { AuthContext, type AuthContextValue } from '../context'
-import type { AuthStatus, LoginCredentials, User } from '../types'
+import type { AuthStatus, LoginCredentials, TwoFactorChallenge, User } from '../types'
 
 /**
  * Owns the client-side view of the session. The server is the source of truth: on load the
@@ -40,8 +40,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => onUnauthorized(() => applyUser(null)), [applyUser])
 
   const login = useCallback(
-    async (credentials: LoginCredentials) => {
-      applyUser(await authApi.login(credentials))
+    async (credentials: LoginCredentials): Promise<TwoFactorChallenge | null> => {
+      const result = await authApi.login(credentials)
+      if ('twoFactorRequired' in result) {
+        return result
+      }
+      applyUser(result)
+      return null
+    },
+    [applyUser],
+  )
+
+  const verifyTwoFactor = useCallback(
+    async (code: string) => {
+      applyUser(await authApi.verifyTwoFactor(code))
     },
     [applyUser],
   )
@@ -66,8 +78,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const passwordChanged = useCallback(() => setUser((current) => (current ? { ...current, mustChangePassword: false } : current)), [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, logout, refresh, passwordChanged }),
-    [status, user, login, logout, refresh, passwordChanged],
+    () => ({ status, user, login, verifyTwoFactor, logout, refresh, passwordChanged }),
+    [status, user, login, verifyTwoFactor, logout, refresh, passwordChanged],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
