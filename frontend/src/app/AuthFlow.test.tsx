@@ -22,14 +22,18 @@ function renderApp(initialPath = '/') {
 
 describe('authentication flow', () => {
   it('verifies the session with the server and shows the login page when signed out', async () => {
-    const fetchMock = mockFetch({ 'GET /api/auth/me': () => jsonResponse(401, { status: 401 }) })
+    const fetchMock = mockFetch({
+      'GET /api/auth/me': () => jsonResponse(401, { status: 401 }),
+      'GET /api/auth/options': () => jsonResponse(200, { singleSignOnName: null }),
+    })
 
     const { router } = renderApp('/')
 
     expect(await screen.findByRole('heading', { name: 'Sign in to NKeeper' })).toBeInTheDocument()
     expect(screen.getByText('Your remote connections, organized.')).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/login')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('button', { name: /Sign in with/ })).not.toBeInTheDocument()
   })
 
   it('shows the workspace for an existing session', async () => {
@@ -79,5 +83,19 @@ describe('authentication flow', () => {
     await user.click(screen.getByRole('button', { name: 'Try again' }))
 
     expect(await screen.findByRole('heading', { name: 'Sign in to NKeeper' })).toBeInTheDocument()
+  })
+})
+
+describe('single sign-on', () => {
+  it('offers the identity provider and explains a refusal', async () => {
+    mockFetch({
+      'GET /api/auth/me': () => jsonResponse(401, { status: 401 }),
+      'GET /api/auth/options': () => jsonResponse(200, { singleSignOnName: 'Microsoft' }),
+    })
+
+    renderApp('/login?sso=refused')
+
+    expect(await screen.findByRole('button', { name: 'Sign in with Microsoft' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('isn’t allowed to sign in')
   })
 })

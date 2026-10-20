@@ -155,6 +155,11 @@ async function request<T>(method: HttpMethod, path: string, options: RequestOpti
   }
 }
 
+/** URL for an API path the browser navigates to (rather than fetches), on the same base as requests. */
+export function apiUrl(path: string): string {
+  return `${API_BASE_URL}${path}`
+}
+
 /** Absolute ws(s):// URL for an API path, on the same base as HTTP requests. */
 export function apiWebSocketUrl(path: string): string {
   const url = new URL(`${API_BASE_URL}${path}`, window.location.origin)

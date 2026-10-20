@@ -121,6 +121,7 @@ internal sealed class InstanceImporter(
                 IsDisabled = user.IsDisabled,
                 MustChangePassword = user.MustChangePassword,
                 IsDirectoryAccount = user.IsDirectoryAccount,
+                SingleSignOnSubject = user.SingleSignOnSubject,
                 WorkspaceGroupBy = [.. user.WorkspaceGroupBy ?? []],
                 WorkspaceSort = user.WorkspaceSort ?? "name",
                 CreatedAtUtc = user.CreatedAtUtc,
@@ -222,14 +223,15 @@ internal sealed class InstanceImporter(
             throw new BundleException("The file refers to users or hosts it doesn't contain, so it wasn't imported.");
         }
 
-        // Domain accounts have no local password: they sign in against Active Directory.
-        if (!data.Users.Any(u => u.Roles.Contains(SystemRoles.Administrator) && !u.IsDisabled && (u.PasswordHash is not null || u.IsDirectoryAccount)))
+        // Domain and single sign-on accounts have no local password: they sign in elsewhere.
+        if (!data.Users.Any(u => u.Roles.Contains(SystemRoles.Administrator) && !u.IsDisabled
+            && (u.PasswordHash is not null || u.IsDirectoryAccount || u.SingleSignOnSubject is not null)))
         {
             throw new BundleException("The file has no enabled administrator who can sign in, so nobody could manage the new instance.");
         }
 
         var warnings = new List<string>();
-        var noPassword = data.Users.Count(u => u.PasswordHash is null && !u.IsDirectoryAccount);
+        var noPassword = data.Users.Count(u => u.PasswordHash is null && !u.IsDirectoryAccount && u.SingleSignOnSubject is null);
         if (noPassword > 0)
         {
             warnings.Add($"{noPassword} account{(noPassword == 1 ? " has" : "s have")} no password; an administrator must set one before they can sign in.");
@@ -239,6 +241,12 @@ internal sealed class InstanceImporter(
         if (directory > 0)
         {
             warnings.Add($"{directory} account{(directory == 1 ? " signs" : "s sign")} in with Active Directory: set up ActiveDirectory__* on this server the same way first, or {(directory == 1 ? "it" : "they")} can't sign in.");
+        }
+
+        var singleSignOn = data.Users.Count(u => u.SingleSignOnSubject is not null);
+        if (singleSignOn > 0)
+        {
+            warnings.Add($"{singleSignOn} account{(singleSignOn == 1 ? " signs" : "s sign")} in with single sign-on: set up SingleSignOn__* on this server with the same identity provider first, or {(singleSignOn == 1 ? "it" : "they")} can't sign in.");
         }
 
         var locked = data.Users.Count(u => u.LockoutEnd > DateTimeOffset.UtcNow);

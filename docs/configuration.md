@@ -41,6 +41,16 @@ The API reads `appsettings.json`, `appsettings.{Environment}.json`, user secrets
 | `ActiveDirectory__AdministratorsGroup` | empty (roles are assigned in NKeeper) | Distinguished name of a group whose members become NKeeper administrators. It's checked at every sign-in. |
 | `ActiveDirectory__PassCredentialsToRemoteSessions` | `true` | Keep the user's domain password, encrypted, with their NKeeper session, so RDP can log in as them (**My sign-in**) |
 | `ActiveDirectory__Timeout` | `00:00:10` | LDAP timeout |
+| `SingleSignOn__Enabled` | `false` | Add a **Sign in with …** button for an OpenID Connect provider (Microsoft Entra ID, Okta, Google, Keycloak, Amazon Cognito); see [Administration](administration.md#single-sign-on) |
+| `SingleSignOn__DisplayName` | `single sign-on` | The provider's name on the button, e.g. `Microsoft` |
+| `SingleSignOn__Authority` | — (**required** when enabled) | The provider's issuer URL (`https://`), e.g. `https://login.microsoftonline.com/<tenant-id>/v2.0` |
+| `SingleSignOn__ClientId` / `__ClientSecret` | — (**required** when enabled) / empty | The app registration's client id and secret. Without a secret, NKeeper signs in as a public client with PKCE only. |
+| `SingleSignOn__Scopes__0`, `__1`, … | none | Scopes requested on top of `openid profile email` |
+| `SingleSignOn__SubjectClaim` | `sub` | The claim that identifies a person for good. With Entra ID, `oid` survives recreating the app registration. |
+| `SingleSignOn__UserNameClaim` / `__EmailClaim` | `preferred_username` / `email` | Where a new account's username and its email come from. The email is updated at every sign-in. |
+| `SingleSignOn__GroupsClaim` | `groups` | The claim listing the user's groups; `roles` for Entra ID app roles |
+| `SingleSignOn__RequiredGroups__0`, `__1`, … | none (anyone the provider signs in) | A user must be in one of these groups to sign in, as the provider sends them (Entra ID: group object ids) |
+| `SingleSignOn__AdministratorGroups__0`, `__1`, … | none (roles are assigned in NKeeper) | Members of any of these groups become NKeeper administrators. It's checked at every sign-in. |
 | `Auditing__RecordTerminalSessions` | `true` | Keep a playable recording of what SSH and Telnet sessions showed (output only, never keystrokes); see [Administration](administration.md#audit-log) |
 | `Auditing__MaxRecordingMegabytes` | `50` | A recording stops growing at this size (the session goes on) |
 | `Auditing__RetentionDays` | `365` | Audit events older than this are deleted (daily) |

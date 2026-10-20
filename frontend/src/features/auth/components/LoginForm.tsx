@@ -13,6 +13,12 @@ import styles from './LoginForm.module.css'
 interface LoginFormProps {
   /** Performs the sign-in. Should reject with an ApiError on failure. */
   onSubmit: (credentials: LoginCredentials) => Promise<void>
+  /** The identity provider's name; shows a "Sign in with …" button when set. */
+  singleSignOnName?: string | null
+  /** Leaves for the identity provider, keeping "Remember me". */
+  onSingleSignOn?: (rememberMe: boolean) => void
+  /** Shown before any attempt, e.g. why single sign-on just failed. */
+  initialError?: string | null
 }
 
 interface FieldErrors {
@@ -31,11 +37,12 @@ function validate(values: LoginCredentials): FieldErrors {
   return errors
 }
 
-export function LoginForm({ onSubmit }: LoginFormProps) {
+export function LoginForm({ onSubmit, singleSignOnName, onSingleSignOn, initialError = null }: LoginFormProps) {
   const [values, setValues] = useState<LoginCredentials>({ userNameOrEmail: '', password: '', rememberMe: false })
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
-  const [formError, setFormError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(initialError)
   const [submitting, setSubmitting] = useState(false)
+  const [leaving, setLeaving] = useState(false)
   const userNameRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
 
@@ -128,6 +135,26 @@ export function LoginForm({ onSubmit }: LoginFormProps) {
       <Button type="submit" fullWidth loading={submitting}>
         {submitting ? 'Signing in…' : 'Sign in'}
       </Button>
+
+      {singleSignOnName && onSingleSignOn ? (
+        <>
+          <div className={styles.divider} role="separator">
+            <span>or</span>
+          </div>
+          <Button
+            variant="secondary"
+            fullWidth
+            loading={leaving}
+            disabled={submitting}
+            onClick={() => {
+              setLeaving(true)
+              onSingleSignOn(values.rememberMe)
+            }}
+          >
+            Sign in with {singleSignOnName}
+          </Button>
+        </>
+      ) : null}
     </form>
   )
 }

@@ -22,6 +22,7 @@ public sealed class AuthController(
     IOptions<AntiforgeryOptions> antiforgeryOptions,
     IOptions<AuthenticationSettings> authenticationSettings,
     IOptions<ActiveDirectoryOptions> directoryOptions,
+    IOptions<SingleSignOnOptions> singleSignOnOptions,
     SignInCredentialStore signInCredentials,
     Auditing.AuditLog audit,
     TimeProvider timeProvider) : ControllerBase
@@ -89,6 +90,39 @@ public sealed class AuthController(
         return await ToResponseAsync(user, passOn ? $"{directory.Domain}\\{user.UserName}" : null);
     }
 
+    /// <summary>The ways to sign in besides a password, for the sign-in page.</summary>
+    [HttpGet("options")]
+    [AllowAnonymous]
+    [ProducesResponseType<SignInOptionsResponse>(StatusCodes.Status200OK)]
+    public SignInOptionsResponse GetSignInOptions()
+    {
+        var sso = singleSignOnOptions.Value;
+        return new SignInOptionsResponse(sso.Enabled ? sso.DisplayName : null);
+    }
+
+    /// <summary>
+    /// Starts single sign-on: a browser navigation (not a fetch) that redirects to the identity
+    /// provider. Its answer comes back to /api/auth/sso/callback, which signs in and redirects to
+    /// <paramref name="returnUrl"/>, or to /login?sso=failed|refused.
+    /// </summary>
+    [HttpGet("sso/login")]
+    [AllowAnonymous]
+    [EnableRateLimiting(LoginRateLimitSettings.PolicyName)]
+    [ProducesResponseType(StatusCodes.Status302Found)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public IActionResult SingleSignOnLogin(string? returnUrl, bool rememberMe = false)
+    {
+        if (!singleSignOnOptions.Value.Enabled)
+        {
+            return NotFound();
+        }
+
+        var properties = new AuthenticationProperties();
+        properties.Items[SingleSignOn.ReturnUrlKey] = SingleSignOn.SafeReturnUrl(returnUrl);
+        properties.Items[SingleSignOn.RememberMeKey] = rememberMe ? "true" : "false";
+        return Challenge(properties, SingleSignOn.Scheme);
+    }
+
     /// <summary>Ends the current session. Idempotent: succeeds even when not signed in.</summary>
     [HttpPost("logout")]
     [AllowAnonymous]
@@ -134,6 +168,7 @@ public sealed class AuthController(
             [.. roles.Order(StringComparer.Ordinal)],
             user.MustChangePassword,
             user.IsDirectoryAccount,
+            user.IsSingleSignOnAccount,
             signInAccount,
             user.WorkspaceGroupBy,
             user.WorkspaceSort);

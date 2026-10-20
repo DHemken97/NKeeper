@@ -80,8 +80,8 @@ export function AppLayout() {
           onClose={() => setMenu(null)}
           entries={[
             { kind: 'header', label: user?.email ?? user?.userName ?? '' },
-            // A domain account's password is changed in Windows.
-            ...(user?.isDirectoryAccount ? [] : [{ kind: 'item', label: 'Change password', onSelect: () => setChangingPassword(true) } as const]),
+            // A domain account's password is changed in Windows; single sign-on accounts have none.
+            ...(user?.isDirectoryAccount || user?.isSingleSignOnAccount ? [] : [{ kind: 'item', label: 'Change password', onSelect: () => setChangingPassword(true) } as const]),
             ...(admin ? [{ kind: 'item', label: 'Move to a new server…', onSelect: () => navigate('/transfer') } as const] : []),
             { kind: 'separator' },
             { kind: 'item', label: 'Sign out', onSelect: () => void handleSignOut() },

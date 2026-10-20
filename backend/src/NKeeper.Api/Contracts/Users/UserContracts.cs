@@ -22,6 +22,7 @@ public sealed record UserSummaryResponse(
     bool MustChangePassword,
     bool IsLockedOut,
     bool IsDirectoryAccount,
+    bool IsSingleSignOnAccount,
     int GrantCount,
     DateTimeOffset CreatedAtUtc);
 
@@ -36,6 +37,7 @@ public sealed record UserResponse(
     bool MustChangePassword,
     bool IsLockedOut,
     bool IsDirectoryAccount,
+    bool IsSingleSignOnAccount,
     DateTimeOffset CreatedAtUtc,
     IReadOnlyList<HostAccessGrantResponse> Grants);
 

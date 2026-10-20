@@ -18,6 +18,8 @@ export interface UserSummary {
   isLockedOut: boolean
   /** Signs in with Active Directory; its password is managed there. */
   isDirectoryAccount: boolean
+  /** Signs in with the identity provider (single sign-on): no NKeeper password. */
+  isSingleSignOnAccount?: boolean
   grantCount: number
   createdAtUtc: string
 }

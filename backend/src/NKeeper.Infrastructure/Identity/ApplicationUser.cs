@@ -22,6 +22,14 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     /// </summary>
     public bool IsDirectoryAccount { get; set; }
 
+    /// <summary>
+    /// The identity provider's id for this person when the account signs in with single sign-on:
+    /// it has no local password. Created at the user's first sign-in.
+    /// </summary>
+    public string? SingleSignOnSubject { get; set; }
+
+    public bool IsSingleSignOnAccount => SingleSignOnSubject is not null;
+
     /// <summary>Last host-tree grouping levels selected by this user.</summary>
     public string[] WorkspaceGroupBy { get; set; } = [];
 

@@ -116,6 +116,43 @@ services:
 - **Certificates.** The domain controller's certificate must be trusted by the NKeeper server. In Docker, mount your CA certificate into the backend container and point OpenLDAP at it with the `LDAPTLS_CACERT` environment variable, e.g. `LDAPTLS_CACERT: /certs/corp-ca.pem`.
 - **RDP with the user's own login.** With `PassCredentialsToRemoteSessions` (the default), RDP services offer **My sign-in** (`CORP\jdoe`). The domain password is kept encrypted with the user's server-side session and deleted when they sign out or the session expires or is revoked. Set it to `false` to keep no passwords; users then type their login or use host credentials.
 
+## Single sign-on
+
+With `SingleSignOn__Enabled`, the sign-in page gets a **Sign in with …** button for an OpenID Connect identity provider: Microsoft Entra ID (formerly Azure AD), Okta, Google, Keycloak, Amazon Cognito and others. At a user's first sign-in, NKeeper creates an account for them, marked **SSO** under **Users**. The [settings](configuration.md#api-settings) are the `SingleSignOn__*` rows.
+
+> **Entra ID or "AWS AD"?** For Microsoft 365 / Entra ID, use this section. AWS Managed Microsoft AD (AWS Directory Service) is a regular Active Directory domain: use [Active Directory sign-in](#active-directory-sign-in) against its domain controllers instead. AWS IAM Identity Center only offers SAML to custom applications, which NKeeper doesn't support; sign in through Entra ID, Okta or Cognito in front of it instead.
+
+**Setting it up with Microsoft Entra ID:**
+
+1. In the Entra admin center, go to **App registrations → New registration**. Choose *Accounts in this organizational directory only*, and add a **Web** redirect URI: `https://<your NKeeper address>/api/auth/sso/callback`. Include the port if it isn't 443. It must match exactly.
+2. Under **Certificates & secrets**, create a client secret. Note its value, the **Application (client) ID** and the **Directory (tenant) ID**.
+3. Optional: under **Token configuration → Add groups claim**, choose *Security groups* (or *Groups assigned to the application*, which avoids the 200-group limit), to use `RequiredGroups` and `AdministratorGroups` with group object ids. Alternatively, define **App roles** and set `GroupsClaim` to `roles`.
+4. Configure NKeeper:
+
+```yaml
+# docker-compose.override.yml
+services:
+  backend:
+    environment:
+      SingleSignOn__Enabled: "true"
+      SingleSignOn__DisplayName: Microsoft
+      SingleSignOn__Authority: https://login.microsoftonline.com/<tenant-id>/v2.0
+      SingleSignOn__ClientId: <application-id>
+      SingleSignOn__ClientSecret: <secret value>
+      SingleSignOn__SubjectClaim: oid
+      SingleSignOn__RequiredGroups__0: <object id of "NKeeper Users">
+      SingleSignOn__AdministratorGroups__0: <object id of "NKeeper Admins">
+```
+
+Use the tenant-specific authority, not `common` or `organizations`: NKeeper checks that the token comes from exactly that issuer.
+
+- **Accounts are tied to the provider's id for the person** (`SubjectClaim`), never to a name or email. A username or email that already belongs to an NKeeper account (local, Active Directory, or another provider id) is refused, never linked, so nobody can take over an existing account by renaming themselves at the provider.
+- **Who can sign in.** Without `RequiredGroups`, anyone the provider signs in gets an account. It sees no hosts until you grant some. Refused sign-ins are in the audit log, with the reason.
+- **Roles.** With `AdministratorGroups`, membership is checked at every sign-in, and the Administrator role is granted or removed to match. Without it, you assign roles under **Users** as usual.
+- **No NKeeper password.** Single sign-on accounts can't sign in with a password, change one or have one reset. Disabling an account in NKeeper still blocks it. Signing out of NKeeper doesn't sign the user out of the provider.
+- **Local accounts keep working.** Keep the bootstrap administrator local as a way in if the provider is unreachable.
+- **Behind your own reverse proxy**, pass the original `Host` (with its port) and `X-Forwarded-Proto` to NKeeper, as the bundled nginx does, so the redirect URI it sends matches the registered one.
+
 ## Backups and restores
 
 > Backups aren't automated yet. Schedule one of the commands below (cron, systemd timer or Task Scheduler), keep copies off the server, and test a restore.
