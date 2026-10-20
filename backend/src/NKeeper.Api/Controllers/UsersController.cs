@@ -124,6 +124,11 @@ public sealed class AccountController(
             throw new Inventory.InventoryValidationException("currentPassword", "Your password is managed by Active Directory. Change it in Windows.");
         }
 
+        if (user.IsSingleSignOnAccount)
+        {
+            throw new Inventory.InventoryValidationException("currentPassword", "You sign in with single sign-on, so NKeeper has no password for you to change.");
+        }
+
         if (request.CurrentPassword == request.NewPassword)
         {
             throw new Inventory.InventoryValidationException("newPassword", "Choose a password different from your current one.");

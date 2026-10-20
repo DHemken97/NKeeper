@@ -135,6 +135,8 @@ internal static class ApiServiceCollectionExtensions
                 };
             });
 
+        services.AddNKeeperSingleSignOn(configuration);
+
         // Secure by default: every endpoint requires an authenticated user unless it opts out.
         services.AddAuthorizationBuilder()
             .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());

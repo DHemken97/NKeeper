@@ -387,20 +387,24 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text");
 
+                    b.Property<string>("SingleSignOnSubject")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean");
 
-                    b.Property<string[]>("WorkspaceGroupBy")
+                    b.Property<string>("UserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.PrimitiveCollection<string[]>("WorkspaceGroupBy")
                         .IsRequired()
                         .HasColumnType("text[]");
 
                     b.Property<string>("WorkspaceSort")
                         .IsRequired()
                         .HasColumnType("text");
-
-                    b.Property<string>("UserName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
 
                     b.HasKey("Id");
 
@@ -410,6 +414,9 @@ namespace NKeeper.Infrastructure.Migrations
                     b.HasIndex("NormalizedUserName")
                         .IsUnique()
                         .HasDatabaseName("UserNameIndex");
+
+                    b.HasIndex("SingleSignOnSubject")
+                        .IsUnique();
 
                     b.ToTable("AspNetUsers", (string)null);
                 });

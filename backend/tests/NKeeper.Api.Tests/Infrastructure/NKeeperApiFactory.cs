@@ -15,7 +15,8 @@ public sealed class NKeeperApiFactory(
     string? adminPassword = null,
     bool requireSecureCookies = false,
     IReadOnlyDictionary<string, string>? settings = null,
-    IDirectoryAuthenticator? directory = null)
+    IDirectoryAuthenticator? directory = null,
+    Action<IServiceCollection>? configureServices = null)
     : WebApplicationFactory<Program>
 {
     public const string AdminUserName = "admin";
@@ -44,6 +45,11 @@ public sealed class NKeeperApiFactory(
         if (directory is not null)
         {
             builder.ConfigureTestServices(services => services.AddSingleton(directory));
+        }
+
+        if (configureServices is not null)
+        {
+            builder.ConfigureTestServices(configureServices);
         }
     }
 

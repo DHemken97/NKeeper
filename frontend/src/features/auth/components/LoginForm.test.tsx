@@ -134,3 +134,26 @@ describe('LoginForm', () => {
     expect(password).toHaveAttribute('type', 'password')
   })
 })
+
+describe('LoginForm single sign-on', () => {
+  it('has no provider button without single sign-on', () => {
+    renderForm()
+
+    expect(screen.queryByRole('button', { name: /Sign in with/ })).not.toBeInTheDocument()
+  })
+
+  it('leaves for the provider, keeping Remember me', async () => {
+    const onSingleSignOn = vi.fn()
+    render(
+      <MemoryRouter>
+        <LoginForm onSubmit={vi.fn()} singleSignOnName="Microsoft" onSingleSignOn={onSingleSignOn} />
+      </MemoryRouter>,
+    )
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Remember me' }))
+    await user.click(screen.getByRole('button', { name: 'Sign in with Microsoft' }))
+
+    expect(onSingleSignOn).toHaveBeenCalledWith(true)
+  })
+})

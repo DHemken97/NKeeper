@@ -20,6 +20,7 @@ public sealed record BundleV1(
 /// <param name="IsDirectoryAccount">An Active Directory account (no local password). Absent from files written before AD sign-in, which means false.</param>
 /// <param name="WorkspaceGroupBy">The user's saved host-tree grouping; absent from older files, which means none.</param>
 /// <param name="WorkspaceSort">The user's saved host-tree sort; absent from older files, which means by name.</param>
+/// <param name="SingleSignOnSubject">The identity provider's id for a single sign-on account (no local password); absent from older files.</param>
 public sealed record BundleUser(
     Guid Id,
     string UserName,
@@ -36,7 +37,8 @@ public sealed record BundleUser(
     IReadOnlyList<string> Roles,
     bool IsDirectoryAccount = false,
     IReadOnlyList<string>? WorkspaceGroupBy = null,
-    string? WorkspaceSort = null);
+    string? WorkspaceSort = null,
+    string? SingleSignOnSubject = null);
 
 public sealed record BundleGrant(
     Guid Id,

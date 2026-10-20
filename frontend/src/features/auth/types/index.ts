@@ -8,6 +8,8 @@ export interface User {
   mustChangePassword: boolean
   /** An Active Directory account: its password is changed in Windows, not in NKeeper. */
   isDirectoryAccount: boolean
+  /** Signs in with the identity provider (single sign-on): no NKeeper password. */
+  isSingleSignOnAccount?: boolean
   /** The domain login (CORP\jdoe) this sign-in can pass on to RDP sessions, or null. */
   signInAccount: string | null
   /** The signed-in user's saved host-tree grouping levels. */
@@ -26,6 +28,12 @@ export interface LoginCredentials {
   userNameOrEmail: string
   password: string
   rememberMe: boolean
+}
+
+/** Ways to sign in besides a password. */
+export interface SignInOptions {
+  /** The identity provider's name for the "Sign in with …" button, or null without single sign-on. */
+  singleSignOnName: string | null
 }
 
 export type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated' | 'unavailable'

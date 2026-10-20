@@ -37,6 +37,13 @@ public static class DependencyInjection
                 "ActiveDirectory:Domain and ActiveDirectory:DnsDomain are required when ActiveDirectory:Enabled is true, and ActiveDirectory:Transport None needs ActiveDirectory:AllowInsecureTransport.")
             .ValidateOnStart();
 
+        services.AddOptions<SingleSignOnOptions>()
+            .Bind(configuration.GetSection(SingleSignOnOptions.SectionName))
+            .Validate(
+                o => o.IsValid(),
+                "SingleSignOn:Authority (an https:// URL) and SingleSignOn:ClientId are required when SingleSignOn:Enabled is true, and its display name and claim names can't be empty.")
+            .ValidateOnStart();
+
         // The connection string is validated at startup; tooling such as 'dotnet ef migrations add' runs without one.
         services.AddDbContext<NKeeperDbContext>(options => options.UseNpgsql(connectionString));
 
@@ -71,6 +78,7 @@ public static class DependencyInjection
         services.AddSingleton<IConfigureOptions<CookieAuthenticationOptions>, ConfigureSessionStore>();
         services.AddScoped<CredentialValidator>();
         services.AddSingleton<IDirectoryAuthenticator, LdapDirectoryAuthenticator>();
+        services.AddScoped<SingleSignOnAccounts>();
         services.AddScoped<SignInCredentialStore>();
         services.AddScoped<SessionRevoker>();
         services.AddScoped<DatabaseInitializer>();

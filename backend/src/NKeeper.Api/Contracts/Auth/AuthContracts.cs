@@ -18,6 +18,7 @@ public sealed record LoginRequest
 
 /// <summary>The safe, public view of the signed-in user. Never add Identity internals here.</summary>
 /// <param name="IsDirectoryAccount">An Active Directory account: its password is changed in Windows, not NKeeper.</param>
+/// <param name="IsSingleSignOnAccount">Signs in with the identity provider: it has no NKeeper password.</param>
 /// <param name="SignInAccount">The domain login (CORP\jdoe) this session can pass on to RDP sessions, or null when it has none.</param>
 public sealed record CurrentUserResponse(
     Guid Id,
@@ -26,6 +27,7 @@ public sealed record CurrentUserResponse(
     IReadOnlyList<string> Roles,
     bool MustChangePassword,
     bool IsDirectoryAccount,
+    bool IsSingleSignOnAccount,
     string? SignInAccount,
     IReadOnlyList<string> WorkspaceGroupBy,
     string WorkspaceSort);
@@ -62,3 +64,6 @@ public sealed record WorkspacePreferencesRequest : IValidatableObject
 }
 
 public sealed record AntiforgeryTokenResponse(string Token, string HeaderName);
+
+/// <param name="SingleSignOnName">The identity provider's name for the "Sign in with …" button, or null without single sign-on.</param>
+public sealed record SignInOptionsResponse(string? SingleSignOnName);

@@ -11,6 +11,7 @@ namespace NKeeper.Infrastructure.Identity;
 /// <remarks>
 /// With Active Directory enabled, names NKeeper doesn't know (and its directory accounts) are
 /// checked against the directory instead; a local account always keeps its local password.
+/// Single sign-on accounts never sign in here.
 /// </remarks>
 public sealed class CredentialValidator(
     UserManager<ApplicationUser> userManager,
@@ -47,7 +48,8 @@ public sealed class CredentialValidator(
             }
         }
 
-        if (user is null || user.IsDirectoryAccount)
+        // Single sign-on accounts have no password, and guesses at one mustn't lock them out.
+        if (user is null || user.IsDirectoryAccount || user.IsSingleSignOnAccount)
         {
             // Spend comparable time to a real verification so response timing does not reveal valid accounts.
             passwordHasher.VerifyHashedPassword(TimingDummyUser, TimingDummyHash.Value, password);
