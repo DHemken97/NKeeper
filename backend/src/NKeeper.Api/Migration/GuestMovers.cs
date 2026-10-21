@@ -45,7 +45,17 @@ internal abstract partial class GuestMover(SshClient? sourceShell, SshClient? ta
     public abstract Task StartAsync(bool onTarget, CancellationToken cancellationToken);
 
     /// <summary>Moves the VM to the new host, or (<paramref name="back"/>) back to the old one.</summary>
-    public abstract Task MoveAsync(bool live, bool back, bool withLocalDisks, CancellationToken cancellationToken);
+    /// <param name="copyStorage">libvirt live moves: copy the disks on local storage as it goes (they exist, empty, on the other host).</param>
+    public abstract Task MoveAsync(bool live, bool back, bool withLocalDisks, bool copyStorage, CancellationToken cancellationToken);
+
+    /// <summary>Copies an image file (stopped VM) from the old host to the same path on the new one, and checks it arrived whole.</summary>
+    /// <param name="direct">Copy straight between the hosts over their SSH; otherwise relay it through NKeeper.</param>
+    public virtual Task CopyDiskAsync(string path, long size, bool direct, CancellationToken cancellationToken) =>
+        throw new SessionException(SessionErrorCodes.BadRequest, "Only libvirt migrations copy disks themselves.");
+
+    /// <summary>libvirt: the image files on the old host's own storage, and what the new host has room for.</summary>
+    protected virtual Task<IReadOnlyDictionary<string, LocalImage>?> LocalImagesAsync(IReadOnlyList<GuestDisk> disks, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyDictionary<string, LocalImage>?>(null);
 
     /// <summary>Everything the planner needs, read from both hosts now.</summary>
     public async Task<PlanInput> InspectAsync(CancellationToken cancellationToken)
@@ -75,7 +85,8 @@ internal abstract partial class GuestMover(SshClient? sourceShell, SshClient? ta
 
         var peer = await PeerSshAsync(back: false, cancellationToken);
         var reverse = Via == "kvm" ? await PeerSshAsync(back: true, cancellationToken) : null;
-        return new PlanInput(Via, GuestName, IsContainer, state, SourceName, TargetName, disks, trace.IscsiInUse, source, target, peer, reverse, blockers, notes);
+        var images = await LocalImagesAsync(disks, cancellationToken);
+        return new PlanInput(Via, GuestName, IsContainer, state, SourceName, TargetName, disks, trace.IscsiInUse, source, target, peer, reverse, blockers, notes, images);
     }
 
     /// <summary>Checks both hosts are what they should be (e.g. the logins reach the right nodes).</summary>
@@ -174,7 +185,7 @@ internal sealed partial class ProxmoxMover(
         await WaitAsync(await connection.Api.StartActionAsync(current, ProxmoxActions.Start, cancellationToken), ShutdownTimeout, "Starting it", cancellationToken);
     }
 
-    public override async Task MoveAsync(bool live, bool back, bool withLocalDisks, CancellationToken cancellationToken)
+    public override async Task MoveAsync(bool live, bool back, bool withLocalDisks, bool copyStorage, CancellationToken cancellationToken)
     {
         var current = await RefreshAsync(cancellationToken);
         var to = back ? _sourceNode : targetNode;
@@ -466,14 +477,14 @@ internal sealed partial class LibvirtMover(Guid vm, string vmName, SshClient sou
     public override Task StartAsync(bool onTarget, CancellationToken cancellationToken) =>
         Run(onTarget ? TargetShell! : SourceShell!, $"{Virsh} start {Id}", "Starting it", cancellationToken);
 
-    public override async Task MoveAsync(bool live, bool back, bool withLocalDisks, CancellationToken cancellationToken)
+    public override async Task MoveAsync(bool live, bool back, bool withLocalDisks, bool copyStorage, CancellationToken cancellationToken)
     {
         var (from, to, toAddress) = back ? (TargetShell!, SourceShell!, sourceAddress) : (SourceShell!, TargetShell!, targetAddress);
         if (live)
         {
             await Run(
                 from,
-                $"{Virsh} migrate --live --persistent --undefinesource --verbose {Id} 'qemu+ssh://root@{UriHost(toAddress)}/system'",
+                $"{Virsh} migrate --live --persistent --undefinesource{(copyStorage ? " --copy-storage-all" : "")} --verbose {Id} 'qemu+ssh://root@{UriHost(toAddress)}/system'",
                 $"Moving it to {(back ? sourceName : targetName)}",
                 cancellationToken,
                 MigrateTimeout);
@@ -549,6 +560,152 @@ internal sealed partial class LibvirtMover(Guid vm, string vmName, SshClient sou
         {
             return (false, ex.Message);
         }
+    }
+
+    protected override async Task<IReadOnlyDictionary<string, LocalImage>?> LocalImagesAsync(IReadOnlyList<GuestDisk> disks, CancellationToken cancellationToken)
+    {
+        // Files (not devices) on the old host's own storage.
+        var files = disks.Where(d => d.Layout == DiskLayouts.Local && d.Mount is not null).Select(d => StorageTrace.Quoted(d.Path)).Distinct().ToList();
+        if (files.Count == 0)
+        {
+            return null;
+        }
+
+        var source = new StringBuilder();
+        var target = new StringBuilder("command -v qemu-img >/dev/null && echo '@@qemu-img'; ");
+        foreach (var file in files)
+        {
+            source.Append(System.Globalization.CultureInfo.InvariantCulture,
+                $"echo '@@image {file}'; $p qemu-img info -U --output=json '{file}' 2>/dev/null || $p qemu-img info --output=json '{file}' 2>/dev/null; echo '@@stat {file}'; $p stat -c '%s %b %B' '{file}'; ");
+            target.Append(System.Globalization.CultureInfo.InvariantCulture,
+                $"echo '@@target {file}'; [ -e '{file}' ] && echo exists; d=$(dirname '{file}'); while [ ! -d \"$d\" ]; do d=$(dirname \"$d\"); done; df -Pk \"$d\" | awk 'NR == 2 {{ printf \"%.0f\\n\", $4 * 1024 }}'; ");
+        }
+
+        var info = Sections(await Run(SourceShell!, source + "exit 0", "Reading the VM's local disks", cancellationToken));
+        var there = Sections(await Run(TargetShell!, target + "exit 0", "Checking room for the disks on the new host", cancellationToken));
+        var images = new Dictionary<string, LocalImage>(StringComparer.Ordinal);
+        foreach (var file in files)
+        {
+            var stat = (info.GetValueOrDefault($"stat {file}") ?? []).FirstOrDefault()?.Split(' ');
+            if (stat is not [var length, var blocks, var blockSize]
+                || !long.TryParse(length, out var fileSize) || !long.TryParse(blocks, out var blockCount) || !long.TryParse(blockSize, out var unit))
+            {
+                continue;
+            }
+
+            string format = "raw";
+            long virtualSize = fileSize, allocated = blockCount * unit;
+            string? backing = null;
+            try
+            {
+                using var json = System.Text.Json.JsonDocument.Parse(string.Join('\n', info.GetValueOrDefault($"image {file}") ?? []));
+                var root = json.RootElement;
+                format = root.TryGetProperty("format", out var f) && f.GetString() is { Length: > 0 } name ? name : format;
+                virtualSize = root.TryGetProperty("virtual-size", out var v) && v.TryGetInt64(out var size) ? size : virtualSize;
+                backing = root.TryGetProperty("backing-filename", out var b) ? b.GetString() : null;
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // No qemu-img on the old host: a raw file, as big as it is.
+            }
+
+            var targetLines = there.GetValueOrDefault($"target {file}") ?? [];
+            images[file] = new LocalImage(
+                format,
+                virtualSize,
+                allocated,
+                fileSize,
+                backing,
+                targetLines.Contains("exists"),
+                targetLines.Select(l => long.TryParse(l, out var free) ? free : (long?)null).LastOrDefault(l => l is not null),
+                there.ContainsKey("qemu-img"));
+        }
+
+        return images;
+    }
+
+    public override async Task CopyDiskAsync(string path, long size, bool direct, CancellationToken cancellationToken)
+    {
+        var file = StorageTrace.Quoted(path);
+        var hours = TimeSpan.FromHours(24);
+        await Run(TargetShell!, $"[ -e '{file}' ] && {{ echo '{file} already exists on this host' >&2; exit 1; }}; $p mkdir -p \"$(dirname '{file}')\"", "Preparing the copy", cancellationToken);
+        if (direct)
+        {
+            // rsync keeps the file sparse; without rsync on both hosts, dd over ssh (sparse where dd can).
+            var host = UriHost(targetAddress);
+            await Run(
+                SourceShell!,
+                $"a='{host.Trim('[', ']')}'; "
+                + $"if command -v rsync >/dev/null && $p ssh -o BatchMode=yes \"root@$a\" 'command -v rsync >/dev/null'; then "
+                + $"$p rsync -aS -e 'ssh -o BatchMode=yes' '{file}' 'root@{host}:{file}'; "
+                + $"else $p dd if='{file}' bs=4M 2>/dev/null | $p ssh -o BatchMode=yes \"root@$a\" \"dd of='{file}' bs=4M conv=sparse 2>/dev/null || dd of='{file}' bs=4M\"; fi",
+                $"Copying {path}",
+                cancellationToken,
+                hours);
+        }
+        else
+        {
+            await RelayAsync(file, size, cancellationToken);
+        }
+
+        var copied = (await Run(TargetShell!, $"$p stat -c %s '{file}'", "Checking the copy", cancellationToken)).Trim();
+        if (copied != size.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        {
+            throw new SessionException(SessionErrorCodes.ConnectionFailed, $"The copy of {path} on {targetName} is {copied} bytes, not {size}.");
+        }
+    }
+
+    /// <summary>
+    /// Copies a file through NKeeper's own SSH connections, in 64 MiB pieces read with dd on the old
+    /// host and written to one dd on the new host, so memory use stays small whatever its size.
+    /// </summary>
+    private async Task RelayAsync(string file, long size, CancellationToken cancellationToken)
+    {
+        const int PieceMiB = 64;
+        using var sink = TargetShell!.CreateCommand(
+            StorageHost.AsRoot + $"o=''; dd --help 2>&1 | grep -q sparse && o=conv=sparse; exec $p dd of='{file}' bs=1M $o 2>/dev/null");
+        sink.CommandTimeout = TimeSpan.FromHours(24);
+        var writing = sink.ExecuteAsync(cancellationToken);
+        await using (var input = sink.CreateInputStream())
+        {
+            for (long piece = 0; piece * PieceMiB * 1024L * 1024L < size; piece++)
+            {
+                using var read = SourceShell!.CreateCommand(StorageHost.AsRoot + $"$p dd if='{file}' bs=1M skip={piece * PieceMiB} count={PieceMiB} 2>/dev/null");
+                read.CommandTimeout = TimeSpan.FromMinutes(10);
+                await read.ExecuteAsync(cancellationToken);
+                if (read.ExitStatus is not 0)
+                {
+                    throw new SessionException(SessionErrorCodes.ConnectionFailed, $"Reading {file} on {sourceName} failed: {read.Error.Trim()}");
+                }
+
+                await read.OutputStream.CopyToAsync(input, cancellationToken);
+            }
+        }
+
+        await writing;
+        if (sink.ExitStatus is not 0)
+        {
+            throw new SessionException(SessionErrorCodes.ConnectionFailed, $"Writing {file} on {targetName} failed: {sink.Error.Trim()}");
+        }
+    }
+
+    private static Dictionary<string, List<string>> Sections(string output)
+    {
+        var sections = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        List<string>? current = null;
+        foreach (var line in output.Split('\n').Select(l => l.TrimEnd('\r')))
+        {
+            if (line.StartsWith("@@", StringComparison.Ordinal))
+            {
+                current = sections[line[2..]] = [];
+            }
+            else
+            {
+                current?.Add(line.Trim());
+            }
+        }
+
+        return sections;
     }
 
     /// <summary><c>virsh domblklist --details</c>: type, device, target and source per disk; CD-ROMs, floppies and empty drives are left out.</summary>

@@ -34,9 +34,16 @@ public sealed class MigrationPlanTests
         string via = "kvm",
         string state = "running",
         (bool, string?)? peer = null,
-        IReadOnlyDictionary<(string, string), string>? inUse = null) =>
+        IReadOnlyDictionary<(string, string), string>? inUse = null,
+        IReadOnlyDictionary<string, LocalImage>? images = null) =>
         new(via, "web", false, state, "kvm-a", "kvm-b", disks, inUse ?? new Dictionary<(string, string), string>(),
-            new StorageStatus(null, null, null), target ?? Drbd(Resource("r0"), Resource("r1")), peer ?? (true, null), (true, null), [], []);
+            new StorageStatus(null, null, null), target ?? Drbd(Resource("r0"), Resource("r1")), peer ?? (true, null), (true, null), [], [], images);
+
+    private static readonly GuestDisk LocalFile = new(
+        "vda", "/var/lib/libvirt/images/web.qcow2", DiskLayouts.Local, new StorageMount("/dev/sda2", "/", "ext4", null), [new StorageLayer(LayerKinds.Local, "sda")]);
+
+    private static Dictionary<string, LocalImage> Image(string? backing = null, bool exists = false, long free = 100L << 30, bool qemuImg = true) =>
+        new() { [LocalFile.Path] = new LocalImage("qcow2", 20L << 30, 12L << 30, 12L << 30, backing, exists, free, qemuImg) };
 
     private static IEnumerable<string> Kinds(MigrationPlan plan) => plan.Steps.Select(s => $"{s.Side}:{s.Kind}");
 
@@ -160,11 +167,58 @@ public sealed class MigrationPlanTests
     {
         var local = new GuestDisk("scsi0", "/dev/pve/vm-100-disk-0", DiskLayouts.Local, null, [], "local-lvm");
 
-        Assert.Contains(MigrationPlanner.Plan(Input([local]), new MigrationOptions()).Blockers, b => b.Contains("own storage", StringComparison.Ordinal));
+        Assert.Contains(MigrationPlanner.Plan(Input([local]), new MigrationOptions()).Blockers, b => b.Contains("can only copy image files", StringComparison.Ordinal));
         Assert.Contains(MigrationPlanner.Plan(Input([local], via: "proxmox"), new MigrationOptions()).Blockers, b => b.Contains("copy local disks", StringComparison.Ordinal));
         var copied = MigrationPlanner.Plan(Input([local], via: "proxmox"), new MigrationOptions { WithLocalDisks = true });
         Assert.Empty(copied.Blockers);
         Assert.Equal("1", copied.Steps.Single(s => s.Kind == StepKinds.GuestMove).Args["localDisks"]);
+    }
+
+    [Fact]
+    public void ALocalImageFile_IsCopied_ThroughNKeeperWhenTheHostsCantReachEachOther()
+    {
+        var plan = MigrationPlanner.Plan(Input([LocalFile], peer: (false, "Permission denied"), images: Image()), new MigrationOptions());
+
+        Assert.Empty(plan.Blockers);
+        Assert.Equal("offline", plan.Mode);
+        Assert.Equal(["source:guest-shutdown", "target:disk-copy", "target:check-paths", "hypervisor:guest-move", "target:guest-start"], Kinds(plan));
+        var copy = plan.Steps.Single(s => s.Kind == StepKinds.DiskCopy);
+        Assert.Equal(
+            "Copy /var/lib/libvirt/images/web.qcow2 (12 GiB) from kvm-a to kvm-b, through NKeeper, since kvm-a can't reach kvm-b over SSH (slower), then check its size there",
+            copy.Title);
+        Assert.Equal(("0", (12L << 30).ToString(System.Globalization.CultureInfo.InvariantCulture)), (copy.Args["direct"], copy.Args["size"]));
+        Assert.Equal("qcow2 image, 20 GiB (12 GiB used)", plan.Disks[0].Note);
+        Assert.True(plan.Choices.HasLocalDisks && plan.Choices.CopyLocalDisks);
+    }
+
+    [Fact]
+    public void ALocalImageFile_MovesLive_CopyingAsItGoes_WhenTheHostsReachEachOther()
+    {
+        var plan = MigrationPlanner.Plan(Input([LocalFile], images: Image()), new MigrationOptions { DeleteOldLocalDisks = true });
+
+        Assert.Equal("live", plan.Mode);
+        Assert.Equal(["target:disk-create", "target:check-paths", "hypervisor:guest-move", "source:disk-delete"], Kinds(plan));
+        Assert.Equal("Create an empty qcow2 image of 20 GiB at /var/lib/libvirt/images/web.qcow2 on kvm-b, for the live copy (qemu-img create)", plan.Steps[0].Title);
+        Assert.Equal("1", plan.Steps.Single(s => s.Kind == StepKinds.GuestMove).Args["copyStorage"]);
+        Assert.Contains("--copy-storage-all", plan.Steps.Single(s => s.Kind == StepKinds.GuestMove).Title, StringComparison.Ordinal);
+        Assert.False(plan.Steps.Single(s => s.Kind == StepKinds.DiskDelete).Critical);
+
+        var noQemuImg = MigrationPlanner.Plan(Input([LocalFile], images: Image(qemuImg: false)), new MigrationOptions());
+        Assert.Equal("offline", noQemuImg.Mode);
+        Assert.Contains("needs qemu-img on kvm-b", noQemuImg.Choices.LiveUnavailableReason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ALocalImageFile_IsntCopied_WhenThatIsntWanted_OrCantBeDoneSafely()
+    {
+        Assert.Contains(MigrationPlanner.Plan(Input([LocalFile], images: Image()), new MigrationOptions { WithLocalDisks = false }).Blockers, b => b.Contains("Choose to copy it to kvm-b", StringComparison.Ordinal));
+        Assert.Contains(MigrationPlanner.Plan(Input([LocalFile], images: Image(backing: "base.qcow2")), new MigrationOptions()).Blockers, b => b.Contains("overlay of base.qcow2", StringComparison.Ordinal));
+        Assert.Contains(MigrationPlanner.Plan(Input([LocalFile], images: Image(exists: true)), new MigrationOptions()).Blockers, b => b.Contains("already exists on kvm-b", StringComparison.Ordinal));
+        Assert.Contains(MigrationPlanner.Plan(Input([LocalFile], images: Image(free: 5L << 30)), new MigrationOptions()).Blockers, b => b == "kvm-b has 5 GiB free where the disks go, but they need 12 GiB.");
+
+        // A local device (not a file) can't be copied.
+        var device = LocalFile with { Path = "/dev/sdb", Mount = null };
+        Assert.Contains(MigrationPlanner.Plan(Input([device]), new MigrationOptions()).Blockers, b => b.Contains("can only copy image files", StringComparison.Ordinal));
     }
 
     [Fact]

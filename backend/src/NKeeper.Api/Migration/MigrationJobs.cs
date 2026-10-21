@@ -227,7 +227,10 @@ internal sealed partial class MigrationJob(
                 await mover.ShutdownAsync(onTarget: true, ct);
                 return (true, null);
             case (StepKinds.GuestMove, _):
-                await mover.MoveAsync(a["live"] == "1", back: undo, a["localDisks"] == "1", ct);
+                await mover.MoveAsync(a["live"] == "1", back: undo, a["localDisks"] == "1", a.GetValueOrDefault("copyStorage") == "1", ct);
+                return (true, null);
+            case (StepKinds.DiskCopy, false):
+                await mover.CopyDiskAsync(a["path"], long.Parse(a["size"], CultureInfo.InvariantCulture), a["direct"] == "1", ct);
                 return (true, null);
         }
 
@@ -267,6 +270,10 @@ internal sealed partial class MigrationJob(
             (StepKinds.Unmount, false) or (StepKinds.Mount, true) or (StepKinds.EnsureMounted, true) => $"mountpoint -q '{Path("mountpoint")}' || {{ echo same; exit 0; }}; $p umount '{Path("mountpoint")}' && echo changed",
             (StepKinds.EnsureMounted, false) => $"mountpoint -q '{Path("mountpoint")}' && {{ echo same; exit 0; }}; $p mount '{Path("mountpoint")}' && echo changed",
             (StepKinds.CheckPaths, false) => CheckPaths(a["paths"]),
+            (StepKinds.DiskCreate, false) => $"[ -e '{Path("path")}' ] && {{ echo '{Path("path")} already exists on this host' >&2; exit 1; }}; "
+                + $"$p mkdir -p \"$(dirname '{Path("path")}')\" && $p qemu-img create -q -f '{Arg("format")}' '{Path("path")}' {long.Parse(a["size"], CultureInfo.InvariantCulture)} && echo changed",
+            (StepKinds.DiskCreate or StepKinds.DiskCopy, true) => $"$p rm -f '{Path("path")}' && echo changed",
+            (StepKinds.DiskDelete, false) => $"[ -e '{Path("path")}' ] || {{ echo same; exit 0; }}; $p rm -f '{Path("path")}' && echo changed",
             (StepKinds.IscsiDiscover or StepKinds.MultipathWait or StepKinds.DrbdReady or StepKinds.CheckPaths, true) => "echo same",
             _ => throw new InvalidOperationException($"Unknown step {step.Kind}."),
         };

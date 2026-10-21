@@ -18,7 +18,8 @@ case "$cmd" in
   start) need; f=$(disk); [ -e "$f" ] || { echo "error: Cannot access storage file '$f': No such file or directory" >&2; exit 1; }
     echo running > "$d/$u.state"; echo "Domain '$u' started" ;;
   dumpxml) need; cat "$d/$u.xml" ;;
-  define) n=$(sed -n 's:.*<uuid>\(.*\)</uuid>.*:\1:p' "$u"); cp "$u" "$d/$n.xml"; echo "shut off" > "$d/$n.state"; chmod 644 "$d/$n".*; echo "Domain defined from $u" ;;
+  define) [ -f "$d/fail-define" ] && { echo "error: failed to define domain: fake failure" >&2; exit 1; }
+    n=$(sed -n 's:.*<uuid>\(.*\)</uuid>.*:\1:p' "$u"); cp "$u" "$d/$n.xml"; echo "shut off" > "$d/$n.state"; chmod 644 "$d/$n".*; echo "Domain defined from $u" ;;
   undefine) need; rm -f "$d/$u.xml" "$d/$u.state"; echo "Domain '$u' has been undefined" ;;
   *) echo "fake virsh: unsupported call: $cmd $*" >&2; exit 1 ;;
 esac

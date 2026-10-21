@@ -21,6 +21,7 @@ public sealed class VmMigrationTests(PostgresServerFixture postgres, MigrationHo
     private HostResponse _source = null!;
     private HostResponse _target = null!;
     private readonly Dictionary<string, string> _trust = new(StringComparer.Ordinal);
+    private string _vm = MigrationHostsFixture.VmUuid;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -109,6 +110,39 @@ public sealed class VmMigrationTests(PostgresServerFixture postgres, MigrationHo
     }
 
     [Fact]
+    public async Task ALocalDisk_IsCopiedThroughNKeeper_AndTheOldCopyDeleted_WhenAsked()
+    {
+        _vm = MigrationHostsFixture.LocalVmUuid;
+        var source = await MigrationHostsFixture.ExecAsync(kvm.Source, $"md5sum {MigrationHostsFixture.LocalImage} | cut -d' ' -f1");
+
+        var plan = await PlanAsync(new MigrationOptions { DeleteOldLocalDisks = true });
+        Assert.Empty(plan.Blockers);
+        Assert.Equal(["guest-shutdown", "disk-copy", "check-paths", "guest-move", "guest-start", "disk-delete"], plan.Steps.Select(s => s.Kind));
+        Assert.Contains("through NKeeper", plan.Steps[1].Title, StringComparison.Ordinal);
+
+        var job = await RunAsync(new MigrationOptions { DeleteOldLocalDisks = true });
+
+        Assert.True(job.State == "succeeded", Describe(job));
+        Assert.Equal(source, await MigrationHostsFixture.ExecAsync(kvm.Target, $"md5sum {MigrationHostsFixture.LocalImage} | cut -d' ' -f1"));
+        Assert.Equal("running", await VirshAsync(kvm.Target, "domstate"));
+        Assert.Equal("gone", (await MigrationHostsFixture.ExecAsync(kvm.Source, $"[ -e {MigrationHostsFixture.LocalImage} ] && echo there || echo gone")).Trim());
+    }
+
+    [Fact]
+    public async Task ALocalDiskCopy_IsDeletedAgain_WhenALaterStepFails()
+    {
+        _vm = MigrationHostsFixture.LocalVmUuid;
+        await MigrationHostsFixture.ExecAsync(kvm.Target, "touch /var/lib/fake-virsh/fail-define");
+
+        var job = await RunAsync(new MigrationOptions());
+
+        Assert.True(job.State == "rolledBack", Describe(job));
+        Assert.Equal("gone", (await MigrationHostsFixture.ExecAsync(kvm.Target, $"[ -e {MigrationHostsFixture.LocalImage} ] && echo there || echo gone")).Trim());
+        Assert.Equal("there", (await MigrationHostsFixture.ExecAsync(kvm.Source, $"[ -e {MigrationHostsFixture.LocalImage} ] && echo there || echo gone")).Trim());
+        Assert.Equal("running", await VirshAsync(kvm.Source, "domstate"));
+    }
+
+    [Fact]
     public async Task Start_RunsOnlyTheStepsTheUserConfirmed()
     {
         var plan = await PlanAsync(new MigrationOptions());
@@ -171,7 +205,7 @@ public sealed class VmMigrationTests(PostgresServerFixture postgres, MigrationHo
     {
         via = "kvm",
         vmHostId = _source.Id,
-        vm = MigrationHostsFixture.VmUuid,
+        vm = _vm,
         source = new { hostId = _source.Id, serviceIndex = 0, credentialId = _source.Credentials[0].Id, trustFingerprint = _trust.GetValueOrDefault("source") },
         target = new { hostId = _target.Id, serviceIndex = 0, credentialId = _target.Credentials[0].Id, trustFingerprint = _trust.GetValueOrDefault("target") },
         options,
@@ -181,9 +215,9 @@ public sealed class VmMigrationTests(PostgresServerFixture postgres, MigrationHo
     private static string Describe(MigrationJobView job) =>
         $"{job.State}: {job.Message}\n{string.Join('\n', job.Steps.Select(s => $"  {s.State,-10} {s.Title}{(s.Message is null ? "" : $" — {s.Message}")}"))}";
 
-    private static async Task<string> VirshAsync(DotNet.Testcontainers.Containers.IContainer host, string command)
+    private async Task<string> VirshAsync(DotNet.Testcontainers.Containers.IContainer host, string command)
     {
-        var result = await host.ExecAsync(["virsh", command, MigrationHostsFixture.VmUuid]);
+        var result = await host.ExecAsync(["virsh", command, _vm]);
         return (result.Stdout + result.Stderr).Trim();
     }
 

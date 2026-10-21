@@ -172,7 +172,7 @@ describe('migrating a VM with its storage', () => {
       vm: '9f0c6b5e-1111-4a2b-9c3d-000000000001',
       source: { hostId: 'h-kvm1', serviceIndex: 0, credentialId: 'c1' },
       target: { hostId: 'h-kvm2', serviceIndex: 0, credentialId: 'c2', trustFingerprint: 'SHA256:kvm02' },
-      options: { live: true, startAfter: true, drbdDownOnOld: false, withLocalDisks: false },
+      options: { live: true, startAfter: true, drbdDownOnOld: false, deleteOldLocalDisks: false },
     })
     expect(plans[1].options).not.toHaveProperty('logoutOldIscsi')
 
@@ -221,21 +221,39 @@ describe('migrating a VM with its storage', () => {
     expect(plans.at(-1)).toMatchObject({ options: { logoutOldIscsi: false, drbdDownOnOld: true } })
   })
 
-  it('says when a disk is just a file, and offers no storage options when there’s nothing to hand over', async () => {
+  it('copies a disk that’s just a file on the old host, offering only the options for that', async () => {
+    const local = {
+      name: 'vda',
+      path: '/var/lib/libvirt/images/web.qcow2',
+      layout: 'local',
+      mount: { device: '/dev/sda2', mountPoint: '/', fsType: 'ext4' },
+      layers: [{ kind: 'local', name: 'sda', detail: null }],
+      storage: null,
+      note: 'qcow2 image, 20 GiB (12 GiB used)',
+    }
     const files = {
       ...plan,
       guestState: 'shut off',
-      disks: [
-        { name: 'vda', path: '/var/lib/libvirt/images/web.qcow2', layout: 'local', mount: { device: '/dev/sda2', mountPoint: '/', fsType: 'ext4' }, layers: [{ kind: 'local', name: 'sda', detail: null }], storage: null, note: null },
-        { name: 'vdb', path: '/mnt/nas/data.raw', layout: 'network', mount: { device: 'nas:/vms', mountPoint: '/mnt/nas', fsType: 'nfs4' }, layers: [], storage: null, note: null },
+      disks: [local],
+      steps: [
+        { kind: 'disk-copy', side: 'target', title: 'Copy /var/lib/libvirt/images/web.qcow2 (12 GiB) from kvm01 to kvm02, through NKeeper, since kvm01 can’t reach kvm02 over SSH (slower), then check its size there', critical: true },
+        { kind: 'guest-move', side: 'hypervisor', title: 'Copy web01’s libvirt definition from kvm01 to kvm02 (virsh dumpxml, then virsh define), then remove it from kvm01 (virsh undefine)', critical: true },
       ],
-      blockers: ['Disk vda is on kvm01’s own storage (/var/lib/libvirt/images/web.qcow2); NKeeper can only move VMs whose disks are on shared storage.'],
-      choices: { ...plan.choices, liveAvailable: false, liveUnavailableReason: 'It isn’t running.', hasDrbd: false, hasLocalDisks: true },
+      choices: { ...plan.choices, liveAvailable: false, liveUnavailableReason: 'It isn’t running.', hasDrbd: false, hasLocalDisks: true, copyLocalDisks: true },
     }
-    const network = { ...files, disks: [files.disks[1]], blockers: [] }
-    let calls = 0
+    const notCopied = {
+      ...files,
+      steps: [],
+      blockers: ['/var/lib/libvirt/images/web.qcow2 is on kvm01’s own storage. Choose to copy it to kvm02, or move it to shared storage first.'],
+      choices: { ...files.choices, copyLocalDisks: false },
+    }
+    const plans: { options: Record<string, unknown> }[] = []
     const user = renderWorkspace([kvm01, kvm02, web01], {
-      'POST /api/migrations/plan': () => jsonResponse(200, { status: 'ready', plan: ++calls === 1 ? files : network }),
+      'POST /api/migrations/plan': (_url, init) => {
+        const body = JSON.parse(String(init.body))
+        plans.push(body)
+        return jsonResponse(200, { status: 'ready', plan: body.options.withLocalDisks === false ? notCopied : files })
+      },
     })
 
     const dialog = await openMigrate(user, /web01/, /^KVM.*kvm01/, /^root/)
@@ -243,14 +261,41 @@ describe('migrating a VM with its storage', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Detect storage' }))
 
     const disks = await within(dialog).findByRole('table', { name: 'Disks' })
-    expect(within(disks).getByRole('row', { name: /vda/ })).toHaveTextContent('An image file on kvm01’s own disk (ext4 at /)')
-    expect(within(disks).getByRole('row', { name: /vdb/ })).toHaveTextContent('An image file on network storage (nfs4 at /mnt/nas)')
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('own storage')
-    expect(within(dialog).queryByRole('group', { name: 'Options' })).not.toBeInTheDocument()
+    expect(within(disks).getByRole('row', { name: /vda/ })).toHaveTextContent('An image file on kvm01’s own disk (ext4 at /)qcow2 image, 20 GiB (12 GiB used)')
+    const options = within(dialog).getByRole('group', { name: 'Options' })
+    expect(within(options).getAllByRole('checkbox').map((c) => c.getAttribute('aria-label') ?? c.parentElement?.textContent)).toEqual([
+      'Copy its local disks to kvm02',
+      'Delete the old copies on kvm01 afterwards',
+    ])
+    expect(within(options).getByRole('checkbox', { name: 'Copy its local disks to kvm02' })).toBeChecked()
+    expect(within(options).getByRole('checkbox', { name: 'Delete the old copies on kvm01 afterwards' })).not.toBeChecked()
+    expect(plans[0].options).not.toHaveProperty('withLocalDisks')
 
-    await user.click(within(dialog).getByRole('button', { name: 'Change' }))
+    await user.click(within(options).getByRole('checkbox', { name: 'Copy its local disks to kvm02' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Choose to copy it to kvm02')
+    expect(plans.at(-1)?.options).toMatchObject({ withLocalDisks: false })
+    expect(within(dialog).queryByRole('checkbox', { name: /Delete the old copies/ })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Review steps…' })).toBeDisabled()
+  })
+
+  it('offers no storage options when there’s nothing to hand over', async () => {
+    const network = {
+      ...plan,
+      guestState: 'shut off',
+      disks: [{ name: 'vdb', path: '/mnt/nas/data.raw', layout: 'network', mount: { device: 'nas:/vms', mountPoint: '/mnt/nas', fsType: 'nfs4' }, layers: [], storage: null, note: null }],
+      choices: { ...plan.choices, liveAvailable: false, liveUnavailableReason: 'It isn’t running.', hasDrbd: false },
+    }
+    const user = renderWorkspace([kvm01, kvm02, web01], {
+      'POST /api/migrations/plan': () => jsonResponse(200, { status: 'ready', plan: network }),
+    })
+
+    const dialog = await openMigrate(user, /web01/, /^KVM.*kvm01/, /^root/)
+    await user.selectOptions(within(dialog).getByLabelText('Move to'), 'kvm02')
     await user.click(within(dialog).getByRole('button', { name: 'Detect storage' }))
-    expect(await within(dialog).findByText('There’s no storage to hand over: kvm02 reaches it as it is.')).toBeInTheDocument()
+
+    const disks = await within(dialog).findByRole('table', { name: 'Disks' })
+    expect(within(disks).getByRole('row', { name: /vdb/ })).toHaveTextContent('An image file on network storage (nfs4 at /mnt/nas)')
+    expect(within(dialog).getByText('There’s no storage to hand over: kvm02 reaches it as it is.')).toBeInTheDocument()
     expect(within(dialog).queryByRole('group', { name: 'Options' })).not.toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: 'Review steps…' })).toBeEnabled()
   })

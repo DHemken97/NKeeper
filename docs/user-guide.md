@@ -310,6 +310,10 @@ Add a **Proxmox** service (HTTPS, port 8006 by default) to a Proxmox VE node, wi
 - **DRBD:** brings the resource up on the new host if it's down, and waits until it's connected and UpToDate there.
 - **A file system on shared storage** (e.g. ext4 or XFS on DRBD, or on an iSCSI LUN) can be mounted on only one host at a time, so **the VM is shut down**. On the old host the file system is unmounted, its LVM volume deactivated and the DRBD resource made Secondary. On the new host the resource is made Primary, the volume activated and the file system mounted at the same place. Then the VM moves and starts. Anything else on the old host using that file system must stop first, or unmounting fails and the migration is put back.
 - **A shared block device used directly** (a DRBD device, LVM volume or multipath device per disk) can move **live**. For DRBD, the resource may be Primary on both hosts only for the move (`allow-two-primaries`, which needs protocol C), then it's Secondary on the old host again.
+- **An image file on the old host's own disk** (e.g. `/var/lib/libvirt/images/vm.qcow2`, KVM) is **copied** to the same path on the new host. NKeeper first reads its format and size (`qemu-img info`), and refuses if it's an overlay of a backing file, if the file already exists on the new host (it never overwrites), or if there isn't room there.
+  - **Offline**, after the VM is shut down: straight from the old host to the new one over their SSH (`rsync`, or `dd` over `ssh`) when they reach each other; otherwise NKeeper relays it over its own two SSH connections, in 64 MiB pieces (slower, but needs nothing between the hosts). Then it checks the copy's size.
+  - **Live**, when the hosts reach each other over SSH and the new host has `qemu-img`: an empty image of the same format and size is created there, and `virsh migrate --live --copy-storage-all` copies the disk while the VM runs.
+  - If the migration is put back, the copy on the new host is deleted. The old copy stays unless you choose to delete it.
 - **Cluster and network storage** (GFS2, OCFS2, NFS, Ceph…) is reached by every host. NKeeper only makes sure a cluster file system is mounted on the new host.
 - **Proxmox storage:** Proxmox activates its own iSCSI, shared LVM, Ceph, NFS and DRBD (LINSTOR) storage on the new node. NKeeper still makes sure the new node is logged in to the iSCSI targets. A **directory storage** on a file system NKeeper moves (e.g. on DRBD) must be marked **shared**, so Proxmox doesn't try to copy its disks.
 
@@ -318,9 +322,10 @@ Add a **Proxmox** service (HTTPS, port 8006 by default) to a Proxmox VE node, wi
 - **Start it on the new host** after an offline move, if it was running.
 - **iSCSI on the old host afterwards:** stay logged in, or log out of the targets this VM used. NKeeper only logs out of targets nothing else on the old host uses (another volume, a mount, an open device), and removes their multipath maps first. The default is to log out on KVM hosts (often one host per volume) and to stay logged in on Proxmox nodes (usually all logged in to all; Proxmox logs its nodes in to its own iSCSI storage again anyway).
 - **DRBD on the old host afterwards:** stay Secondary (it keeps replicating), or take the resource down.
-- **Copy local disks** (Proxmox): Proxmox copies disks on the node's local storage to the new node.
+- **Copy local disks:** KVM copies image files on the old host's own disk (see above), on unless you turn it off; Proxmox copies disks on the node's local storage itself, when you turn it on.
+- **Delete the old copies afterwards** (KVM, when copying): an optional tidying-up step once the VM runs on the new host. Off by default.
 
-Tidying up the old host (logging out, taking DRBD down) never puts the migration back: if it fails, the migration is done with a warning, and the step says why.
+Tidying up the old host (logging out, taking DRBD down, deleting old copies) never puts the migration back: if it fails, the migration is done with a warning, and the step says why.
 
 **What the hosts need:** root, or sudo without a password, on both, and the tools for their storage (`iscsiadm`, `multipath`, `drbdadm`, `lvm`). libvirt moves a VM offline by defining it on the new host (`virsh dumpxml` / `define`) and removing it from the old one, so the hosts don't need SSH between them for that. The migration's start and end are in the audit log.
 

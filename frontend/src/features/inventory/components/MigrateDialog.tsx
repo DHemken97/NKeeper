@@ -71,6 +71,8 @@ interface Plan {
     hasLocalDisks: boolean
     /** Whether NKeeper could see the disks (Proxmox needs SSH logins to the nodes for that). */
     storageChecked: boolean
+    /** Whether the disks on local storage are copied (the default, when the user didn't choose). */
+    copyLocalDisks: boolean
   }
 }
 
@@ -106,7 +108,10 @@ interface Options {
   /** null: the default for the hypervisor (log out for KVM, stay for Proxmox). */
   logoutOldIscsi: boolean | null
   drbdDownOnOld: boolean
-  withLocalDisks: boolean
+  /** null: the default (copy for KVM, don't for Proxmox). */
+  withLocalDisks: boolean | null
+  /** KVM: delete the old copies of copied disks on the old host afterwards. */
+  deleteOldLocalDisks: boolean
 }
 
 type Phase =
@@ -216,7 +221,7 @@ export function MigrateDialog({ vm, node, serviceIndex, via, credentialId, oneOf
   const [targetHostId, setTargetHostId] = useState('')
   const [targetCredentialId, setTargetCredentialId] = useState('')
   const [sourceShellCredentialId, setSourceShellCredentialId] = useState('')
-  const [options, setOptions] = useState<Options>({ live: true, startAfter: true, logoutOldIscsi: null, drbdDownOnOld: false, withLocalDisks: false })
+  const [options, setOptions] = useState<Options>({ live: true, startAfter: true, logoutOldIscsi: null, drbdDownOnOld: false, withLocalDisks: null, deleteOldLocalDisks: false })
   const [loadAttempt, setLoadAttempt] = useState(0)
   const trust = useRef<Partial<Record<Role, string>>>({})
   const moved = useRef(false)
@@ -248,7 +253,7 @@ export function MigrateDialog({ vm, node, serviceIndex, via, credentialId, oneOf
     targetNode: proxmox ? targetNode : undefined,
     target: targetLogin ? { ...targetLogin, trustFingerprint: trust.current.target } : undefined,
     sourceShell: proxmox && targetLogin && sourceShellLogin ? { ...sourceShellLogin, trustFingerprint: trust.current.sourceShell } : undefined,
-    options: { ...options, logoutOldIscsi: options.logoutOldIscsi ?? undefined },
+    options: { ...options, logoutOldIscsi: options.logoutOldIscsi ?? undefined, withLocalDisks: options.withLocalDisks ?? undefined },
   })
 
   // Proxmox: where the guest is now, and the nodes it can move to.
@@ -599,7 +604,8 @@ function RelevantOptions({
 }) {
   const running = plan.guestState === 'running'
   const { choices } = plan
-  const copyLocal = proxmox && (choices.hasLocalDisks || !choices.storageChecked)
+  // KVM: copyable image files were found; Proxmox: local disks, or the storage couldn't be looked at.
+  const copyLocal = choices.hasLocalDisks || (proxmox && !choices.storageChecked)
   if (!running && !choices.hasIscsi && !choices.hasDrbd && !copyLocal) {
     return null
   }
@@ -644,7 +650,18 @@ function RelevantOptions({
         </div>
       ) : null}
       {copyLocal ? (
-        <Checkbox label="Copy disks on the node’s local storage" checked={options.withLocalDisks} onChange={(event) => set({ withLocalDisks: event.target.checked })} />
+        <Checkbox
+          label={proxmox ? 'Copy disks on the node’s local storage' : `Copy its local disks to ${plan.targetName}`}
+          checked={options.withLocalDisks ?? choices.copyLocalDisks}
+          onChange={(event) => set({ withLocalDisks: event.target.checked })}
+        />
+      ) : null}
+      {copyLocal && !proxmox && choices.copyLocalDisks ? (
+        <Checkbox
+          label={`Delete the old copies on ${plan.sourceName} afterwards`}
+          checked={options.deleteOldLocalDisks}
+          onChange={(event) => set({ deleteOldLocalDisks: event.target.checked })}
+        />
       ) : null}
     </fieldset>
   )

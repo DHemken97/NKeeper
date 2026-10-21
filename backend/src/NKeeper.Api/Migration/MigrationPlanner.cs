@@ -21,9 +21,25 @@ public sealed record MigrationOptions
     /// <summary>After the move, take the VM's DRBD resources down on the old host instead of leaving it Secondary.</summary>
     public bool DrbdDownOnOld { get; init; }
 
-    /// <summary>Proxmox: copy disks on the old node's local storage.</summary>
-    public bool WithLocalDisks { get; init; }
+    /// <summary>
+    /// Copy disks on the old host's own storage to the new one. Null: copy for libvirt hosts (a VM
+    /// on local storage can't move otherwise), don't for Proxmox (which copies them itself when asked).
+    /// </summary>
+    public bool? WithLocalDisks { get; init; }
+
+    /// <summary>libvirt: after a successful move, delete the copied disks' old copies on the old host.</summary>
+    public bool DeleteOldLocalDisks { get; init; }
 }
+
+/// <summary>An image file on the old host's own storage, and whether the new host can take a copy.</summary>
+/// <param name="Format">qemu-img's format, e.g. <c>qcow2</c> or <c>raw</c>.</param>
+/// <param name="VirtualSize">The disk's size as the VM sees it.</param>
+/// <param name="AllocatedSize">The space its data takes on disk (what a copy needs).</param>
+/// <param name="FileSize">The file's length (what a copy writes).</param>
+/// <param name="BackingFile">The image it's an overlay of, if any (NKeeper doesn't copy backing chains).</param>
+/// <param name="TargetFreeBytes">Free space where it would go on the new host.</param>
+public sealed record LocalImage(
+    string Format, long VirtualSize, long AllocatedSize, long FileSize, string? BackingFile, bool ExistsOnTarget, long? TargetFreeBytes, bool TargetHasQemuImg);
 
 /// <summary>One step of a migration: what it does, on which host ("source", "target", "both" or "hypervisor").</summary>
 /// <param name="Kind">One of <see cref="StepKinds"/>.</param>
@@ -35,6 +51,8 @@ public sealed record PlannedStep(string Kind, string Side, string Title, IReadOn
 /// <param name="IscsiToLogOut">Targets (and portals) the old host would log out of.</param>
 /// <param name="IscsiKept">Targets the old host stays logged in to although asked to log out, with what else uses them.</param>
 /// <param name="StorageChecked">Whether NKeeper could see the disks (Proxmox needs SSH logins to the nodes for that).</param>
+/// <param name="HasLocalDisks">Whether it has disks on the old host's own storage that can be copied.</param>
+/// <param name="CopyLocalDisks">The choice in effect for copying them (the default, when the user didn't choose).</param>
 public sealed record PlanChoices(
     bool LiveAvailable,
     string? LiveUnavailableReason,
@@ -44,7 +62,8 @@ public sealed record PlanChoices(
     bool HasIscsi,
     bool HasDrbd,
     bool HasLocalDisks,
-    bool StorageChecked);
+    bool StorageChecked,
+    bool CopyLocalDisks = false);
 
 /// <summary>A migration as it would run: "live" or "offline", the disks, and the steps; it can't start while there are blockers.</summary>
 public sealed record MigrationPlan(
@@ -81,6 +100,9 @@ public static class StepKinds
     public const string GuestShutdown = "guest-shutdown";
     public const string GuestMove = "guest-move";
     public const string GuestStart = "guest-start";
+    public const string DiskCreate = "disk-create";
+    public const string DiskCopy = "disk-copy";
+    public const string DiskDelete = "disk-delete";
 }
 
 /// <summary>What the planner knows: the VM, both hosts' storage, and whether the hosts reach each other over SSH.</summary>
@@ -89,6 +111,7 @@ public static class StepKinds
 /// <param name="PeerSsh">Whether the old host reaches the new one over SSH as root without a prompt (null: not tested), and why not.</param>
 /// <param name="ReversePeerSsh">The same, from the new host back to the old one (for rolling back a live move).</param>
 /// <param name="Blockers">Problems the hypervisor found (e.g. the VM is already defined on the new host).</param>
+/// <param name="LocalImages">libvirt: the image files on the old host's own storage, by path.</param>
 internal sealed record PlanInput(
     string Via,
     string GuestName,
@@ -103,7 +126,8 @@ internal sealed record PlanInput(
     (bool Ok, string? Error)? PeerSsh,
     (bool Ok, string? Error)? ReversePeerSsh,
     IReadOnlyList<string> Blockers,
-    IReadOnlyList<string> Notes);
+    IReadOnlyList<string> Notes,
+    IReadOnlyDictionary<string, LocalImage>? LocalImages = null);
 
 /// <summary>
 /// Plans how a VM's storage moves with it. Offline: make the storage reachable on the new host,
@@ -132,23 +156,62 @@ internal static class MigrationPlanner
         }
 
         var local = disks.Where(d => d.Layout == DiskLayouts.Local).ToList();
+        var copyLocal = options.WithLocalDisks ?? input.Via == "kvm";
+
+        // libvirt: image files on the old host's own storage are copied, if the new host can take them.
+        var localFiles = new List<(GuestDisk Disk, LocalImage Image)>();
         foreach (var disk in local)
         {
             var where = disk.Storage is null ? disk.Path : $"{disk.Storage} ({disk.Path})";
             if (input.Via == "kvm")
             {
-                blockers.Add($"Disk {disk.Name} is on {source}'s own storage ({where}); NKeeper can only move VMs whose disks are on shared storage.");
+                if (input.LocalImages?.TryGetValue(disk.Path, out var image) == true)
+                {
+                    localFiles.Add((disk, image));
+                }
+                else
+                {
+                    blockers.Add($"Disk {disk.Name} ({disk.Path}) is a device on {source}'s own disks; NKeeper can only copy image files.");
+                }
             }
-            else if (!options.WithLocalDisks)
+            else if (!copyLocal)
             {
                 blockers.Add($"Disk {disk.Name} is on {source}'s local storage ({where}). Choose to copy local disks, or move it to shared storage first.");
             }
         }
 
-        if (local.Count > 0 && input.Via == "proxmox" && options.WithLocalDisks)
+        if (localFiles.Count > 0 && !copyLocal)
+        {
+            blockers.Add($"{string.Join(", ", localFiles.Select(f => f.Disk.Path))} {(localFiles.Count == 1 ? "is" : "are")} on {source}'s own storage. Choose to copy {(localFiles.Count == 1 ? "it" : "them")} to {target}, or move {(localFiles.Count == 1 ? "it" : "them")} to shared storage first.");
+        }
+
+        foreach (var (disk, image) in localFiles.Where(_ => copyLocal))
+        {
+            if (image.BackingFile is { } backing)
+            {
+                blockers.Add($"{disk.Path} is an overlay of {backing}; NKeeper doesn't copy backing chains. Merge it first (qemu-img convert), or copy the chain by hand.");
+            }
+
+            if (image.ExistsOnTarget)
+            {
+                blockers.Add($"{disk.Path} already exists on {target}; NKeeper won't overwrite it.");
+            }
+        }
+
+        var copyBytes = localFiles.Sum(f => f.Image.AllocatedSize);
+        if (copyLocal && localFiles.Count > 0 && localFiles.Min(f => f.Image.TargetFreeBytes) is { } free && free < copyBytes)
+        {
+            blockers.Add($"{target} has {Size(free)} free where the disks go, but they need {Size(copyBytes)}.");
+        }
+
+        if (local.Count > 0 && input.Via == "proxmox" && copyLocal)
         {
             notes.Add("Proxmox copies the disks on local storage to the new node, which takes as long as copying their data.");
         }
+
+        disks = [.. disks.Select(d => localFiles.FirstOrDefault(f => f.Disk == d) is { Image: { } i }
+            ? d with { Note = $"{i.Format} image, {Size(i.VirtualSize)} ({Size(i.AllocatedSize)} used)" }
+            : d)];
 
         // What moves, layer by layer.
         var handoff = disks.Where(d => d.Layout is DiskLayouts.Filesystem or DiskLayouts.Block).ToList();
@@ -204,6 +267,7 @@ internal static class MigrationPlanner
             : input.IsContainer ? "Containers can't move while running; it's restarted on the new node."
             : mounts.Count > 0 ? $"Its disks are image files on {string.Join(", ", mounts.Select(m => m.Mount.MountPoint))}, a file system that can't be mounted on two hosts at once."
             : input.Via == "kvm" && input.PeerSsh is not { Ok: true } ? $"Live moves need {source} to reach {target} over SSH as root without a password{(input.PeerSsh?.Error is { } e ? $" ({e})" : "")}."
+            : localFiles.Count > 0 && localFiles.Any(f => !f.Image.TargetHasQemuImg) ? $"Copying its disks while it runs needs qemu-img on {target}, to create them there first."
             : null;
         var live = options.Live && noLive is null;
         if (options.Live && running && noLive is not null)
@@ -262,9 +326,16 @@ internal static class MigrationPlanner
         var diskPaths = input.Via == "kvm" ? disks.Where(d => d.Path.Length > 0).Select(d => d.Path).ToList() : [];
         var paths = string.Join('\n', diskPaths);
         var checkPaths = $"Check {target} sees the VM's {(diskPaths.Count == 1 ? "disk" : "disks")}: {string.Join(", ", diskPaths)}";
-        var move = Args(("live", live ? "1" : "0"), ("localDisks", options.WithLocalDisks ? "1" : "0"));
+        var copying = copyLocal && localFiles.Count > 0;
+        var move = Args(("live", live ? "1" : "0"), ("localDisks", copyLocal && local.Count > 0 ? "1" : "0"), ("copyStorage", live && copying ? "1" : "0"));
         if (live)
         {
+            foreach (var (disk, image) in copying ? localFiles : [])
+            {
+                steps.Add(new(StepKinds.DiskCreate, "target", $"Create an empty {image.Format} image of {Size(image.VirtualSize)} at {disk.Path} on {target}, for the live copy (qemu-img create)",
+                    Args(("path", disk.Path), ("format", image.Format), ("size", image.VirtualSize.ToString(System.Globalization.CultureInfo.InvariantCulture)))));
+            }
+
             foreach (var resource in blockDrbd)
             {
                 steps.Add(new(StepKinds.DrbdAllowTwoPrimaries, "both", $"Allow DRBD resource {resource.Name} to be Primary on both {source} and {target} for the move (allow-two-primaries)", Args(("resource", resource.Name))));
@@ -282,8 +353,10 @@ internal static class MigrationPlanner
             }
 
             steps.Add(new(StepKinds.GuestMove, "hypervisor", input.Via == "kvm"
-                ? $"Live-migrate {vm} from {source} to {target} while it keeps running (virsh migrate --live over SSH); its definition moves with it"
-                : $"Ask Proxmox to migrate {vm} from {source} to {target} while it keeps running{(options.WithLocalDisks ? ", copying its disks on local storage" : "")}", move));
+                ? copying
+                    ? $"Live-migrate {vm} from {source} to {target} while it keeps running, copying its local {(localFiles.Count == 1 ? "disk" : "disks")} ({Size(copyBytes)}) as it goes (virsh migrate --live --copy-storage-all over SSH); its definition moves with it"
+                    : $"Live-migrate {vm} from {source} to {target} while it keeps running (virsh migrate --live over SSH); its definition moves with it"
+                : $"Ask Proxmox to migrate {vm} from {source} to {target} while it keeps running{(copyLocal && local.Count > 0 ? ", copying its disks on local storage" : "")}", move));
             foreach (var resource in blockDrbd)
             {
                 steps.Add(new(StepKinds.DrbdSecondary, "source", $"Make DRBD resource {resource.Name} Secondary on {source}", Args(("resource", resource.Name))));
@@ -332,6 +405,16 @@ internal static class MigrationPlanner
                 steps.Add(new(StepKinds.Mount, "target", $"Mount {mount.MountPoint} ({mount.FsType}) on {target}", MountArgs(disk, mount)));
             }
 
+            var direct = input.PeerSsh is { Ok: true };
+            foreach (var (disk, image) in copying ? localFiles : [])
+            {
+                steps.Add(new(StepKinds.DiskCopy, "target",
+                    $"Copy {disk.Path} ({Size(image.FileSize)}) from {source} to {target}, "
+                    + (direct ? $"directly from {source} over SSH (rsync, or dd over ssh)" : $"through NKeeper, since {source} can't reach {target} over SSH (slower)")
+                    + ", then check its size there",
+                    Args(("path", disk.Path), ("size", image.FileSize.ToString(System.Globalization.CultureInfo.InvariantCulture)), ("direct", direct ? "1" : "0"))));
+            }
+
             if (paths.Length > 0)
             {
                 steps.Add(new(StepKinds.CheckPaths, "target", checkPaths, Args(("paths", paths))));
@@ -339,7 +422,7 @@ internal static class MigrationPlanner
 
             steps.Add(new(StepKinds.GuestMove, "hypervisor", input.Via == "kvm"
                 ? $"Copy {vm}'s libvirt definition from {source} to {target} (virsh dumpxml, then virsh define), then remove it from {source} (virsh undefine)"
-                : $"Ask Proxmox to move {vm} from {source} to {target} while it's off{(options.WithLocalDisks ? ", copying its disks on local storage" : "")}", move));
+                : $"Ask Proxmox to move {vm} from {source} to {target} while it's off{(copyLocal && local.Count > 0 ? ", copying its disks on local storage" : "")}", move));
             if (running && options.StartAfter)
             {
                 steps.Add(new(StepKinds.GuestStart, "target", $"Start {vm} on {target}", Args()));
@@ -388,7 +471,15 @@ internal static class MigrationPlanner
             }
         }
 
-        var hasLocal = local.Count > 0;
+        if (copying && options.DeleteOldLocalDisks && input.Via == "kvm")
+        {
+            foreach (var (disk, _) in localFiles)
+            {
+                steps.Add(new(StepKinds.DiskDelete, "source", $"Delete the old copy of {disk.Path} on {source}", Args(("path", disk.Path)), Critical: false));
+            }
+        }
+
+        var hasLocal = input.Via == "kvm" ? localFiles.Count > 0 : local.Count > 0;
         return new MigrationPlan(
             live ? "live" : "offline",
             input.State,
@@ -398,7 +489,22 @@ internal static class MigrationPlanner
             steps,
             blockers,
             notes,
-            new PlanChoices(noLive is null, noLive, logout, toLogOut, kept, iscsi.Count > 0, drbd.Count > 0, hasLocal, input.Disks is not null));
+            new PlanChoices(noLive is null, noLive, logout, toLogOut, kept, iscsi.Count > 0, drbd.Count > 0, hasLocal, input.Disks is not null, copyLocal && hasLocal));
+    }
+
+    /// <summary>A size for people, e.g. "12.3 GiB".</summary>
+    internal static string Size(long bytes)
+    {
+        string[] units = ["bytes", "KiB", "MiB", "GiB", "TiB"];
+        var value = (double)bytes;
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{bytes} bytes" : $"{value.ToString(value >= 100 ? "0" : "0.#", System.Globalization.CultureInfo.InvariantCulture)} {units[unit]}";
     }
 
     /// <summary>How a file system is mounted on either host: its device is found again there by DRBD resource, LVM volume, multipath WWID or file system UUID.</summary>

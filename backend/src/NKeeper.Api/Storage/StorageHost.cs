@@ -90,7 +90,7 @@ internal sealed record StorageCommand(string Script, string Description);
 internal static partial class StorageHost
 {
     /// <summary>Sets up the tools' usual folders and <c>$p</c>, the prefix that runs a command as root.</summary>
-    private const string AsRoot = "PATH=$PATH:/usr/sbin:/sbin; p=''; [ \"$(id -u)\" = 0 ] || p='sudo -n'; ";
+    internal const string AsRoot = "PATH=$PATH:/usr/sbin:/sbin; p=''; [ \"$(id -u)\" = 0 ] || p='sudo -n'; ";
 
     /// <summary>
     /// Prints each installed tool's state after an <c>@@section</c> line, or only <c>@@noroot</c> when
