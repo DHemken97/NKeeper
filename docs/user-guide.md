@@ -8,6 +8,7 @@
 - [SSH](#ssh)
 - [Telnet](#telnet)
 - [Files (SFTP)](#files-sftp)
+- [Storage (iSCSI, multipath, DRBD)](#storage-iscsi-multipath-drbd)
 - [Jump hosts](#jump-hosts)
 - [RDP](#rdp)
 - [VNC](#vnc)
@@ -183,6 +184,16 @@ Any host with an SSH service has **Connect ▸ Files ▸ credential** (or **File
 - **New folder**, **Rename** and **Delete**. Delete asks first, and only deletes empty folders.
 - **Logins and trust** are the same as SSH: the same credentials, host key check and trusted keys. The SSH server must have its SFTP subsystem enabled (OpenSSH does by default).
 - **Audit:** every upload, download, rename, delete and new folder is in the audit log, with its path and size.
+
+## Storage (iSCSI, multipath, DRBD)
+
+Any Linux host with an SSH service has **Connect ▸ Storage ▸ credential** (or **Storage ▸ SSH service ▸ credential** when it has several). NKeeper runs the host's own tools over SSH and shows what it finds in a tab, one section for each tool that's installed:
+- **iSCSI** (`iscsiadm`, from open-iscsi or iscsi-initiator-utils): the initiator's name, and every target it knows with its portal, session state and attached disks. **Discover** asks a portal (e.g. `10.0.0.5` or `10.0.0.5:3260`) for its targets (SendTargets). **Log in** and **Log out** each target, and **Rescan sessions** to see new LUNs.
+- **Multipath** (`multipath`, from multipath-tools or device-mapper-multipath): each map with its WWID, device, vendor and size, and every path's device-mapper, checker and kernel state. A map is green when all its paths are ready. **Reload maps** after changing the configuration, and **Flush** a map that's no longer used.
+- **DRBD** (`drbdadm` and `drbdsetup`): every configured resource, including those that are down, with this node's role, its disks' states and each peer's connection, role, replication and sync progress. Bring a resource **Up** or **Down**, make it **Primary** or **Secondary**, **Connect** or **Disconnect** its peers, or **Adjust** it to its configuration.
+- **Asks first:** logging out, flushing, taking a resource down, changing its role and disconnecting it say what will happen and wait for you to confirm. The tools still refuse what would break something in use (a mounted map or a primary in use), and the tab shows their answer.
+- **Root:** the tools need root. Sign in as root, or as a user who may use `sudo` without a password.
+- **Logins and trust** are the same as SSH. Each change is recorded in the audit log (category *Storage*), with what it acted on.
 
 ## Jump hosts
 

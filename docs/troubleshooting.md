@@ -44,6 +44,10 @@ Start with the logs: `docker compose logs -f backend` (Docker), `journalctl -u n
 | A session tab says "Couldn't reach the NKeeper server" | The WebSocket was blocked. Behind your own reverse proxy, allow WebSocket upgrades and forward the original `Host` for `/api/ssh/`, `/api/rdp/`, `/api/vnc/` and `/api/spice/` (see [Installation](installation.md#behind-another-reverse-proxy)). |
 | A web session shows "needs NKeeper to be opened by a host name" | Web sessions need a name, not an IP address. Open NKeeper by name. |
 | A web session stays blank from other computers | They can't resolve `nkw-…` names, or don't trust the certificate. Add the wildcard DNS record and install the CA. See [Installation](installation.md#dns-for-web-sessions). |
+| Storage: "needs root" | `iscsiadm`, `multipath` and `drbdsetup` only run as root. Use a root credential, or let the user run `sudo` without a password. |
+| Storage: a section is missing | NKeeper shows only the tools it finds on the host (looking in `/usr/sbin` and `/sbin` too). Install open-iscsi / iscsi-initiator-utils, multipath-tools / device-mapper-multipath, or drbd-utils. |
+| Storage: "iSCSI discovery … failed: cannot make connection" | The **host**, not the NKeeper server, connects to the portal. Check the address and port (3260 by default) from the host. |
+| Storage: Flush, Secondary or Down is refused | Something still uses the device (a mount, LVM, a VM or another map). Stop using it first; NKeeper shows the tool's own message. |
 | KVM: "libvirt refused the request" | The SSH user needs access to `qemu:///system`, usually through membership in the `libvirt` group. |
 | KVM: the console doesn't open | The VM must be running with a SPICE display that isn't TLS-only, or a VNC display, listening on a TCP port. The hypervisor's sshd must allow TCP forwarding. |
 | Proxmox console: "Proxmox refused the login" | Check the username, password and realm (`root@pam`, `admin@pve`). Accounts with two-factor sign-in can't be used: use an API token (`user@realm!tokenid`, with its secret as the password). |

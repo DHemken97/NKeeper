@@ -277,6 +277,47 @@
   white-space: nowrap;
 }
 
+/* Storage: iSCSI, multipath and DRBD, one section each. */
+.storageSection {
+  margin-bottom: var(--space-6);
+}
+
+.storageHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.storageHeader h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.storageHeader > button {
+  margin-left: auto;
+}
+
+.storageForm {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  max-width: 32rem;
+  margin-bottom: var(--space-3);
+}
+
+.storageForm > :first-child {
+  flex: 1;
+}
+
+.storageActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
 /* SPICE console: the VM's display at its own resolution, scrollable when larger than the tab. */
 .spiceScroller {
   position: absolute;

@@ -76,6 +76,7 @@ const VirtualMachinesView = lazy(() =>
 const SpiceConsole = lazy(() => import('../../terminal/components/SpiceConsole').then((m) => ({ default: m.SpiceConsole })))
 const VncConsole = lazy(() => import('../../terminal/components/VncConsole').then((m) => ({ default: m.VncConsole })))
 const FileBrowser = lazy(() => import('../../terminal/components/FileBrowser').then((m) => ({ default: m.FileBrowser })))
+const StorageView = lazy(() => import('../../terminal/components/StorageView').then((m) => ({ default: m.StorageView })))
 const IdracView = lazy(() => import('../../terminal/components/IdracView').then((m) => ({ default: m.IdracView })))
 const RpcSession = lazy(() => import('../../terminal/components/RpcSession').then((m) => ({ default: m.RpcSession })))
 const SORTS: { value: HostSort; label: string }[] = [
@@ -100,6 +101,9 @@ function sessionProtocol(protocol: ServiceProtocol, mode?: OpenMode): RemoteSess
   }
   if (mode === 'files') {
     return 'sftp'
+  }
+  if (mode === 'storage') {
+    return 'storage'
   }
   if (protocol === 'Idrac') {
     // RACADM is the iDRAC's SSH command line.
@@ -348,7 +352,7 @@ export function WorkspacePage() {
     const sameHost = sessions.filter((s) => s.hostId === host.id).length
     const service = host.services[serviceIndex]
     const modeLabel =
-      mode === 'files' ? 'Files' : service.protocol !== 'Idrac' ? null : mode === 'web' ? 'Web interface' : IDRAC_MODES[(mode as IdracMode | undefined) ?? 'console'].label
+      mode === 'files' ? 'Files' : mode === 'storage' ? 'Storage' : service.protocol !== 'Idrac' ? null : mode === 'web' ? 'Web interface' : IDRAC_MODES[(mode as IdracMode | undefined) ?? 'console'].label
     setSessions((current) => [
       ...current,
       {
@@ -814,6 +818,8 @@ export function WorkspacePage() {
               />
             ) : session.protocol === 'sftp' ? (
               <FileBrowser key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'storage' ? (
+              <StorageView key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'idrac' ? (
               <IdracView
                 key={session.id}

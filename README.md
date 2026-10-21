@@ -8,6 +8,7 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
 - **Sessions in tabs**: right-click a host, then **Connect ▸ service ▸ credential**.
   - **SSH** and **Telnet** terminals (xterm.js). Telnet can log in for you with a saved credential.
   - **Files** over SFTP on any SSH service: browse, upload, download, rename and delete.
+  - **Storage** on Linux hosts over SSH: **iSCSI** targets and sessions (discover, log in and out, rescan), **multipath** maps and their paths (reload, flush) and **DRBD** resources with their peers and sync progress (up, down, primary, secondary, connect, disconnect, adjust).
   - **RDP** and **VNC** desktops through Apache Guacamole's guacd, with clipboard sync, Ctrl+Alt+Del and full screen.
   - **Web interfaces** (routers, iDRAC/iLO, NAS…) are proxied by the server and shown in the tab, or can be opened directly in a new browser tab.
   - **KVM and Proxmox virtual machines**: lists a hypervisor's VMs over SSH (like virt-manager), or a whole Proxmox VE cluster's, and opens their **SPICE or VNC consoles** in the browser.

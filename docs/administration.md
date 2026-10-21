@@ -241,7 +241,7 @@ Use `pg_dump.exe` and `pg_restore.exe` from `C:\Program Files\PostgreSQL\17\bin`
 - **Files:** every SFTP upload, download, rename, delete and new folder, with its path and size.
   - Each session's start says what it connected to, e.g. *SSH · root@10.0.0.5:22*. Its end gives the duration and, for web sessions and consoles, why it ended.
   - A session that couldn't connect is recorded with the reason, e.g. a refused connection or a rejected login.
-- **Changes:** hosts added, changed, deleted, imported, bulk-edited and scanned; trusted keys forgotten; users added, changed, deleted, their passwords reset and their access changed; iDRAC power actions; moves to a new server.
+- **Changes:** hosts added, changed, deleted, imported, bulk-edited and scanned; trusted keys forgotten; users added, changed, deleted, their passwords reset and their access changed; iDRAC power actions; Proxmox power actions and migrations; storage actions (iSCSI, multipath and DRBD), with what they acted on; moves to a new server.
 
 Each entry has the time, the user, the host (named as it was then, so the trail still reads correctly after a rename or deletion) and the client's address. Search by text, filter by what happened and by date, and page back with **Load older**. **Download CSV** exports what's shown, up to 100,000 rows.
 

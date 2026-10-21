@@ -94,6 +94,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'idrac.power': 'Power action',
   'proxmox.power': 'Proxmox power action',
   'proxmox.migrate': 'Proxmox migration',
+  'storage.action': 'Storage action',
   'transfer.export': 'Data exported',
   'transfer.import': 'Data imported',
   'transfer.unlock': 'Unlocked after export',
@@ -112,6 +113,7 @@ export const CATEGORIES = [
   { value: 'user', label: 'User changes' },
   { value: 'files', label: 'File transfers' },
   { value: 'idrac', label: 'iDRAC power' },
+  { value: 'storage', label: 'Storage (iSCSI, multipath, DRBD)' },
   { value: 'transfer', label: 'Moves to a new server' },
 ]
 

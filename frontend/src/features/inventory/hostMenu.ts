@@ -22,8 +22,8 @@ export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https', 'Proxmox
 /** What an iDRAC service opens: its HTML5 virtual console, the server's status and power, or RACADM (its SSH command line). */
 export type IdracMode = 'console' | 'overview' | 'racadm'
 
-/** What a connection opens: an iDRAC's console, status or RACADM, or an SSH service's files (SFTP). */
-export type ConnectMode = IdracMode | 'files'
+/** What a connection opens: an iDRAC's console, status or RACADM, or an SSH service's files (SFTP) or storage (iSCSI, multipath, DRBD). */
+export type ConnectMode = IdracMode | 'files' | 'storage'
 
 /** Session types that can't be tunnelled through a jump host yet (guacd and RPC dial hosts themselves). */
 const NOT_THROUGH_JUMP = new Set<ServiceProtocol>(['Rdp', 'Vnc', 'Rpc'])
@@ -151,23 +151,22 @@ function proxmoxConsoleEntries(host: Host, actions: Pick<HostMenuActions, 'proxm
   return [{ kind: 'item', label: 'Proxmox console', detail: `VNC · ${node.name}`, submenu: logins }]
 }
 
-/** Files (SFTP) ▸ login, or ▸ SSH service ▸ login when there are several; none without an SSH service. */
-function filesMenuEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
+/** Files (SFTP) and Storage (iSCSI, multipath, DRBD) ▸ login, or ▸ SSH service ▸ login when there are several; none without an SSH service. */
+function sshToolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
   const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh')
   if (ssh.length === 0) {
     return []
   }
-  return [
-    {
-      kind: 'item',
-      label: 'Files',
-      detail: 'SFTP',
-      submenu:
-        ssh.length === 1
-          ? loginEntries(host, ssh[0].index, actions, 'files')
-          : ssh.map(({ service, index }) => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions, 'files') })),
-    },
-  ]
+  const entry = (mode: 'files' | 'storage', label: string, detail: string): MenuEntry => ({
+    kind: 'item',
+    label,
+    detail,
+    submenu:
+      ssh.length === 1
+        ? loginEntries(host, ssh[0].index, actions, mode)
+        : ssh.map(({ service, index }) => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions, mode) })),
+  })
+  return [entry('files', 'Files', 'SFTP'), entry('storage', 'Storage', 'iSCSI · multipath · DRBD')]
 }
 
 export function serviceLabel(service: HostService): string {
@@ -295,7 +294,7 @@ export function connectMenuEntries(
     services.length > 0 || console.length > 0
       ? services
       : [{ kind: 'item', label: host.services.length > 0 ? 'No services to connect with' : 'No services', detail: 'Edit the host to add one', disabled: true } as const]
-  return [...entries, ...console, ...filesMenuEntries(host, actions)]
+  return [...entries, ...console, ...sshToolEntries(host, actions)]
 }
 
 /**
