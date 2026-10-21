@@ -256,6 +256,7 @@ Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH cre
 - **No console:** a VM whose display is a serial terminal (`vga: serial0`) or `none` has no console button.
 - **On the node:** `pvesh` and `qm` need **root**. Sign in as root, or as a user who may use `sudo` without a password. TCP forwarding isn't needed.
 - **Idle consoles:** Proxmox ends a console after 15 minutes with nothing happening on it. **Reconnect** opens it again.
+- **From the VM itself:** a VM host that a scan linked to its Proxmox node (see *Which VMs run where*) has **Connect ▸ Proxmox console ▸ login**. The logins are the node's, for its KVM service, and the console opens in a tab of the VM's own. The node needs a KVM service, and you need access to the node too.
 
 ## Dell iDRAC (virtual console, status and power, RACADM)
 

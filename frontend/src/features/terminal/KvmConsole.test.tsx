@@ -212,6 +212,44 @@ describe('KVM hosts', () => {
     expect(consoleBody).toEqual({ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: '200' })
   })
 
+  it('opens a Proxmox VM host’s console from its own Connect menu, with its hypervisor’s login', async () => {
+    const app01: Host = { ...hypervisor, id: 'h-app', name: 'app01', isVirtualMachine: true, hypervisorId: 'h-kvm', virtualMachineId: 'proxmox:lab/105', services: [], credentials: [] }
+    let consoleBody: unknown
+    const { user } = renderWorkspace({
+      'GET /api/hosts': () => jsonResponse(200, [hypervisor, app01]),
+      'POST /api/vnc/consoles': (_url, init) => {
+        consoleBody = JSON.parse(String(init.body))
+        return jsonResponse(200, consoleReady('v1'))
+      },
+    })
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /app01/ }))
+    await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
+    expect(screen.queryByRole('menuitem', { name: /No services/ })).not.toBeInTheDocument()
+    await user.hover(screen.getByRole('menuitem', { name: /^Proxmox console.*kvm01/ }))
+    await user.click(screen.getByRole('menuitem', { name: /^virt/ }))
+
+    await waitFor(() => expect(vnc.FakeRfb.instances).toHaveLength(1))
+    expect(consoleBody).toEqual({ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: '105' })
+    expect(screen.getByRole('tab', { name: /app01.*Proxmox console · kvm01 · virt/, selected: true })).toBeInTheDocument()
+  })
+
+  it('offers a Proxmox console only for Proxmox VMs, and only through a KVM service', async () => {
+    const node: Host = { ...hypervisor, services: [{ protocol: 'Ssh', port: null, label: null }] }
+    const proxmoxVm: Host = { ...hypervisor, id: 'h-app', name: 'app01', isVirtualMachine: true, hypervisorId: 'h-kvm', virtualMachineId: 'proxmox:lab/105', services: [] }
+    const libvirtVm: Host = { ...proxmoxVm, id: 'h-web', name: 'web01', virtualMachineId: 'libvirt:9f0c6b5e-1111-4a2b-9c3d-000000000001' }
+    const { user } = renderWorkspace({ 'GET /api/hosts': () => jsonResponse(200, [node, proxmoxVm, libvirtVm]) })
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /app01/ }))
+    await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
+    expect(screen.getByRole('menuitem', { name: /^Proxmox console.*Add a KVM service to kvm01/ })).toHaveAttribute('aria-disabled', 'true')
+    await user.keyboard('{Escape}')
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /web01/ }))
+    await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
+    expect(screen.queryByRole('menuitem', { name: /Proxmox console/ })).not.toBeInTheDocument()
+  })
+
   it('opens a VM console over NKeeper’s tunnel and closes it with the tab', async () => {
     let consoleBody: unknown
     const { user, fetchMock } = renderWorkspace({

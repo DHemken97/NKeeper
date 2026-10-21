@@ -107,7 +107,7 @@ public sealed class ProxmoxTests(PostgresServerFixture postgres, ProxmoxServerFi
     [InlineData("/api/vnc/consoles", "102", "has no VNC display")]
     [InlineData("/api/vnc/consoles", "101", "not running")]
     [InlineData("/api/spice/sessions", "100", "has no SPICE display")]
-    [InlineData("/api/vnc/consoles", "300", "no longer exists")]
+    [InlineData("/api/vnc/consoles", "300", "Containers have no VNC console")]
     public async Task ConsolesThatCantOpen_AreExplained(string path, string vm, string message)
     {
         var host = await CreateTrustedHostAsync();

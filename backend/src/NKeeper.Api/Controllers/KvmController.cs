@@ -116,7 +116,11 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
             client = await ConnectAsync(request, cancellationToken);
             var listing = await KvmHost.ListAsync(client, cancellationToken);
             var machine = listing.Vms.FirstOrDefault(v => string.Equals(v.Id, vm, StringComparison.OrdinalIgnoreCase))
-                ?? throw new SessionException(SessionErrorCodes.HostNotFound, "This virtual machine no longer exists.");
+                ?? throw new SessionException(
+                    SessionErrorCodes.HostNotFound,
+                    listing.ProxmoxNode is null
+                        ? "This virtual machine no longer exists."
+                        : $"There's no virtual machine {vm} in this Proxmox cluster. Containers have no VNC console: open a terminal on the node and use “pct enter {vm}”.");
             if (!string.Equals(machine.State, "running", StringComparison.Ordinal))
             {
                 throw new SessionException(

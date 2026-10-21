@@ -37,6 +37,7 @@ import {
   directWebUrl,
   hostMenuEntries,
   IDRAC_MODES,
+  proxmoxVmId,
   serviceLabel,
   WEB_PROTOCOLS,
   type HostMenuActions,
@@ -191,6 +192,8 @@ export function WorkspacePage() {
     account?: HostCredential
     purpose: 'connect' | 'scan'
     mode?: ConnectMode
+    /** A Proxmox VM whose console opens through `host`, its hypervisor. */
+    vm?: Host
   } | null>(null)
   const [scan, setScan] = useState<{ host: Host; kind: 'internal' | 'external'; login?: InternalScanLogin } | null>(null)
   const [importing, setImporting] = useState(false)
@@ -347,6 +350,34 @@ export function WorkspacePage() {
     setActiveTab(id)
   }
 
+  /** Opens a Proxmox VM host's console through its hypervisor's KVM service; the tab belongs to the VM. */
+  function openProxmoxConsole(
+    vm: Host,
+    hypervisor: Host,
+    serviceIndex: number,
+    credential?: HostCredential,
+    oneOff?: { username: string; password: string; domain?: string },
+  ) {
+    const vmId = proxmoxVmId(vm)
+    if (!vmId) {
+      return
+    }
+    const id = `session-${nextSessionId++}`
+    const account = credential ? (formatAccount(credential) ?? credential.label) : oneOff?.username
+    setSessions((current) => [
+      ...current,
+      {
+        id,
+        hostId: vm.id,
+        protocol: 'vmvnc',
+        title: vm.name,
+        detail: ['Proxmox console', hypervisor.name, account].filter(Boolean).join(' · '),
+        request: { hostId: hypervisor.id, serviceIndex, credentialId: credential?.id, oneOff, vm: { id: vmId, name: vm.name } },
+      },
+    ])
+    setActiveTab(id)
+  }
+
   /** Opens a VM's console from a KVM host's tab, with the same login. */
   function openConsole(source: RemoteSession, vm: VirtualMachine) {
     const id = `session-${nextSessionId++}`
@@ -407,6 +438,11 @@ export function WorkspacePage() {
         ? setScan({ host, kind: 'internal', login: { serviceIndex, credentialId: credential.id } })
         : setPrompt({ host, serviceIndex, account: credential, purpose: 'scan' }),
     scanExternal: (host) => setScan({ host, kind: 'external' }),
+    proxmoxConsole: {
+      hypervisorOf: (vm) => (vm.hypervisorId ? allHosts?.find((h) => h.id === vm.hypervisorId) : undefined),
+      connect: (vm, hypervisor, serviceIndex, credential) => openProxmoxConsole(vm, hypervisor, serviceIndex, credential),
+      connectWithPrompt: (vm, hypervisor, serviceIndex, account) => setPrompt({ host: hypervisor, serviceIndex, account, purpose: 'connect', vm }),
+    },
   }
 
   /** Double-click: connect with the first SSH service and credential, or ask for one. */
@@ -820,6 +856,8 @@ export function WorkspacePage() {
             const domain = prompt.account?.domain ?? undefined
             if (prompt.purpose === 'scan') {
               setScan({ host: prompt.host, kind: 'internal', login: { serviceIndex: prompt.serviceIndex, username, password, ...(domain ? { domain } : {}) } })
+            } else if (prompt.vm) {
+              openProxmoxConsole(prompt.vm, prompt.host, prompt.serviceIndex, undefined, { username, password, ...(domain ? { domain } : {}) })
             } else {
               openSession(prompt.host, prompt.serviceIndex, undefined, { username, password, ...(domain ? { domain } : {}) }, prompt.mode)
             }

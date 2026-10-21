@@ -52,6 +52,44 @@ export interface HostMenuActions {
   copyText: (text: string) => void
   /** Send a Wake-on-LAN packet (hosts with a MAC address). */
   wake?: (host: Host) => void
+  /** A Proxmox VM's console, opened through its hypervisor's KVM service with the hypervisor's login. */
+  proxmoxConsole?: ProxmoxConsoleActions
+}
+
+export interface ProxmoxConsoleActions {
+  /** The host a VM runs on, when the user can see it. */
+  hypervisorOf: (vm: Host) => Host | undefined
+  connect: (vm: Host, hypervisor: Host, serviceIndex: number, credential: HostCredential) => void
+  connectWithPrompt: (vm: Host, hypervisor: Host, serviceIndex: number, account?: HostCredential) => void
+}
+
+/** The Proxmox VM ID of a VM host, from the identity a scan recorded ("proxmox:<cluster>/<vmid>"); null for other hosts. */
+export function proxmoxVmId(host: Host): string | null {
+  return (host.isVirtualMachine && /^proxmox:[^/]*\/(\d+)$/.exec(host.virtualMachineId ?? '')?.[1]) || null
+}
+
+/**
+ * Proxmox console ▸ the hypervisor's KVM logins, for a VM a scan found on a Proxmox node; none for
+ * other hosts. Containers have no VNC console, but Proxmox lists them under the same IDs: the
+ * server says so if one is chosen.
+ */
+function proxmoxConsoleEntries(host: Host, actions: Pick<HostMenuActions, 'proxmoxConsole'>): MenuEntry[] {
+  const console = actions.proxmoxConsole
+  const hypervisor = console && proxmoxVmId(host) ? console.hypervisorOf(host) : undefined
+  if (!console || !hypervisor) {
+    return []
+  }
+  const kvm = hypervisor.services.findIndex((s) => s.protocol === 'Kvm')
+  if (kvm === -1) {
+    return [{ kind: 'item', label: 'Proxmox console', detail: `Add a KVM service to ${hypervisor.name}`, disabled: true }]
+  }
+  // Logins are the hypervisor's: "connect" and "ask" open this VM's console through it.
+  const logins = loginEntries(hypervisor, kvm, {
+    connect: (_h, index, credential) => console.connect(host, hypervisor, index, credential),
+    connectWithPrompt: (_h, index, account) => console.connectWithPrompt(host, hypervisor, index, account),
+    connectWithoutLogin: () => {},
+  })
+  return [{ kind: 'item', label: 'Proxmox console', detail: `VNC · ${hypervisor.name}`, submenu: logins }]
 }
 
 /** Files (SFTP) ▸ login, or ▸ SSH service ▸ login when there are several; none without an SSH service. */
@@ -152,7 +190,7 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
 /** One entry per connectable service, each opening its credentials (also used by the Connect button). */
 export function connectMenuEntries(
   host: Host,
-  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin' | 'connectWeb' | 'openDirect' | 'signIn'>,
+  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin' | 'connectWeb' | 'openDirect' | 'signIn' | 'proxmoxConsole'>,
 ): MenuEntry[] {
   const services: MenuEntry[] = host.services.flatMap((service, index): MenuEntry | MenuEntry[] => {
     if (!CONNECTABLE.has(service.protocol)) {
@@ -193,11 +231,12 @@ export function connectMenuEntries(
     return { kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions) }
   })
 
+  const console = proxmoxConsoleEntries(host, actions)
   const entries =
-    services.length > 0
+    services.length > 0 || console.length > 0
       ? services
       : [{ kind: 'item', label: host.services.length > 0 ? 'No services to connect with' : 'No services', detail: 'Edit the host to add one', disabled: true } as const]
-  return [...entries, ...filesMenuEntries(host, actions)]
+  return [...entries, ...console, ...filesMenuEntries(host, actions)]
 }
 
 /**
