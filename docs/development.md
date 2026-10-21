@@ -125,8 +125,9 @@ All sessions start from a **target**: a host, one of its services, and a saved c
   - spice-html5 then opens one WebSocket per SPICE channel on `/api/spice/channel/{id}`, and noVNC one on `/api/vnc/channel/{id}`, each relayed raw to that forward. VNC consoles live under `/api/vnc/` so proxies already treat them as WebSockets;
   - a Proxmox node (one with `/etc/pve/nodes`) is detected by the same listing script. Its VMs come from `pvesh get /cluster/resources`, and each VNC channel runs `qm vncproxy <vmid>` over SSH, with its stdin and stdout relayed instead of a port forward. The one-time VNC password goes in as the first line of input (`LC_PVE_TICKET`), never on a command line. A VM on another node is reached with `ssh root@<node>` from the connected node, as Proxmox does.
 
-- **Proxmox consoles** (`/api/proxmox/consoles`):
+- **Proxmox** (`/api/proxmox/consoles`, `/api/proxmox/guest`, `/api/proxmox/power`, `/api/proxmox/migrate`, `/api/proxmox/task`):
   - `ProxmoxApi` signs in to the node's API (`/access/ticket`, or an API token header), finds the guest in `/cluster/resources`, and asks its node for `vncproxy` with `websocket=1`;
+  - power actions (`/api/proxmox/power`: `status/{start,shutdown,reboot,suspend,resume,stop,reset}`, hibernate is `suspend` with `todisk=1`) and migrations (`/api/proxmox/migrate`) answer with Proxmox's task ID (UPID); `/api/proxmox/task` reads its status from the node named in it, and `/api/proxmox/guest` describes a guest and lists the nodes;
   - the console is a VNC console session whose endpoint connects to `vncwebsocket` (with the ticket cookie, through the jump host when there is one) and relays it like the other channels, on `/api/vnc/channel/{id}`. The proxy's ticket is the VNC password, as in Proxmox's own console.
 - **iDRAC** (`/api/idrac/overview`, `/api/idrac/power`, `/api/idrac/console`):
   - an iDRAC service has its own address (`HostService.Address`), which `SessionTargetResolver` connects to instead of the host's;

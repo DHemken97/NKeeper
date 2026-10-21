@@ -92,6 +92,8 @@ export const ACTION_LABELS: Record<string, string> = {
   'user.delete': 'User deleted',
   'account.change_password': 'Own password changed',
   'idrac.power': 'Power action',
+  'proxmox.power': 'Proxmox power action',
+  'proxmox.migrate': 'Proxmox migration',
   'transfer.export': 'Data exported',
   'transfer.import': 'Data imported',
   'transfer.unlock': 'Unlocked after export',

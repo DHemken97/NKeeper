@@ -5,14 +5,16 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Api.Controllers;
 using NKeeper.Api.Proxmox;
 using NKeeper.Api.Tests.Infrastructure;
 
 namespace NKeeper.Api.Tests;
 
 /// <summary>
-/// Proxmox consoles through the Proxmox API (a fake one): certificate trust, signing in with a
-/// password or an API token, and the VNC proxy's WebSocket relayed to the browser's channel.
+/// Proxmox VMs and containers through the Proxmox API (a fake one): certificate trust, signing in
+/// with a password or an API token, consoles (the VNC proxy's WebSocket relayed to the browser's
+/// channel), power actions, migrations, and following their tasks.
 /// </summary>
 public sealed class ProxmoxConsoleTests(PostgresServerFixture postgres, ProxmoxApiFixture pve) : IAsyncLifetime, IClassFixture<ProxmoxApiFixture>
 {
@@ -105,6 +107,109 @@ public sealed class ProxmoxConsoleTests(PostgresServerFixture postgres, ProxmoxA
         Assert.Contains("not an PROXMOX service", await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Guest_ShowsItsStateAndTheNodesToMigrateTo()
+    {
+        var host = await CreateTrustedHostAsync(("root", ProxmoxApiFixture.Password));
+
+        var answer = await PostAsync("/api/proxmox/guest", Request(host, vm: 105));
+
+        Assert.Equal(new ProxmoxGuestInfo(105, "qemu", "pve2", "app01", "running"), answer.GetProperty("guest").Deserialize<ProxmoxGuestInfo>(Json));
+        Assert.Equal(
+            [new ProxmoxNode("pve1", true), new ProxmoxNode("pve2", true), new ProxmoxNode("pve3", false)],
+            answer.GetProperty("nodes").Deserialize<List<ProxmoxNode>>(Json));
+    }
+
+    [Theory]
+    [InlineData(105, "shutdown", "nodes/pve2/qemu/105/status/shutdown")]
+    [InlineData(105, "reboot", "nodes/pve2/qemu/105/status/reboot")]
+    [InlineData(105, "pause", "nodes/pve2/qemu/105/status/suspend")]
+    [InlineData(105, "hibernate", "nodes/pve2/qemu/105/status/suspend?todisk=1")]
+    [InlineData(105, "resume", "nodes/pve2/qemu/105/status/resume")]
+    [InlineData(105, "stop", "nodes/pve2/qemu/105/status/stop")]
+    [InlineData(105, "reset", "nodes/pve2/qemu/105/status/reset")]
+    [InlineData(101, "start", "nodes/pve1/qemu/101/status/start")]
+    [InlineData(300, "pause", "nodes/pve1/lxc/300/status/suspend")]
+    public async Task PowerActions_StartProxmoxTasks_ThatCanBeFollowed(int vm, string action, string expected)
+    {
+        var host = await CreateTrustedHostAsync(("root", ProxmoxApiFixture.Password));
+
+        var answer = await PostAsync("/api/proxmox/power", new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, vm, action });
+
+        Assert.Equal(expected, pve.Tasks.Last());
+        var upid = answer.GetProperty("upid").GetString()!;
+        Assert.StartsWith("UPID:", upid, StringComparison.Ordinal);
+        Assert.Equal(new ProxmoxTaskStatus(true, null), await TaskStatusAsync(host, upid));
+        Assert.Equal(new ProxmoxTaskStatus(false, "OK"), await TaskStatusAsync(host, upid));
+    }
+
+    [Theory]
+    [InlineData(300, "reset", "Containers can't be reset")]
+    [InlineData(300, "hibernate", "Containers can't hibernate")]
+    [InlineData(105, "explode", "Choose an action")]
+    public async Task PowerActions_ThatCantBeDone_AreExplained(int vm, string action, string message)
+    {
+        var host = await CreateTrustedHostAsync(("root", ProxmoxApiFixture.Password));
+        var tasks = pve.Tasks.Count;
+
+        var response = await _client.SendJsonAsync(
+            HttpMethod.Post, "/api/proxmox/power", new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, vm, action }, Ct);
+
+        Assert.False(response.IsSuccessStatusCode);
+        Assert.Contains(message, await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+        Assert.Equal(tasks, pve.Tasks.Count);
+    }
+
+    [Theory]
+    [InlineData(105, "pve1", true, true, "nodes/pve2/qemu/105/migrate?online=1&target=pve1&with-local-disks=1")]
+    [InlineData(105, "pve1", false, false, "nodes/pve2/qemu/105/migrate?target=pve1")]
+    [InlineData(300, "pve2", true, true, "nodes/pve1/lxc/300/migrate?restart=1&target=pve2")]
+    // A stopped VM moves offline, whatever was asked.
+    [InlineData(101, "pve2", true, false, "nodes/pve1/qemu/101/migrate?target=pve2")]
+    public async Task Migrations_MoveGuestsToAnotherNode(int vm, string target, bool online, bool withLocalDisks, string expected)
+    {
+        var host = await CreateTrustedHostAsync(("root", ProxmoxApiFixture.Password));
+
+        var answer = await PostAsync("/api/proxmox/migrate", new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, vm, target, online, withLocalDisks });
+
+        Assert.Equal(expected, pve.Tasks.Last());
+        var upid = answer.GetProperty("upid").GetString()!;
+        await TaskStatusAsync(host, upid);
+        Assert.Equal(new ProxmoxTaskStatus(false, "migration aborted"), await TaskStatusAsync(host, upid));
+    }
+
+    [Theory]
+    [InlineData("pve2", "already on pve2")]
+    [InlineData("pve3", "is offline")]
+    [InlineData("pve9", "There's no node “pve9”")]
+    public async Task Migrations_ThatCantBeDone_AreExplained(string target, string message)
+    {
+        var host = await CreateTrustedHostAsync(("root", ProxmoxApiFixture.Password));
+
+        var response = await _client.SendJsonAsync(
+            HttpMethod.Post, "/api/proxmox/migrate", new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, vm = 105, target, online = true }, Ct);
+
+        Assert.False(response.IsSuccessStatusCode);
+        Assert.Contains(message, await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Tasks_AskToTrustTheCertificateFirst()
+    {
+        var host = await CreateHostAsync(("root", ProxmoxApiFixture.Password));
+
+        var answer = await PostAsync("/api/proxmox/power", new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, vm = 105, action = "stop" });
+
+        Assert.Equal("trustRequired", answer.GetProperty("status").GetString());
+        Assert.False(string.IsNullOrEmpty(answer.GetProperty("certificate").GetProperty("fingerprint").GetString()));
+    }
+
+    [Theory]
+    [InlineData("UPID:pve1:000ABCDE:00123456:6720F00D:qmstop:105:root@pam:", "pve1")]
+    [InlineData("UPID:../x:0", null)]
+    [InlineData("pve1", null)]
+    public void TaskIds_NameTheirNode(string upid, string? node) => Assert.Equal(node, ProxmoxApi.TaskNode(upid));
+
     [Theory]
     [InlineData("root", null, "root@pam")]
     [InlineData("admin", "pve", "admin@pve")]
@@ -117,9 +222,11 @@ public sealed class ProxmoxConsoleTests(PostgresServerFixture postgres, ProxmoxA
     private static object Request(HostResponse host, int vm, string? trust = null) =>
         new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, trustFingerprint = trust, vm };
 
-    private async Task<JsonElement> PostAsync(object body)
+    private Task<JsonElement> PostAsync(object body) => PostAsync("/api/proxmox/consoles", body);
+
+    private async Task<JsonElement> PostAsync(string path, object body)
     {
-        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/proxmox/consoles", body, Ct);
+        var response = await _client.SendJsonAsync(HttpMethod.Post, path, body, Ct);
         Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(Ct));
         return await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
     }
@@ -145,6 +252,10 @@ public sealed class ProxmoxConsoleTests(PostgresServerFixture postgres, ProxmoxA
         await _client.SendJsonAsync(HttpMethod.Post, "/api/proxmox/consoles", Request(host, vm: 105, trust: fingerprint), Ct);
         return host;
     }
+
+    private async Task<ProxmoxTaskStatus> TaskStatusAsync(HostResponse host, string upid) =>
+        (await PostAsync("/api/proxmox/task", new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, upid }))
+            .GetProperty("task").Deserialize<ProxmoxTaskStatus>(Json)!;
 
     private static async Task<string> ReadLineAsync(WebSocket channel)
     {

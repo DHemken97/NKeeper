@@ -13,6 +13,7 @@ import { HostDetails } from '../components/HostDetails'
 import { HostEditor } from '../components/HostEditor'
 import { HostTree, type SelectMode } from '../components/HostTree'
 import { ImportHostsDialog } from '../components/ImportHostsDialog'
+import { ProxmoxTaskDialog } from '../components/ProxmoxTaskDialog'
 import { ScanDialog } from '../components/ScanDialog'
 import {
   buildTree,
@@ -41,6 +42,7 @@ import {
   serviceLabel,
   WEB_PROTOCOLS,
   type HostMenuActions,
+  type ProxmoxTask,
   type ConnectMode,
   type IdracMode,
 } from '../hostMenu'
@@ -194,6 +196,17 @@ export function WorkspacePage() {
     mode?: ConnectMode
     /** A Proxmox VM whose console opens through `host`, its hypervisor. */
     vm?: Host
+    /** With `vm`: a Proxmox task to run instead of opening the console. */
+    proxmoxTask?: ProxmoxTask
+  } | null>(null)
+  /** Tasks ▸ Proxmox: an action on a VM through its node's Proxmox service. */
+  const [proxmoxTask, setProxmoxTask] = useState<{
+    vm: Host
+    node: Host
+    serviceIndex: number
+    task: ProxmoxTask
+    credentialId?: string
+    oneOff?: { username: string; password: string; domain?: string }
   } | null>(null)
   const [scan, setScan] = useState<{ host: Host; kind: 'internal' | 'external'; login?: InternalScanLogin } | null>(null)
   const [importing, setImporting] = useState(false)
@@ -442,6 +455,10 @@ export function WorkspacePage() {
       hypervisorOf: (vm) => (vm.hypervisorId ? allHosts?.find((h) => h.id === vm.hypervisorId) : undefined),
       connect: (vm, hypervisor, serviceIndex, credential) => openProxmoxConsole(vm, hypervisor, serviceIndex, credential),
       connectWithPrompt: (vm, hypervisor, serviceIndex, account) => setPrompt({ host: hypervisor, serviceIndex, account, purpose: 'connect', vm }),
+      runTask: (vm, node, serviceIndex, task, credential, ask) =>
+        ask
+          ? setPrompt({ host: node, serviceIndex, account: credential, purpose: 'connect', vm, proxmoxTask: task })
+          : setProxmoxTask({ vm, node, serviceIndex, task, credentialId: credential?.id }),
     },
   }
 
@@ -862,6 +879,14 @@ export function WorkspacePage() {
             const domain = prompt.account?.domain ?? undefined
             if (prompt.purpose === 'scan') {
               setScan({ host: prompt.host, kind: 'internal', login: { serviceIndex: prompt.serviceIndex, username, password, ...(domain ? { domain } : {}) } })
+            } else if (prompt.vm && prompt.proxmoxTask) {
+              setProxmoxTask({
+                vm: prompt.vm,
+                node: prompt.host,
+                serviceIndex: prompt.serviceIndex,
+                task: prompt.proxmoxTask,
+                oneOff: { username, password, ...(domain ? { domain } : {}) },
+              })
             } else if (prompt.vm) {
               openProxmoxConsole(prompt.vm, prompt.host, prompt.serviceIndex, undefined, { username, password, ...(domain ? { domain } : {}) })
             } else {
@@ -872,6 +897,7 @@ export function WorkspacePage() {
           onCancel={() => setPrompt(null)}
         />
       ) : null}
+      {proxmoxTask ? <ProxmoxTaskDialog {...proxmoxTask} onClose={() => setProxmoxTask(null)} /> : null}
       {scan ? (
         <ScanDialog
           host={scan.host}

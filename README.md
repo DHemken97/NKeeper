@@ -11,7 +11,7 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
   - **RDP** and **VNC** desktops through Apache Guacamole's guacd, with clipboard sync, Ctrl+Alt+Del and full screen.
   - **Web interfaces** (routers, iDRAC/iLO, NAS…) are proxied by the server and shown in the tab, or can be opened directly in a new browser tab.
   - **KVM and Proxmox virtual machines**: lists a hypervisor's VMs over SSH (like virt-manager), or a whole Proxmox VE cluster's, and opens their **SPICE or VNC consoles** in the browser.
-  - **Proxmox consoles** straight from a VM's or container's own menu, through the Proxmox API with a Proxmox login or API token, like Proxmox's own console.
+  - **Proxmox consoles** straight from a VM's or container's own menu, through the Proxmox API with a Proxmox login or API token, like Proxmox's own console, and **Proxmox tasks**: migrate, shut down, reboot, pause, hibernate, stop, reset, resume and start.
   - **Dell iDRAC**: the HTML5 virtual console in a tab, the server's status and power buttons over Redfish, and RACADM over SSH.
 - **Jump hosts**: reach hosts on networks the server can't see by tunnelling through an SSH bastion. SSH, Telnet, files, web, iDRAC, KVM and internal scans all go through it.
 - **Windows scans** over RPC (WMI): hostname, model, Windows version, adapters, listening ports and local accounts.

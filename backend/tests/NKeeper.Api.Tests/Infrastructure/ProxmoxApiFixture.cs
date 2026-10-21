@@ -15,7 +15,8 @@ namespace NKeeper.Api.Tests.Infrastructure;
 /// A fake Proxmox VE API on 127.0.0.1 over HTTPS with a self-signed certificate: sign-in (a
 /// ticket for root@pam, two-factor for tfa@pve) or an API token, the cluster's guests, and VNC
 /// proxies whose WebSocket greets with what it was opened for, then echoes like a VM's display.
-/// Like Proxmox, writes need the CSRF token, and each proxy ticket works once.
+/// Power actions and migrations are recorded and start tasks, which run until their status has
+/// been asked for once. Like Proxmox, writes need the CSRF token, and each proxy ticket works once.
 /// </summary>
 public sealed class ProxmoxApiFixture : IAsyncLifetime
 {
@@ -35,6 +36,12 @@ public sealed class ProxmoxApiFixture : IAsyncLifetime
 
     /// <summary>VNC proxy tickets issued and not used yet.</summary>
     public ConcurrentDictionary<string, string> OpenProxies { get; } = new();
+
+    /// <summary>Tasks started, as "path?parameters" (e.g. "nodes/pve2/qemu/105/status/suspend?todisk=1").</summary>
+    public ConcurrentQueue<string> Tasks { get; } = new();
+
+    /// <summary>Tasks whose status was asked for, so they've finished.</summary>
+    private readonly ConcurrentDictionary<string, bool> _polled = new();
 
     public async ValueTask InitializeAsync()
     {
@@ -89,6 +96,26 @@ public sealed class ProxmoxApiFixture : IAsyncLifetime
                 new { id = "lxc/300", type = "lxc", vmid = 300, name = "dns01", node = "pve1", status = "running" },
             },
         }));
+        _app.MapGet("/api2/json/nodes", () => Results.Json(new
+        {
+            data = new object[]
+            {
+                new { node = "pve2", status = "online" },
+                new { node = "pve1", status = "online" },
+                new { node = "pve3", status = "offline" },
+            },
+        }));
+        _app.MapPost("/api2/json/nodes/{node}/{type}/{vmid}/status/{call}", (HttpRequest request, string node, string type, int vmid, string call) =>
+            StartTask(request, node, $"nodes/{node}/{type}/{vmid}/status/{call}"));
+        _app.MapPost("/api2/json/nodes/{node}/{type}/{vmid}/migrate", (HttpRequest request, string node, string type, int vmid) =>
+            StartTask(request, node, $"nodes/{node}/{type}/{vmid}/migrate"));
+        _app.MapGet("/api2/json/nodes/{node}/tasks/{upid}/status", (string node, string upid) =>
+            Results.Json(new
+            {
+                data = _polled.TryAdd(upid, true)
+                    ? new { status = "running", exitstatus = (string?)null }
+                    : new { status = "stopped", exitstatus = (string?)(upid.Contains("migrate", StringComparison.Ordinal) ? "migration aborted" : "OK") },
+            }));
         _app.MapPost("/api2/json/nodes/{node}/{type}/{vmid}/vncproxy", async (HttpRequest request, string node, string type, int vmid) =>
         {
             var form = await request.ReadFormAsync();
@@ -129,6 +156,15 @@ public sealed class ProxmoxApiFixture : IAsyncLifetime
         await _app.StartAsync();
 
         Port = new Uri(_app.Urls.First()).Port;
+    }
+
+    private async Task<IResult> StartTask(HttpRequest request, string node, string path)
+    {
+        var form = await request.ReadFormAsync();
+        var parameters = string.Join('&', form.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => $"{p.Key}={p.Value}"));
+        Tasks.Enqueue(parameters.Length > 0 ? $"{path}?{parameters}" : path);
+        var kind = path.EndsWith("/migrate", StringComparison.Ordinal) ? "migrate" : path[(path.LastIndexOf('/') + 1)..];
+        return Results.Json(new { data = $"UPID:{node}:000ABCDE:00123456:6720F00D:{kind}:{Tasks.Count}:root@pam:" });
     }
 
     private static X509Certificate2 CreateSelfSignedCertificate()

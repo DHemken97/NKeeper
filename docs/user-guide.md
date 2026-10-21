@@ -266,10 +266,16 @@ Add a **Proxmox** service (HTTPS, port 8006 by default) to a Proxmox VE node, wi
 - **A VM or container:** a host that a scan linked to its Proxmox node (see *Which VMs run where*) has **Connect ▸ Proxmox console ▸ login**. The logins are the node's, for its Proxmox service. The console opens in the VM's own tab, with **Ctrl+Alt+Del** and **Fullscreen**.
 - **How it connects:** the way Proxmox's own console does. NKeeper's server signs in to the node's API, asks it for a VNC proxy (`vncproxy`), and relays the proxy's WebSocket to the tab. Any node of the cluster serves every VM, so it doesn't matter which node a VM moved to. Containers get their terminal console the same way.
 - **Logins:** a Proxmox user, e.g. `root`, `root@pam` or `admin@pve`. Without a realm, the credential's **domain** is used as the realm, else `pam`. An **API token** works too: `user@realm!tokenid` as the username and the token's secret as the password. Accounts with two-factor sign-in can't be used; give NKeeper an API token instead.
-- **Permissions:** the account needs **VM.Console** on the VM (and to see it). It doesn't need root, SSH or sudo.
+- **Tasks ▸ Proxmox ▸ action ▸ login** runs a power action or migration on the VM or container:
+  - **Migrate…** moves it to another node you choose. A running VM can move live; a running container is restarted on the new node. Disks on the node's local storage can be copied along.
+  - **Shut down** and **Reboot** ask its operating system (a VM needs ACPI or the guest agent). **Pause** freezes it in memory. **Hibernate** saves its memory to disk and stops it. **Stop** and **Reset** act at once, like the power and reset buttons, and lose anything unsaved.
+  - **Resume** continues a paused one; **Start** starts a stopped or hibernated one.
+  - The dialog shows its current state and asks first, then follows Proxmox's task until it ends. Closing the dialog doesn't stop the task. Containers can't hibernate or reset.
+  - Each action is recorded in the audit log. Users with *Use* access to the VM get these too: what the Proxmox login may do is up to Proxmox.
+- **Permissions:** the account needs **VM.Console** on the VM to open its console, **VM.PowerMgmt** for power actions, and **VM.Migrate** to migrate (and to see it). It doesn't need root, SSH or sudo.
 - **Certificate:** the node's certificate is trusted on first use, like any HTTPS service (it's shared with the node's web sessions).
 - **Reconnecting:** each console is good for one connection. **Reconnect** opens a new one.
-- **The node** must be an NKeeper host you can see, with a Proxmox service. Otherwise the entry says what's missing, or isn't there.
+- **The node** must be an NKeeper host you can see, with a Proxmox service. Otherwise there's no Proxmox console or Proxmox task entry.
 
 ## Dell iDRAC (virtual console, status and power, RACADM)
 

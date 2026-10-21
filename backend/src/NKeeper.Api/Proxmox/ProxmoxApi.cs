@@ -18,6 +18,36 @@ internal sealed record ProxmoxGuest(int VmId, string Type, string Node, string N
 /// <summary>A console the API opened: connect to its WebSocket with <see cref="Ticket"/>, which is also the VNC password.</summary>
 internal sealed record VncProxyTicket(string Port, string Ticket);
 
+/// <summary>A node of the cluster, and whether it is online.</summary>
+public sealed record ProxmoxNode(string Name, bool Online);
+
+/// <summary>A Proxmox task (e.g. a shutdown or a migration): still running, or its exit status ("OK", or what went wrong).</summary>
+public sealed record ProxmoxTaskStatus(bool Running, string? ExitStatus);
+
+/// <summary>The power actions NKeeper offers, and the guest status call each one is.</summary>
+public static class ProxmoxActions
+{
+    public const string Start = "start";
+    public const string Shutdown = "shutdown";
+    public const string Reboot = "reboot";
+    public const string Pause = "pause";
+    public const string Hibernate = "hibernate";
+    public const string Resume = "resume";
+    public const string Stop = "stop";
+    public const string Reset = "reset";
+
+    /// <summary>The status call (<c>status/{call}</c>) and extra parameters for an action, or null when the guest type can't do it.</summary>
+    internal static (string Call, Dictionary<string, string> Parameters)? For(string action, string type) => (action, type) switch
+    {
+        (Start or Shutdown or Reboot or Resume or Stop, _) => (action, []),
+        (Pause, _) => ("suspend", []),
+        // Hibernating saves the VM's memory to disk and stops it; starting it resumes it.
+        (Hibernate, "qemu") => ("suspend", new() { ["todisk"] = "1" }),
+        (Reset, "qemu") => ("reset", []),
+        _ => null,
+    };
+}
+
 /// <summary>
 /// The Proxmox VE API of one node (HTTPS, port 8006), signed in with a Proxmox login
 /// (<c>user@realm</c>, realm <c>pam</c> by default) or an API token (<c>user@realm!token</c>, its
@@ -155,6 +185,69 @@ internal sealed partial class ProxmoxApi : IDisposable
             : throw new SessionException(SessionErrorCodes.ConnectionFailed, "Proxmox didn't open the console.");
     }
 
+    /// <summary>The cluster's nodes.</summary>
+    public async Task<List<ProxmoxNode>> GetNodesAsync(CancellationToken cancellationToken)
+    {
+        var data = await SendAsync(new HttpRequestMessage(HttpMethod.Get, "api2/json/nodes"), cancellationToken);
+        return data.ValueKind != JsonValueKind.Array
+            ? []
+            : [.. data.EnumerateArray()
+                .Select(n => (Name: String(n, "node"), Status: String(n, "status")))
+                .Where(n => n.Name is not null && NodeName().IsMatch(n.Name))
+                .Select(n => new ProxmoxNode(n.Name!, n.Status == "online"))
+                .OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>Starts a power action (one of <see cref="ProxmoxActions"/>) on the guest; returns its task's ID (UPID).</summary>
+    public async Task<string> StartActionAsync(ProxmoxGuest guest, string action, CancellationToken cancellationToken)
+    {
+        var (call, parameters) = ProxmoxActions.For(action, guest.Type)
+            ?? throw new SessionException(SessionErrorCodes.BadRequest, $"Containers can't {(action == ProxmoxActions.Hibernate ? "hibernate" : "be reset")}. Stop or reboot it instead.");
+        return await StartTaskAsync($"{GuestPath(guest)}/status/{call}", parameters, cancellationToken);
+    }
+
+    /// <summary>
+    /// Moves the guest to another node; returns the migration task's ID. A running VM moves live
+    /// (<paramref name="online"/>); a running container is restarted on the other node.
+    /// </summary>
+    public Task<string> MigrateAsync(ProxmoxGuest guest, string target, bool online, bool withLocalDisks, CancellationToken cancellationToken)
+    {
+        var parameters = new Dictionary<string, string> { ["target"] = target };
+        if (online)
+        {
+            parameters[guest.Type == "lxc" ? "restart" : "online"] = "1";
+        }
+
+        if (withLocalDisks && guest.Type == "qemu")
+        {
+            parameters["with-local-disks"] = "1";
+        }
+
+        return StartTaskAsync($"{GuestPath(guest)}/migrate", parameters, cancellationToken);
+    }
+
+    /// <summary>A task's status, from the node that runs it (named in its UPID).</summary>
+    public async Task<ProxmoxTaskStatus> GetTaskStatusAsync(string upid, CancellationToken cancellationToken)
+    {
+        var node = TaskNode(upid) ?? throw new SessionException(SessionErrorCodes.BadRequest, "That isn't a Proxmox task.");
+        var data = await SendAsync(
+            new HttpRequestMessage(HttpMethod.Get, $"api2/json/nodes/{Uri.EscapeDataString(node)}/tasks/{Uri.EscapeDataString(upid)}/status"), cancellationToken);
+        return new ProxmoxTaskStatus(String(data, "status") != "stopped", String(data, "exitstatus"));
+    }
+
+    /// <summary>The node in a task ID, e.g. <c>UPID:pve1:0000ABCD:…</c>; null when it isn't one.</summary>
+    internal static string? TaskNode(string upid) =>
+        upid.Split(':') is ["UPID", var node, ..] && NodeName().IsMatch(node) ? node : null;
+
+    private async Task<string> StartTaskAsync(string path, Dictionary<string, string> parameters, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new FormUrlEncodedContent(parameters) };
+        var data = await SendAsync(request, cancellationToken);
+        return data.ValueKind == JsonValueKind.String && data.GetString() is { } upid && TaskNode(upid) is not null
+            ? upid
+            : throw new SessionException(SessionErrorCodes.ConnectionFailed, "Proxmox didn't start the task.");
+    }
+
     /// <summary>Connects to the console's WebSocket, which carries the VNC connection (RFB).</summary>
     public async Task<WebSocket> ConnectVncAsync(ProxmoxGuest guest, VncProxyTicket proxy, CancellationToken cancellationToken)
     {
@@ -252,7 +345,7 @@ internal sealed partial class ProxmoxApi : IDisposable
                 {
                     throw new SessionException(
                         SessionErrorCodes.ConnectionFailed,
-                        $"The Proxmox account {_userId} isn't allowed to do this{(reason is null ? "" : $" ({reason})")}. Opening a console needs the VM.Console permission on the VM.");
+                        $"The Proxmox account {_userId} isn't allowed to do this{(reason is null ? "" : $" ({reason})")}. Consoles need the VM.Console permission on the VM, power actions VM.PowerMgmt, and migrations VM.Migrate.");
                 }
 
                 if (!response.IsSuccessStatusCode)

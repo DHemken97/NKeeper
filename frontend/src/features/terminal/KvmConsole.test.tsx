@@ -265,20 +265,90 @@ describe('KVM hosts', () => {
     )
   })
 
-  it('offers a Proxmox console only for Proxmox VMs, and only through a Proxmox service', async () => {
-    const proxmoxVm: Host = { ...hypervisor, id: 'h-app', name: 'app01', isVirtualMachine: true, hypervisorId: 'h-kvm', virtualMachineId: 'proxmox:lab/105', services: [] }
+  it('offers Proxmox only for Proxmox VMs whose node has a Proxmox service', async () => {
+    const proxmoxVm: Host = { ...hypervisor, id: 'h-app', name: 'app01', isVirtualMachine: true, hypervisorId: 'h-kvm', virtualMachineId: 'proxmox:lab/105', services: [], canManage: false }
     const libvirtVm: Host = { ...proxmoxVm, id: 'h-web', name: 'web01', virtualMachineId: 'libvirt:9f0c6b5e-1111-4a2b-9c3d-000000000001' }
-    // The node has a KVM service only: SSH isn't how Proxmox consoles open.
+    // The node has a KVM service only: SSH isn't how Proxmox consoles and tasks work.
     const { user } = renderWorkspace({ 'GET /api/hosts': () => jsonResponse(200, [hypervisor, proxmoxVm, libvirtVm]) })
 
     fireEvent.contextMenu(await screen.findByRole('button', { name: /app01/ }))
+    expect(screen.queryByRole('menuitem', { name: 'Tasks' })).not.toBeInTheDocument()
     await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
-    expect(screen.getByRole('menuitem', { name: /^Proxmox console.*Add a Proxmox service to kvm01/ })).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.queryByRole('menuitem', { name: /Proxmox/ })).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
 
     fireEvent.contextMenu(await screen.findByRole('button', { name: /web01/ }))
     await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
-    expect(screen.queryByRole('menuitem', { name: /Proxmox console/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Proxmox/ })).not.toBeInTheDocument()
+  })
+
+  describe('Tasks ▸ Proxmox', () => {
+    const node: Host = {
+      ...hypervisor,
+      services: [{ protocol: 'Proxmox', port: null, label: null }],
+      credentials: [{ id: 'c1', label: null, username: 'root', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],
+    }
+    // Users who may only use a VM still get its Proxmox tasks: Proxmox decides what the login may do.
+    const app01: Host = { ...hypervisor, id: 'h-app', name: 'app01', isVirtualMachine: true, hypervisorId: 'h-kvm', virtualMachineId: 'proxmox:lab/105', services: [], credentials: [], canManage: false }
+    const guest = { vmId: 105, type: 'qemu', node: 'pve2', name: 'app01', status: 'running' }
+    const nodes = [
+      { name: 'pve1', online: true },
+      { name: 'pve2', online: true },
+      { name: 'pve3', online: false },
+    ]
+    const ready = (extra: object) => jsonResponse(200, { status: 'ready', target: 'https://10.0.0.5:8006/', certificate: null, ...extra })
+
+    async function openTask(user: ReturnType<typeof userEvent.setup>, task: RegExp) {
+      fireEvent.contextMenu(await screen.findByRole('button', { name: /app01/ }))
+      await user.hover(screen.getByRole('menuitem', { name: 'Tasks' }))
+      await user.hover(screen.getByRole('menuitem', { name: /^Proxmox.*kvm01/ }))
+      await user.hover(screen.getByRole('menuitem', { name: task }))
+      await user.click(screen.getByRole('menuitem', { name: /root/ }))
+      return screen.findByRole('dialog')
+    }
+
+    it('shuts a VM down after confirming, and follows the task until it ends', async () => {
+      const bodies: Record<string, unknown>[] = []
+      const { user } = renderWorkspace({
+        'GET /api/hosts': () => jsonResponse(200, [node, app01]),
+        'POST /api/proxmox/guest': () => ready({ guest, nodes }),
+        'POST /api/proxmox/power': (_url, init) => {
+          bodies.push(JSON.parse(String(init.body)))
+          return ready({ guest, upid: 'UPID:pve2:1:2:3:qmshutdown:105:root@pam:' })
+        },
+        'POST /api/proxmox/task': () => ready({ task: { running: false, exitStatus: 'OK' } }),
+      })
+
+      const dialog = await openTask(user, /^Shut down/)
+      expect(await within(dialog).findByText(/is a VM \(105\) on pve2, currently/)).toBeInTheDocument()
+      await user.click(within(dialog).getByRole('button', { name: 'Shut down' }))
+
+      expect(await within(dialog).findByText('“app01” was shut down.', {}, { timeout: 5000 })).toBeInTheDocument()
+      expect(bodies).toEqual([{ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: 105, action: 'shutdown' }])
+    })
+
+    it('migrates to a chosen online node, and reports a task that fails', async () => {
+      let body: Record<string, unknown> | undefined
+      const { user } = renderWorkspace({
+        'GET /api/hosts': () => jsonResponse(200, [node, app01]),
+        'POST /api/proxmox/guest': () => ready({ guest, nodes }),
+        'POST /api/proxmox/migrate': (_url, init) => {
+          body = JSON.parse(String(init.body))
+          return ready({ guest, upid: 'UPID:pve2:1:2:3:qmigrate:105:root@pam:' })
+        },
+        'POST /api/proxmox/task': () => ready({ task: { running: false, exitStatus: 'migration aborted' } }),
+      })
+
+      const dialog = await openTask(user, /^Migrate/)
+      const target = await within(dialog).findByLabelText('Move to')
+      expect(within(target).getAllByRole('option').map((o) => o.textContent)).toEqual(['pve1', 'pve3 (offline)'])
+      expect(within(target).getByRole('option', { name: 'pve3 (offline)' })).toBeDisabled()
+      expect(within(dialog).getByRole('checkbox', { name: /live migration/ })).toBeChecked()
+      await user.click(within(dialog).getByRole('button', { name: 'Migrate' }))
+
+      expect(await within(dialog).findByText(/migration aborted/, {}, { timeout: 5000 })).toBeInTheDocument()
+      expect(body).toEqual({ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: 105, target: 'pve1', online: true, withLocalDisks: false })
+    })
   })
 
   it('opens a VM console over NKeeper’s tunnel and closes it with the tab', async () => {
