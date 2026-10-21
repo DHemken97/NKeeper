@@ -35,6 +35,28 @@ public sealed class StorageParsingTests
     }
 
     [Fact]
+    public void IscsiSessions_ARedirectingSan_AreKnownByTheirPersistentPortal_AndMerged()
+    {
+        var sessions = StorageHost.ParseIscsiSessions(
+        [
+            "Target: iqn.2007-11.com.nimblestorage:vol1 (non-flash)",
+            "	Current Portal: 192.168.140.141:3260,2460",
+            "	Persistent Portal: 192.168.140.140:3260,2460",
+            "		iSCSI Session State: LOGGED_IN",
+            "			Attached scsi disk sdb		State: running",
+            "	Current Portal: 192.168.140.142:3260,2460",
+            "	Persistent Portal: 192.168.140.140:3260,2460",
+            "		iSCSI Session State: LOGGED_IN",
+            "			Attached scsi disk sdc		State: running",
+        ]);
+
+        var session = Assert.Single(sessions);
+        Assert.Equal(
+            ("192.168.140.140:3260", "LOGGED_IN", "sdb,sdc", "192.168.140.141:3260,192.168.140.142:3260"),
+            (session.Portal, session.State, string.Join(',', session.Disks), string.Join(',', session.ConnectedTo!)));
+    }
+
+    [Fact]
     public void IscsiNodes_KeepWellFormedOnes_AndKnowWhichAreLoggedIn()
     {
         var sessions = new List<IscsiSession> { new("iqn.2003-01.org.example:a", "[fd00::5]:3260", "LOGGED_IN", []) };

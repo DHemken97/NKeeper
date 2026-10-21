@@ -3,7 +3,10 @@ import type { HostKeyPrompt } from './kvm'
 /** An iSCSI session: the target, the portal it's logged in through (without the portal group), its state and attached disks. */
 export interface IscsiSession {
   target: string
+  /** The portal it was logged in through (its node record's). */
   portal: string
+  /** Where a SAN that redirects logins (Nimble, EqualLogic…) actually connected it. */
+  connectedTo?: string[] | null
   /** e.g. "LOGGED_IN", "FAILED". */
   state: string
   disks: string[]

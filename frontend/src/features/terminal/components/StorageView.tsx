@@ -201,7 +201,10 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
                         return (
                           <tr key={`${row.target} ${row.portal}`}>
                             <td className={styles.vmName}>{row.target}</td>
-                            <td>{row.portal}</td>
+                            <td>
+                              {row.portal}
+                              {row.session?.connectedTo?.length ? <div className={styles.hint}>connected via {row.session.connectedTo.join(', ')}</div> : null}
+                            </td>
                             <td>
                               <span className={`${styles.dot} ${loggedIn ? styles.connected : row.session ? styles.failed : ''}`} />{' '}
                               {row.session ? row.session.state.replace('_', ' ').toLowerCase() : 'not logged in'}

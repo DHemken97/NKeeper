@@ -84,6 +84,9 @@ public sealed class StorageServerFixture : IAsyncLifetime
         }
     }
 
+    /// <summary>Runs a shell script on the host as root; returns its exit code.</summary>
+    public async Task<long> ExecAsync(string script) => (await _container!.ExecAsync(["sh", "-c", script])).ExitCode ?? -1;
+
     /// <summary>Makes iSCSI logins exit 0 without logging in.</summary>
     public async Task MakeLoginsSilentAsync()
     {

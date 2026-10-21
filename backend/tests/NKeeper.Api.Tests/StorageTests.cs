@@ -122,6 +122,28 @@ public sealed class StorageTests(PostgresServerFixture postgres, StorageServerFi
     }
 
     [Fact]
+    public async Task ALoginTheSanRedirects_IsKnownByThePortalItWasMadeThrough()
+    {
+        const string nimble = "iqn.2007-11.com.nimblestorage:vol1-v03854e0c5f768377.000004be.5cf3cd7b";
+        var host = await CreateTrustedHostAsync();
+        await ActAsync(host, StorageActions.IscsiDiscover, portal: "10.0.0.7");
+
+        // The array connects the session to its data address, 10.0.1.7.
+        var login = await ActAsync(host, StorageActions.IscsiLogin, target: nimble, portal: "10.0.0.7:3260,2460");
+        Assert.Equal($"Logged in to {nimble} at 10.0.0.7:3260; its disks here: sdc.", login.GetProperty("message").GetString());
+        var session = Storage(login).Iscsi!.Sessions.Single(s => s.Target == nimble);
+        Assert.Equal(("10.0.0.7:3260", "10.0.1.7:3260"), (session.Portal, Assert.Single(session.ConnectedTo!)));
+        Assert.Contains(new IscsiNode(nimble, "10.0.0.7:3260", true), Storage(login).Iscsi!.Nodes);
+
+        // Migrations check sessions the same way.
+        Assert.Equal(0, await san.ExecAsync("p=''; " + NKeeper.Api.Migration.MigrationJob.IscsiSession(nimble, "10.0.0.7:3260")));
+        Assert.NotEqual(0, await san.ExecAsync("p=''; " + NKeeper.Api.Migration.MigrationJob.IscsiSession(nimble, "10.0.1.7:3260")));
+
+        var loggedOut = Storage(await ActAsync(host, StorageActions.IscsiLogout, target: nimble, portal: "10.0.0.7:3260"));
+        Assert.DoesNotContain(loggedOut.Iscsi!.Sessions, s => s.Target == nimble);
+    }
+
+    [Fact]
     public async Task ALoginThatExitsCleanlyButDoesntLogIn_IsReportedAsFailed()
     {
         var host = await CreateTrustedHostAsync();

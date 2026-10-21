@@ -283,13 +283,16 @@ internal sealed partial class MigrationJob(
         return (!output.Contains("same", StringComparison.Ordinal), output.Contains("in use", StringComparison.Ordinal) ? output.Trim() : null);
     }
 
-    /// <summary>Succeeds when the host has a session to the target through the portal.</summary>
-    private static string IscsiSession(string target, string portal) =>
-        $"$p iscsiadm -m session 2>/dev/null | awk -v p='{portal},' -v t='{target}' 'index($3, p) == 1 && $4 == t {{ f = 1 }} END {{ exit !f }}' ";
+    /// <summary>
+    /// Succeeds when the host has a session to the target logged in through the portal (its persistent
+    /// portal: a SAN that redirects logins connects it to another address).
+    /// </summary>
+    internal static string IscsiSession(string target, string portal) =>
+        $"$p iscsiadm -m session -P 1 2>/dev/null | awk -v t='{target}' -v p='{portal},' '/^Target:/ {{ on = ($2 == t) }} on && /Persistent Portal:/ && index($3, p) == 1 {{ f = 1 }} END {{ exit !f }}' ";
 
     /// <summary>Stops (as "same") when a disk of the session is still held, mounted or open.</summary>
     private static string IscsiUnused(string target, string portal) =>
-        $"for d in $($p iscsiadm -m session -P 3 2>/dev/null | awk -v t='{target}' -v p='{portal},' '/^Target:/ {{ on = ($2 == t) }} /Current Portal:/ {{ cur = (index($3, p) == 1) }} on && cur && /Attached scsi disk/ {{ print $4 }}'); do "
+        $"for d in $($p iscsiadm -m session -P 3 2>/dev/null | awk -v t='{target}' -v p='{portal},' '/^Target:/ {{ on = ($2 == t) }} /Persistent Portal:/ {{ cur = (index($3, p) == 1) }} on && cur && /Attached scsi disk/ {{ print $4 }}'); do "
         + "[ -z \"$(ls /sys/block/$d/holders 2>/dev/null)\" ] && ! grep -q \"^/dev/$d\" /proc/mounts && ! { command -v fuser >/dev/null && $p fuser -s /dev/$d 2>/dev/null; } "
         + "|| { echo \"same: /dev/$d is still in use, so the old host stays logged in\"; exit 0; }; done; ";
 

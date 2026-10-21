@@ -7,11 +7,19 @@ using Renci.SshNet.Common;
 
 namespace NKeeper.Api.Storage;
 
-/// <summary>An iSCSI session: the target, the portal it's logged in through, its state and the disks it attached.</summary>
-/// <param name="Portal">The portal's address and port, e.g. <c>10.0.0.5:3260</c> (without the portal group).</param>
+/// <summary>
+/// An iSCSI session to a target through a portal: its state and the disks it attached. Sessions to
+/// the same target through the same portal are one (a SAN may open several, one per data address).
+/// </summary>
+/// <param name="Portal">
+/// The portal it was logged in through (iscsiadm's persistent portal, which its node record is
+/// under), e.g. <c>10.0.0.5:3260</c>, without the portal group. A SAN that redirects logins (Nimble,
+/// EqualLogic…) connects it to another address, in <paramref name="ConnectedTo"/>.
+/// </param>
 /// <param name="State">The session state, e.g. <c>LOGGED_IN</c>, <c>FAILED</c> or <c>FREE</c>.</param>
 /// <param name="Disks">The SCSI disks it attached, e.g. <c>sdb</c>.</param>
-public sealed record IscsiSession(string Target, string Portal, string State, IReadOnlyList<string> Disks);
+/// <param name="ConnectedTo">The addresses the session actually connected to, when the SAN redirected it from <paramref name="Portal"/>.</param>
+public sealed record IscsiSession(string Target, string Portal, string State, IReadOnlyList<string> Disks, IReadOnlyList<string>? ConnectedTo = null);
 
 /// <summary>A target the initiator knows (found by discovery, or added by hand), and whether a session is logged in to it.</summary>
 public sealed record IscsiNode(string Target, string Portal, bool LoggedIn);
@@ -274,19 +282,21 @@ internal static partial class StorageHost
 
     /// <summary>
     /// <c>iscsiadm -m session -P 3</c>: a <c>Target:</c> line, then for each of its sessions a
-    /// <c>Current Portal:</c> line, the session's state, and its attached disks.
+    /// <c>Current Portal:</c> line (where it's connected), a <c>Persistent Portal:</c> line (where it
+    /// was logged in), the session's state, and its attached disks. Sessions are known by their
+    /// persistent portal, which a SAN that redirects logins keeps while the current one changes.
     /// </summary>
     internal static List<IscsiSession> ParseIscsiSessions(IEnumerable<string> lines)
     {
         var sessions = new List<IscsiSession>();
         string? target = null;
-        (string Portal, string State, List<string> Disks)? current = null;
+        (string Connected, string Portal, string State, List<string> Disks)? current = null;
 
         void Finish()
         {
             if (target is not null && current is { } session)
             {
-                sessions.Add(new IscsiSession(target, session.Portal, session.State, session.Disks));
+                sessions.Add(new IscsiSession(target, session.Portal, session.State, session.Disks, session.Connected == session.Portal ? [] : [session.Connected]));
             }
 
             current = null;
@@ -303,7 +313,12 @@ internal static partial class StorageHost
             else if (line.StartsWith("Current Portal:", StringComparison.Ordinal))
             {
                 Finish();
-                current = (NormalizePortal(line["Current Portal:".Length..].Trim()) ?? "", "unknown", []);
+                var connected = NormalizePortal(line["Current Portal:".Length..].Trim()) ?? "";
+                current = (connected, connected, "unknown", []);
+            }
+            else if (current is { } logged && line.StartsWith("Persistent Portal:", StringComparison.Ordinal))
+            {
+                current = logged with { Portal = NormalizePortal(line["Persistent Portal:".Length..].Trim()) ?? logged.Portal };
             }
             else if (current is { } session && line.StartsWith("iSCSI Session State:", StringComparison.Ordinal))
             {
@@ -316,7 +331,16 @@ internal static partial class StorageHost
         }
 
         Finish();
-        return sessions;
+
+        // One per target and portal: a redirected login can open a session to each data address.
+        return [.. sessions
+            .GroupBy(s => (s.Target, s.Portal))
+            .Select(g => new IscsiSession(
+                g.Key.Target,
+                g.Key.Portal,
+                g.Any(s => s.State == "LOGGED_IN") ? "LOGGED_IN" : g.First().State,
+                [.. g.SelectMany(s => s.Disks).Distinct()],
+                [.. g.SelectMany(s => s.ConnectedTo ?? []).Distinct()]))];
     }
 
     /// <summary><c>iscsiadm -m node</c>: <c>portal,group target</c> per line.</summary>
