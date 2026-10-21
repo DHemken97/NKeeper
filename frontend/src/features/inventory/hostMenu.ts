@@ -71,7 +71,7 @@ export interface GuestActions {
   runTask: (vm: Host, hypervisor: Host, serviceIndex: number, via: GuestVia, task: GuestTask, credential: HostCredential | undefined, ask: boolean) => void
 }
 
-/** What Tasks ▸ Proxmox (or KVM, without migrating) can do to a VM or container. */
+/** What Tasks ▸ Proxmox (or KVM) can do to a VM or container. */
 export type GuestTask = 'migrate' | 'shutdown' | 'reboot' | 'pause' | 'hibernate' | 'stop' | 'reset' | 'resume' | 'start'
 
 /** Each task's menu label, and whether it loses unsaved work (it asks with a red button). */
@@ -139,8 +139,8 @@ function guestTaskEntries(host: Host, actions: Pick<HostMenuActions, 'guests'>):
       label: via === 'proxmox' ? 'Proxmox' : 'KVM',
       detail: node.name,
       submenu: [
-        // libvirt migrations need SSH between the hosts, which NKeeper doesn't set up.
-        ...(via === 'proxmox' ? [entry('migrate'), { kind: 'separator' } as const] : []),
+        entry('migrate'),
+        { kind: 'separator' },
         ...(['shutdown', 'reboot', 'pause', 'hibernate', 'stop', 'reset'] as const).map(entry),
         { kind: 'separator' },
         entry('resume'),

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
-import { Checkbox } from '../../../components/ui/Checkbox'
 import { Dialog } from '../../../components/ui/Dialog'
 import { Spinner } from '../../../components/ui/Spinner'
 import { api, ApiError } from '../../../lib/api'
@@ -9,7 +8,6 @@ import type { VirtualMachine } from '../../terminal/kvm'
 import { GUEST_TASKS, guestId, type GuestTask, type GuestVia } from '../hostMenu'
 import type { Host } from '../types'
 import fieldStyles from './ImportHostsDialog.module.css'
-import listStyles from './ListEditor.module.css'
 import styles from './ScanDialog.module.css'
 
 interface GuestTaskDialogProps {
@@ -101,15 +99,12 @@ const DONE: Record<GuestTask, string> = {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
- * A power action or migration for a VM or container, through its hypervisor: the Proxmox API for a
- * Proxmox VM, or virsh over SSH for a libvirt one. Shows its current state, asks for confirmation
- * (and, to migrate, the node to move it to), then follows the task until it ends.
+ * A power action for a VM or container, through its hypervisor: the Proxmox API for a Proxmox VM,
+ * or virsh over SSH for a libvirt one. Shows its current state, asks for confirmation, then follows
+ * the task until it ends. Migrations have their own dialog (MigrateDialog), which moves storage too.
  */
 export function GuestTaskDialog({ vm, node, serviceIndex, via, credentialId, oneOff, task, onClose }: GuestTaskDialogProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' })
-  const [target, setTarget] = useState('')
-  const [online, setOnline] = useState(true)
-  const [localDisks, setLocalDisks] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const trustRef = useRef<string | undefined>(undefined)
   const closedRef = useRef(false)
@@ -183,10 +178,6 @@ export function GuestTaskDialog({ vm, node, serviceIndex, via, credentialId, one
         if (cancelled) {
           return
         }
-        if (next.kind === 'confirm') {
-          setTarget(next.nodes.find((n) => n.online && n.name !== next.guest.node)?.name ?? '')
-          setOnline(next.guest.status === 'running')
-        }
         setPhase(next)
       },
       (error: unknown) => {
@@ -222,7 +213,7 @@ export function GuestTaskDialog({ vm, node, serviceIndex, via, credentialId, one
           const exit = response.task.exitStatus
           setPhase(
             exit === 'OK'
-              ? { kind: 'done', message: `“${running.guest.name}” ${DONE[task]}${task === 'migrate' ? ` to ${target}` : ''}.` }
+              ? { kind: 'done', message: `“${running.guest.name}” ${DONE[task]}.` }
               : { kind: 'failed', message: `Proxmox says the task failed: ${exit ?? 'no reason given'}.` },
           )
         },
@@ -275,10 +266,7 @@ export function GuestTaskDialog({ vm, node, serviceIndex, via, credentialId, one
     const request: Promise<Phase> =
       via === 'kvm'
         ? runKvm(guest)
-        : (task === 'migrate'
-            ? api.post<ProxmoxResponse>('/api/proxmox/migrate', { body: { ...body(), target, online, withLocalDisks: localDisks } })
-            : api.post<ProxmoxResponse>('/api/proxmox/power', { body: { ...body(), action: task } })
-          ).then(
+        : api.post<ProxmoxResponse>('/api/proxmox/power', { body: { ...body(), action: task } }).then(
             (response) =>
               trustPhase(response) ??
               (response.upid ? { kind: 'running', guest, upid: response.upid } : { kind: 'failed', message: 'Proxmox didn’t start the task.' }),
@@ -299,7 +287,6 @@ export function GuestTaskDialog({ vm, node, serviceIndex, via, credentialId, one
 
   const guest = phase.kind === 'confirm' ? phase.guest : null
   const kind = guest?.type === 'lxc' ? 'container' : 'VM'
-  const canRun = phase.kind !== 'confirm' || task !== 'migrate' || target !== ''
 
   return (
     <Dialog
@@ -323,7 +310,7 @@ export function GuestTaskDialog({ vm, node, serviceIndex, via, credentialId, one
             </Button>
           ) : null}
           {guest ? (
-            <Button variant={info.danger ? 'danger' : 'primary'} onClick={() => run(guest)} disabled={!canRun}>
+            <Button variant={info.danger ? 'danger' : 'primary'} onClick={() => run(guest)}>
               {info.label}
             </Button>
           ) : null}
@@ -351,35 +338,6 @@ export function GuestTaskDialog({ vm, node, serviceIndex, via, credentialId, one
             {guest.name} is a {kind}
             {guest.vmId !== null ? ` (${guest.vmId})` : ''} on {guest.node}, currently <strong>{guest.status}</strong>. {EXPLANATIONS[task]}
           </p>
-          {task === 'migrate' ? (
-            <>
-              <div className={fieldStyles.field}>
-                <label className={fieldStyles.label} htmlFor="guest-target">
-                  Move to
-                </label>
-                <select id="guest-target" className={listStyles.input} value={target} onChange={(event) => setTarget(event.target.value)}>
-                  {phase.nodes.every((n) => n.name === guest.node || !n.online) ? <option value="">No other node is online</option> : null}
-                  {phase.nodes
-                    .filter((n) => n.name !== guest.node)
-                    .map((n) => (
-                      <option key={n.name} value={n.name} disabled={!n.online}>
-                        {n.online ? n.name : `${n.name} (offline)`}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              {guest.status === 'running' ? (
-                <Checkbox
-                  label={guest.type === 'lxc' ? 'Restart it on the new node (containers can’t move while running)' : 'Move it while it runs (live migration)'}
-                  checked={online}
-                  onChange={(event) => setOnline(event.target.checked)}
-                />
-              ) : null}
-              {guest.type === 'qemu' ? (
-                <Checkbox label="Copy disks on the node’s local storage too" checked={localDisks} onChange={(event) => setLocalDisks(event.target.checked)} />
-              ) : null}
-            </>
-          ) : null}
         </div>
       ) : null}
       {phase.kind === 'running' ? (

@@ -10,6 +10,7 @@ import { healthApi, hostsApi } from '../api/inventoryApi'
 import { BulkEditPanel } from '../components/BulkEditPanel'
 import { GroupByPicker } from '../components/GroupByPicker'
 import { GuestTaskDialog } from '../components/GuestTaskDialog'
+import { MigrateDialog } from '../components/MigrateDialog'
 import { HostDetails } from '../components/HostDetails'
 import { HostEditor } from '../components/HostEditor'
 import { HostTree, type SelectMode } from '../components/HostTree'
@@ -483,6 +484,16 @@ export function WorkspacePage() {
     },
   }
 
+  /** After a migration: the VM now runs on `hypervisor` (when NKeeper has it, and the user may change the VM). */
+  function recordMove(vm: Host, hypervisor: Host | undefined) {
+    if (!vm.canManage || !hypervisor || hypervisor.id === vm.hypervisorId) {
+      return
+    }
+    hostsApi
+      .linkVirtualMachines([{ guestId: vm.id, hypervisorId: hypervisor.id, ...(vm.virtualMachineId ? { virtualMachineId: vm.virtualMachineId } : {}) }])
+      .then(resource.reload, () => resource.reload())
+  }
+
   /** Double-click: connect with the first SSH service and credential, or ask for one. */
   function connectWithDefaults(hostId: string) {
     const host = allHosts?.find((h) => h.id === hostId)
@@ -929,7 +940,11 @@ export function WorkspacePage() {
           onCancel={() => setPrompt(null)}
         />
       ) : null}
-      {guestTask ? <GuestTaskDialog {...guestTask} onClose={() => setGuestTask(null)} /> : null}
+      {guestTask?.task === 'migrate' ? (
+        <MigrateDialog {...guestTask} hosts={allHosts ?? []} onMoved={recordMove} onClose={() => setGuestTask(null)} />
+      ) : guestTask ? (
+        <GuestTaskDialog {...guestTask} onClose={() => setGuestTask(null)} />
+      ) : null}
       {scan ? (
         <ScanDialog
           host={scan.host}

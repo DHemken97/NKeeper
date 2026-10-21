@@ -327,29 +327,6 @@ describe('KVM hosts', () => {
       expect(await within(dialog).findByText('“app01” was shut down.', {}, { timeout: 5000 })).toBeInTheDocument()
       expect(bodies).toEqual([{ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: 105, action: 'shutdown' }])
     })
-
-    it('migrates to a chosen online node, and reports a task that fails', async () => {
-      let body: Record<string, unknown> | undefined
-      const { user } = renderWorkspace({
-        'GET /api/hosts': () => jsonResponse(200, [node, app01]),
-        'POST /api/proxmox/guest': () => ready({ guest, nodes }),
-        'POST /api/proxmox/migrate': (_url, init) => {
-          body = JSON.parse(String(init.body))
-          return ready({ guest, upid: 'UPID:pve2:1:2:3:qmigrate:105:root@pam:' })
-        },
-        'POST /api/proxmox/task': () => ready({ task: { running: false, exitStatus: 'migration aborted' } }),
-      })
-
-      const dialog = await openTask(user, /^Migrate/)
-      const target = await within(dialog).findByLabelText('Move to')
-      expect(within(target).getAllByRole('option').map((o) => o.textContent)).toEqual(['pve1', 'pve3 (offline)'])
-      expect(within(target).getByRole('option', { name: 'pve3 (offline)' })).toBeDisabled()
-      expect(within(dialog).getByRole('checkbox', { name: /live migration/ })).toBeChecked()
-      await user.click(within(dialog).getByRole('button', { name: 'Migrate' }))
-
-      expect(await within(dialog).findByText(/migration aborted/, {}, { timeout: 5000 })).toBeInTheDocument()
-      expect(body).toEqual({ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: 105, target: 'pve1', online: true, withLocalDisks: false })
-    })
   })
 
   describe('libvirt VMs, from their own menu', () => {
@@ -423,8 +400,8 @@ describe('KVM hosts', () => {
       fireEvent.contextMenu(await screen.findByRole('button', { name: /web01/ }))
       await user.hover(screen.getByRole('menuitem', { name: 'Tasks' }))
       await user.hover(screen.getByRole('menuitem', { name: /^KVM.*kvm01/ }))
-      // libvirt migrations aren't offered.
-      expect(screen.queryByRole('menuitem', { name: /Migrate/ })).not.toBeInTheDocument()
+      // libvirt VMs can be migrated too (MigrateDialog, tested in Migrate.test.tsx).
+      expect(screen.getByRole('menuitem', { name: /Migrate/ })).toBeInTheDocument()
       await user.hover(screen.getByRole('menuitem', { name: /^Shut down/ }))
       await user.click(screen.getByRole('menuitem', { name: /^virt/ }))
 

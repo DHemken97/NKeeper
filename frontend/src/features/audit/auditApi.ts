@@ -96,6 +96,8 @@ export const ACTION_LABELS: Record<string, string> = {
   'kvm.power': 'KVM power action',
   'proxmox.migrate': 'Proxmox migration',
   'storage.action': 'Storage action',
+  'migration.start': 'Migration started',
+  'migration.end': 'Migration ended',
   'transfer.export': 'Data exported',
   'transfer.import': 'Data imported',
   'transfer.unlock': 'Unlocked after export',
@@ -115,6 +117,7 @@ export const CATEGORIES = [
   { value: 'files', label: 'File transfers' },
   { value: 'idrac', label: 'iDRAC power' },
   { value: 'storage', label: 'Storage (iSCSI, multipath, DRBD)' },
+  { value: 'migration', label: 'VM migrations' },
   { value: 'transfer', label: 'Moves to a new server' },
 ]
 
