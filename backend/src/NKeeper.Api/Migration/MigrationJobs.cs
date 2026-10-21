@@ -41,7 +41,12 @@ public sealed class MigrationJobs(AuditLog audit, ILogger<MigrationJobs> logger)
 
         var job = new MigrationJob(userId, hostId, vmKey, mover, plan, audit, logger);
         _jobs[job.Id] = job;
-        _ = Task.Run(job.RunAsync);
+        // The job outlives the request: it mustn't carry the request's context (its HttpContext) along.
+        using (ExecutionContext.SuppressFlow())
+        {
+            _ = Task.Run(job.RunAsync);
+        }
+
         return job;
     }
 
