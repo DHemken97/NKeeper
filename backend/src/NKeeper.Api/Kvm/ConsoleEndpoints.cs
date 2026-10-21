@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Text;
+using NKeeper.Api.Proxmox;
+using NKeeper.Api.RemoteSessions;
 using Renci.SshNet;
 
 namespace NKeeper.Api.Kvm;
@@ -16,20 +19,26 @@ internal sealed class ConsoleChannel(Stream fromVm, Stream toVm, Func<ValueTask>
 }
 
 /// <summary>
-/// How a console reaches the VM's display on the hypervisor, over the console's SSH connection
-/// (which it owns). Each channel the browser opens gets its own connection.
+/// How a console reaches the VM's display, over a connection to the hypervisor that it owns (SSH,
+/// or Proxmox's API). Each channel the browser opens gets its own connection.
 /// </summary>
-internal abstract class ConsoleEndpoint(SshClient client) : IDisposable
+internal abstract class ConsoleEndpoint : IDisposable
+{
+    public abstract Task<ConsoleChannel> OpenChannelAsync(CancellationToken cancellationToken);
+
+    public abstract void Dispose();
+}
+
+/// <summary>A console reached over its SSH connection to the hypervisor.</summary>
+internal abstract class SshConsoleEndpoint(SshClient client) : ConsoleEndpoint
 {
     protected SshClient Client { get; } = client;
 
-    public abstract Task<ConsoleChannel> OpenChannelAsync(CancellationToken cancellationToken);
-
-    public virtual void Dispose() => Client.Dispose();
+    public override void Dispose() => Client.Dispose();
 }
 
 /// <summary>libvirt: a tunnel to the display's TCP port, bound on the API's loopback.</summary>
-internal sealed class TunnelEndpoint : ConsoleEndpoint
+internal sealed class TunnelEndpoint : SshConsoleEndpoint
 {
     private readonly ForwardedPortLocal _tunnel;
 
@@ -82,7 +91,7 @@ internal sealed class TunnelEndpoint : ConsoleEndpoint
 /// channel. <paramref name="firstLine"/> is written to it before the browser's data (the VNC ticket),
 /// so it never appears on a command line.
 /// </summary>
-internal sealed class CommandEndpoint(SshClient client, string command, string firstLine, ILogger logger) : ConsoleEndpoint(client)
+internal sealed class CommandEndpoint(SshClient client, string command, string firstLine, ILogger logger) : SshConsoleEndpoint(client)
 {
     public override async Task<ConsoleChannel> OpenChannelAsync(CancellationToken cancellationToken)
     {
@@ -123,5 +132,26 @@ internal sealed class CommandEndpoint(SshClient client, string command, string f
 
             ssh.Dispose();
         });
+    }
+}
+
+/// <summary>
+/// Proxmox's API: the WebSocket of a VNC proxy the node started for this console. Each proxy takes
+/// one connection, so a console has one channel; reconnecting opens a new console.
+/// </summary>
+internal sealed class ProxmoxEndpoint(ProxmoxApi api, JumpTunnel tunnel, ProxmoxGuest guest, VncProxyTicket proxy) : ConsoleEndpoint
+{
+    public override async Task<ConsoleChannel> OpenChannelAsync(CancellationToken cancellationToken)
+    {
+        var socket = await api.ConnectVncAsync(guest, proxy, cancellationToken);
+        // Owns the socket: closing waits briefly for Proxmox to close its side.
+        var stream = WebSocketStream.Create(socket, WebSocketMessageType.Binary, closeTimeout: TimeSpan.FromSeconds(2));
+        return new ConsoleChannel(stream, stream, () => stream.DisposeAsync());
+    }
+
+    public override void Dispose()
+    {
+        api.Dispose();
+        tunnel.Dispose();
     }
 }

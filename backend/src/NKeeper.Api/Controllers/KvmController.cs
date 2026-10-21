@@ -202,7 +202,7 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
         {
             channel = await session.Endpoint.OpenChannelAsync(cancellationToken);
         }
-        catch (Exception ex) when (ex is SocketException or SshException or ObjectDisposedException or InvalidOperationException)
+        catch (Exception ex) when (ex is SocketException or SshException or WebSocketException or HttpRequestException or ObjectDisposedException or InvalidOperationException)
         {
             logger.LogWarning(ex, "Couldn't open a channel of console {SessionId}", id);
             await socket.CloseOutputAsync(WebSocketCloseStatus.EndpointUnavailable, "Console closed", CancellationToken.None);

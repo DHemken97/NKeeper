@@ -236,5 +236,11 @@ public enum ServiceProtocol
     /// HTML5 virtual console, and RACADM over SSH.
     /// </summary>
     Idrac,
+
+    /// <summary>
+    /// A Proxmox VE node's web interface and API (HTTPS, port 8006): the web interface, and the VNC
+    /// consoles of the cluster's VMs and containers through the API, with a Proxmox login.
+    /// </summary>
+    Proxmox,
     Other,
 }

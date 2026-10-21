@@ -51,6 +51,7 @@ public sealed class HostHealthChecker(IServiceScopeFactory scopes, IOptions<Heal
         [ServiceProtocol.Https] = 443,
         [ServiceProtocol.Kvm] = 22,
         [ServiceProtocol.Idrac] = 443,
+        [ServiceProtocol.Proxmox] = 8006,
     };
 
     /// <summary>Checks every host; returns how many services were checked.</summary>
@@ -120,7 +121,7 @@ public sealed class HostHealthChecker(IServiceScopeFactory scopes, IOptions<Heal
         {
             switch (service.Protocol)
             {
-                case ServiceProtocol.Https or ServiceProtocol.Idrac:
+                case ServiceProtocol.Https or ServiceProtocol.Idrac or ServiceProtocol.Proxmox:
                     var certificate = await WebTargetProbe.ProbeAsync(address, port, timeout.Token);
                     (check.CertificateExpiresUtc, check.CertificateSubject) = (certificate.NotAfter, certificate.Subject);
                     break;

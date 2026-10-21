@@ -74,6 +74,7 @@ backend/
     Idrac/                              Redfish client; iDRAC status, power and virtual console credentials
     Inventory/                          HostManager (hosts, tags, services, credentials, cloning), validation
     Kvm/                                libvirt (virsh) and Proxmox (pvesh, qm) over SSH, SPICE and VNC consoles
+    Proxmox/                            the Proxmox VE API client (consoles)
     RemoteSessions/                     shared session plumbing: WebSocket protocol, target resolution, trusted keys, limits, origin check
     Security/                           antiforgery and account-status filters
     Ssh/                                SSH terminal sessions (SSH.NET)
@@ -124,6 +125,9 @@ All sessions start from a **target**: a host, one of its services, and a saved c
   - spice-html5 then opens one WebSocket per SPICE channel on `/api/spice/channel/{id}`, and noVNC one on `/api/vnc/channel/{id}`, each relayed raw to that forward. VNC consoles live under `/api/vnc/` so proxies already treat them as WebSockets;
   - a Proxmox node (one with `/etc/pve/nodes`) is detected by the same listing script. Its VMs come from `pvesh get /cluster/resources`, and each VNC channel runs `qm vncproxy <vmid>` over SSH, with its stdin and stdout relayed instead of a port forward. The one-time VNC password goes in as the first line of input (`LC_PVE_TICKET`), never on a command line. A VM on another node is reached with `ssh root@<node>` from the connected node, as Proxmox does.
 
+- **Proxmox consoles** (`/api/proxmox/consoles`):
+  - `ProxmoxApi` signs in to the node's API (`/access/ticket`, or an API token header), finds the guest in `/cluster/resources`, and asks its node for `vncproxy` with `websocket=1`;
+  - the console is a VNC console session whose endpoint connects to `vncwebsocket` (with the ticket cookie, through the jump host when there is one) and relays it like the other channels, on `/api/vnc/channel/{id}`. The proxy's ticket is the VNC password, as in Proxmox's own console.
 - **iDRAC** (`/api/idrac/overview`, `/api/idrac/power`, `/api/idrac/console`):
   - an iDRAC service has its own address (`HostService.Address`), which `SessionTargetResolver` connects to instead of the host's;
   - status and power are Redfish over HTTPS (`RedfishClient`, HTTP Basic, the certificate pinned as for web sessions), finding the system and manager from the service root;

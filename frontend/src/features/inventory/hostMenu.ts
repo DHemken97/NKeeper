@@ -13,8 +13,11 @@ import {
 /** Protocols NKeeper can open sessions for; services of other types an older version stored aren't offered under Connect. */
 const CONNECTABLE = new Set<ServiceProtocol>(SUPPORTED_PROTOCOLS)
 
-/** Web services open the host's own web interface; they need no credential from NKeeper. */
-export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https'])
+/**
+ * Web services open the host's own web interface; they need no credential from NKeeper. A Proxmox
+ * service is also its node's web interface (its logins open VM consoles, from the VMs' menus).
+ */
+export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https', 'Proxmox'])
 
 /** What an iDRAC service opens: its HTML5 virtual console, the server's status and power, or RACADM (its SSH command line). */
 export type IdracMode = 'console' | 'overview' | 'racadm'
@@ -52,7 +55,7 @@ export interface HostMenuActions {
   copyText: (text: string) => void
   /** Send a Wake-on-LAN packet (hosts with a MAC address). */
   wake?: (host: Host) => void
-  /** A Proxmox VM's console, opened through its hypervisor's KVM service with the hypervisor's login. */
+  /** A Proxmox VM's console, opened through its node's Proxmox service (the Proxmox API) with the node's login. */
   proxmoxConsole?: ProxmoxConsoleActions
 }
 
@@ -69,9 +72,8 @@ export function proxmoxVmId(host: Host): string | null {
 }
 
 /**
- * Proxmox console ▸ the hypervisor's KVM logins, for a VM a scan found on a Proxmox node; none for
- * other hosts. Containers have no VNC console, but Proxmox lists them under the same IDs: the
- * server says so if one is chosen.
+ * Proxmox console ▸ the node's Proxmox logins, for a VM or container a scan found on a Proxmox
+ * node; none for other hosts.
  */
 function proxmoxConsoleEntries(host: Host, actions: Pick<HostMenuActions, 'proxmoxConsole'>): MenuEntry[] {
   const console = actions.proxmoxConsole
@@ -79,12 +81,12 @@ function proxmoxConsoleEntries(host: Host, actions: Pick<HostMenuActions, 'proxm
   if (!console || !hypervisor) {
     return []
   }
-  const kvm = hypervisor.services.findIndex((s) => s.protocol === 'Kvm')
-  if (kvm === -1) {
-    return [{ kind: 'item', label: 'Proxmox console', detail: `Add a KVM service to ${hypervisor.name}`, disabled: true }]
+  const proxmox = hypervisor.services.findIndex((s) => s.protocol === 'Proxmox')
+  if (proxmox === -1) {
+    return [{ kind: 'item', label: 'Proxmox console', detail: `Add a Proxmox service to ${hypervisor.name}`, disabled: true }]
   }
-  // Logins are the hypervisor's: "connect" and "ask" open this VM's console through it.
-  const logins = loginEntries(hypervisor, kvm, {
+  // Logins are the node's: "connect" and "ask" open this VM's console through it.
+  const logins = loginEntries(hypervisor, proxmox, {
     connect: (_h, index, credential) => console.connect(host, hypervisor, index, credential),
     connectWithPrompt: (_h, index, account) => console.connectWithPrompt(host, hypervisor, index, account),
     connectWithoutLogin: () => {},
@@ -137,7 +139,7 @@ export function credentialNeedsPassword(credential: HostCredential, protocol: Se
     // The device asks in the terminal: whatever isn't stored, the user types there.
     return false
   }
-  return protocol === 'Vnc' || protocol === 'Rdp' || protocol === 'Idrac' || protocol === 'Rpc' ? !credential.hasPassword : !credential.hasPassword && !credential.hasPrivateKey
+  return protocol === 'Vnc' || protocol === 'Rdp' || protocol === 'Idrac' || protocol === 'Rpc' || protocol === 'Proxmox' ? !credential.hasPassword : !credential.hasPassword && !credential.hasPrivateKey
 }
 
 /** The host's right-click menu: Connect ▸ service ▸ credential, then host actions. */
@@ -338,5 +340,7 @@ export function directWebUrl(host: Host, service: HostService): string {
   const address = service.address ?? primaryAddress(host)
   const hostPart = address.includes(':') ? `[${address}]` : address
   const defaultPort = scheme === 'https' ? 443 : 80
-  return `${scheme}://${hostPart}${service.port && service.port !== defaultPort ? `:${service.port}` : ''}/`
+  // A Proxmox node's web interface is on 8006 unless the service says otherwise.
+  const port = service.port ?? PROTOCOL_INFO[service.protocol].defaultPort
+  return `${scheme}://${hostPart}${port && port !== defaultPort ? `:${port}` : ''}/`
 }

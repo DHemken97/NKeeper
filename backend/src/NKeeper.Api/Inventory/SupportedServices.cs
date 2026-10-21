@@ -20,6 +20,7 @@ internal static class SupportedServices
         ServiceProtocol.Https,
         ServiceProtocol.Kvm,
         ServiceProtocol.Idrac,
+        ServiceProtocol.Proxmox,
     ];
 
     public static bool IsSupported(ServiceProtocol protocol) => Protocols.Contains(protocol);

@@ -14,6 +14,7 @@
 - [Web interfaces (HTTP/HTTPS)](#web-interfaces-httphttps)
 - [Windows RPC](#windows-rpc)
 - [KVM and Proxmox virtual machines (SPICE and VNC consoles)](#kvm-and-proxmox-virtual-machines-spice-and-vnc-consoles)
+- [Proxmox consoles (through the Proxmox API)](#proxmox-consoles-through-the-proxmox-api)
 - [Dell iDRAC (virtual console, status and power, RACADM)](#dell-idrac-virtual-console-status-and-power-racadm)
 - [Trusting servers](#trusting-servers)
 - [Health and Wake-on-LAN](#health-and-wake-on-lan)
@@ -66,7 +67,7 @@ A host has:
 - optionally, a **jump host** to **reach it through** (see [Jump hosts](#jump-hosts));
 - its own **tags**, **services** and **credentials**:
   - **Tags** are `name: value` pairs (the value is optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can have the same tag name twice with different values. Tags are what you group, search and grant access by; hosts don't live in folders.
-  - **Services** are the ways to connect: SSH, Telnet, RDP, RPC, VNC, HTTP, HTTPS, KVM and iDRAC. Those are the only types you can add. A host may still have an SSMS, SFTP, FTP, WinRM, PowerShell or Other service from an older version; its details mark it *Not supported*, and editing the host says it will be removed when you save (cancel to keep it). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's.
+  - **Services** are the ways to connect: SSH, Telnet, RDP, RPC, VNC, HTTP, HTTPS, KVM, Proxmox and iDRAC. Those are the only types you can add. A host may still have an SSMS, SFTP, FTP, WinRM, PowerShell or Other service from an older version; its details mark it *Not supported*, and editing the host says it will be removed when you save (cancel to keep it). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's.
   - **Credentials** have a username, domain, label, password, SSH private key and notes. Passwords and keys are **write-only**: once saved, NKeeper only shows that one is stored. Leave the field empty when editing to keep it, or choose to clear it.
 
 Administrators add hosts with **New host**. Anyone with *Manage* access can **Edit** or **Delete** a host.
@@ -256,7 +257,19 @@ Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH cre
 - **No console:** a VM whose display is a serial terminal (`vga: serial0`) or `none` has no console button.
 - **On the node:** `pvesh` and `qm` need **root**. Sign in as root, or as a user who may use `sudo` without a password. TCP forwarding isn't needed.
 - **Idle consoles:** Proxmox ends a console after 15 minutes with nothing happening on it. **Reconnect** opens it again.
-- **From the VM itself:** a VM host that a scan linked to its Proxmox node (see *Which VMs run where*) has **Connect ▸ Proxmox console ▸ login**. The logins are the node's, for its KVM service, and the console opens in a tab of the VM's own. The node needs a KVM service, and you need access to the node too.
+
+## Proxmox consoles (through the Proxmox API)
+
+Add a **Proxmox** service (HTTPS, port 8006 by default) to a Proxmox VE node, with a Proxmox login. Scans add one for an open port 8006.
+
+- **The node itself:** **Connect ▸ Proxmox** opens the node's web interface, through NKeeper or directly in a new browser tab, like any HTTPS service.
+- **A VM or container:** a host that a scan linked to its Proxmox node (see *Which VMs run where*) has **Connect ▸ Proxmox console ▸ login**. The logins are the node's, for its Proxmox service. The console opens in the VM's own tab, with **Ctrl+Alt+Del** and **Fullscreen**.
+- **How it connects:** the way Proxmox's own console does. NKeeper's server signs in to the node's API, asks it for a VNC proxy (`vncproxy`), and relays the proxy's WebSocket to the tab. Any node of the cluster serves every VM, so it doesn't matter which node a VM moved to. Containers get their terminal console the same way.
+- **Logins:** a Proxmox user, e.g. `root`, `root@pam` or `admin@pve`. Without a realm, the credential's **domain** is used as the realm, else `pam`. An **API token** works too: `user@realm!tokenid` as the username and the token's secret as the password. Accounts with two-factor sign-in can't be used; give NKeeper an API token instead.
+- **Permissions:** the account needs **VM.Console** on the VM (and to see it). It doesn't need root, SSH or sudo.
+- **Certificate:** the node's certificate is trusted on first use, like any HTTPS service (it's shared with the node's web sessions).
+- **Reconnecting:** each console is good for one connection. **Reconnect** opens a new one.
+- **The node** must be an NKeeper host you can see, with a Proxmox service. Otherwise the entry says what's missing, or isn't there.
 
 ## Dell iDRAC (virtual console, status and power, RACADM)
 

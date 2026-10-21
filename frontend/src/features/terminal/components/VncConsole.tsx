@@ -2,7 +2,7 @@ import RFB from '@novnc/novnc'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { api, ApiError, apiWebSocketUrl } from '../../../lib/api'
-import { hostKeyPrompt, kvmRequestBody, type HostKeyPrompt } from '../kvm'
+import { certificatePrompt, hostKeyPrompt, kvmRequestBody, proxmoxConsoleBody, type CertificatePrompt, type HostKeyPrompt } from '../kvm'
 import type { RemoteSession, SessionPhase } from '../types'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
 import styles from './Session.module.css'
@@ -11,20 +11,27 @@ interface VncConsoleProps {
   session: RemoteSession
   active: boolean
   onShowHost: (hostId: string) => void
+  /** How the server reaches the console: over SSH to a KVM host, or through the Proxmox API. */
+  via?: 'kvm' | 'proxmox'
 }
 
 interface ConsoleResponse {
   status: 'ready' | 'trustRequired'
   sessionId: string | null
   password: string | null
-  hostKey: HostKeyPrompt | null
+  /** KVM: the SSH host key to trust. */
+  hostKey?: HostKeyPrompt | null
+  /** Proxmox: the node's HTTPS address, and its certificate to trust. */
+  target?: string | null
+  certificate?: CertificatePrompt | null
 }
 
 /**
- * A virtual machine's VNC console (like virt-manager's), drawn by noVNC and scaled to fit the tab.
- * NKeeper's server tunnels the VNC connection through its SSH connection to the KVM host.
+ * A virtual machine's VNC console (like virt-manager's or Proxmox's), drawn by noVNC and scaled to
+ * fit the tab. NKeeper's server relays the VNC connection: through its SSH connection to the KVM
+ * host, or through the Proxmox API's console WebSocket, as Proxmox's own console does.
  */
-export function VncConsole({ session, active, onShowHost }: VncConsoleProps) {
+export function VncConsole({ session, active, onShowHost, via = 'kvm' }: VncConsoleProps) {
   const areaRef = useRef<HTMLDivElement>(null)
   const screenRef = useRef<HTMLDivElement>(null)
   const rfbRef = useRef<RFB | null>(null)
@@ -52,7 +59,11 @@ export function VncConsole({ session, active, onShowHost }: VncConsoleProps) {
       }
     }
 
-    api.post<ConsoleResponse>('/api/vnc/consoles', { body: kvmRequestBody(session.request, trustRef.current) }).then(
+    const open =
+      via === 'proxmox'
+        ? api.post<ConsoleResponse>('/api/proxmox/consoles', { body: proxmoxConsoleBody(session.request, trustRef.current) })
+        : api.post<ConsoleResponse>('/api/vnc/consoles', { body: kvmRequestBody(session.request, trustRef.current) })
+    open.then(
       (response) => {
         if (cancelled) {
           if (response.sessionId) {
@@ -62,6 +73,10 @@ export function VncConsole({ session, active, onShowHost }: VncConsoleProps) {
         }
         if (response.status === 'trustRequired' && response.hostKey) {
           setPhase({ kind: 'hostKey', prompt: hostKeyPrompt(response.hostKey), target })
+          return
+        }
+        if (response.status === 'trustRequired' && response.certificate) {
+          setPhase({ kind: 'hostKey', prompt: certificatePrompt(response.certificate, response.target ?? null), target: response.target ?? target })
           return
         }
 
@@ -83,7 +98,7 @@ export function VncConsole({ session, active, onShowHost }: VncConsoleProps) {
         })
         rfb.addEventListener('credentialsrequired', () =>
           fail(
-            password
+            password || via === 'proxmox'
               ? 'The virtual machine rejected the console password.'
               : 'This VM’s VNC display needs a password, and libvirt didn’t give it to NKeeper. The SSH user needs full (read-write) access to libvirt to read it.',
           ),
@@ -124,7 +139,7 @@ export function VncConsole({ session, active, onShowHost }: VncConsoleProps) {
         void api.delete(`/api/vnc/consoles/${sessionId}`).catch(() => {})
       }
     }
-  }, [session.request, target, attempt])
+  }, [session.request, target, attempt, via])
 
   // The active tab gets the keyboard.
   useEffect(() => {
@@ -138,7 +153,8 @@ export function VncConsole({ session, active, onShowHost }: VncConsoleProps) {
       return
     }
     if (!trust) {
-      setPhase({ kind: 'ended', target, code: 'host_key_rejected', message: 'The host key was not trusted, so NKeeper didn’t connect.' })
+      const what = phase.prompt.kind === 'certificate' ? 'certificate' : 'host key'
+      setPhase({ kind: 'ended', target, code: 'host_key_rejected', message: `The ${what} was not trusted, so NKeeper didn’t connect.` })
       return
     }
     trustRef.current = phase.prompt.fingerprint

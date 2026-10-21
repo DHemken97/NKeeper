@@ -4,13 +4,14 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
 
 ## Features
 
-- **Host inventory** with services (SSH, RDP, VNC, HTTP/HTTPS, KVM, iDRAC, …), credentials and Zabbix-style `name: value` tags. There are no folders: you **group by** any tag, e.g. site → role, and search by text or tags (`env:prod`). **Clone** a host to add similar ones quickly, or **import** your mRemoteNG connections (add, update and/or delete, with a preview first). **Scan** a host to fill in its MAC address, OS, services and users: internally over one SSH login, or externally over the network.
+- **Host inventory** with services (SSH, RDP, VNC, HTTP/HTTPS, KVM, Proxmox, iDRAC, …), credentials and Zabbix-style `name: value` tags. There are no folders: you **group by** any tag, e.g. site → role, and search by text or tags (`env:prod`). **Clone** a host to add similar ones quickly, or **import** your mRemoteNG connections (add, update and/or delete, with a preview first). **Scan** a host to fill in its MAC address, OS, services and users: internally over one SSH login, or externally over the network.
 - **Sessions in tabs**: right-click a host, then **Connect ▸ service ▸ credential**.
   - **SSH** and **Telnet** terminals (xterm.js). Telnet can log in for you with a saved credential.
   - **Files** over SFTP on any SSH service: browse, upload, download, rename and delete.
   - **RDP** and **VNC** desktops through Apache Guacamole's guacd, with clipboard sync, Ctrl+Alt+Del and full screen.
   - **Web interfaces** (routers, iDRAC/iLO, NAS…) are proxied by the server and shown in the tab, or can be opened directly in a new browser tab.
   - **KVM and Proxmox virtual machines**: lists a hypervisor's VMs over SSH (like virt-manager), or a whole Proxmox VE cluster's, and opens their **SPICE or VNC consoles** in the browser.
+  - **Proxmox consoles** straight from a VM's or container's own menu, through the Proxmox API with a Proxmox login or API token, like Proxmox's own console.
   - **Dell iDRAC**: the HTML5 virtual console in a tab, the server's status and power buttons over Redfish, and RACADM over SSH.
 - **Jump hosts**: reach hosts on networks the server can't see by tunnelling through an SSH bastion. SSH, Telnet, files, web, iDRAC, KVM and internal scans all go through it.
 - **Windows scans** over RPC (WMI): hostname, model, Windows version, adapters, listening ports and local accounts.

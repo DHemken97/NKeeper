@@ -350,7 +350,7 @@ export function WorkspacePage() {
     setActiveTab(id)
   }
 
-  /** Opens a Proxmox VM host's console through its hypervisor's KVM service; the tab belongs to the VM. */
+  /** Opens a Proxmox VM host's console through its node's Proxmox service (the Proxmox API); the tab belongs to the VM. */
   function openProxmoxConsole(
     vm: Host,
     hypervisor: Host,
@@ -369,7 +369,7 @@ export function WorkspacePage() {
       {
         id,
         hostId: vm.id,
-        protocol: 'vmvnc',
+        protocol: 'pvevnc',
         title: vm.name,
         detail: ['Proxmox console', hypervisor.name, account].filter(Boolean).join(' · '),
         request: { hostId: hypervisor.id, serviceIndex, credentialId: credential?.id, oneOff, vm: { id: vmId, name: vm.name } },
@@ -809,8 +809,14 @@ export function WorkspacePage() {
               />
             ) : session.protocol === 'spice' ? (
               <SpiceConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
-            ) : session.protocol === 'vmvnc' ? (
-              <VncConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'vmvnc' || session.protocol === 'pvevnc' ? (
+              <VncConsole
+                key={session.id}
+                session={session}
+                active={activeTab === session.id}
+                onShowHost={(id) => showHost(id)}
+                via={session.protocol === 'pvevnc' ? 'proxmox' : 'kvm'}
+              />
             ) : session.protocol === 'rpc' ? (
               <RpcSession key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'rdp' || session.protocol === 'vnc' ? (

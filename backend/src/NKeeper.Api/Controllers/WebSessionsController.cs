@@ -62,7 +62,7 @@ public sealed class WebSessionsController(HostAccess access, WebSessionStore ses
         }
 
         var service = host.Services.OrderBy(s => s.Position).ElementAtOrDefault(request.ServiceIndex);
-        if (service?.Protocol is not (ServiceProtocol.Http or ServiceProtocol.Https or ServiceProtocol.Idrac))
+        if (service?.Protocol is not (ServiceProtocol.Http or ServiceProtocol.Https or ServiceProtocol.Idrac or ServiceProtocol.Proxmox))
         {
             return Problem(statusCode: StatusCodes.Status400BadRequest, detail: "The selected service is not a web (HTTP/HTTPS) service. Reload the host and try again.");
         }
@@ -72,7 +72,7 @@ public sealed class WebSessionsController(HostAccess access, WebSessionStore ses
         var https = service.Protocol != ServiceProtocol.Http;
         // An IP address is used over the hostname when both are set, as for every connection.
         var address = service.Address ?? host.IpAddress ?? host.Hostname!;
-        var port = service.Port ?? (https ? 443 : 80);
+        var port = service.Port ?? (service.Protocol == ServiceProtocol.Proxmox ? Proxmox.ProxmoxApi.DefaultPort : https ? 443 : 80);
         var target = TargetUri(https, address, port);
 
         JumpTunnel? tunnel = null;

@@ -114,10 +114,12 @@ internal sealed class SessionTargetResolver(HostAccess access, CredentialProtect
 
         // A KVM host is reached over SSH: its host keys are SSH host keys, shared with SSH sessions.
         // An iDRAC's identities belong to its own address, so they're kept apart from the host's.
+        // Proxmox's certificate is the host's HTTPS certificate, shared with its web sessions.
         var keyProtocol = service.Protocol switch
         {
             ServiceProtocol.Kvm => ServiceProtocol.Ssh,
             ServiceProtocol.Idrac => ServiceProtocol.Idrac,
+            ServiceProtocol.Proxmox => ServiceProtocol.Https,
             _ => protocol,
         };
         return new SessionTarget(

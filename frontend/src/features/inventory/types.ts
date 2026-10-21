@@ -14,6 +14,7 @@ export const SERVICE_PROTOCOLS = [
   'Rpc',
   'Kvm',
   'Idrac',
+  'Proxmox',
   'Other',
 ] as const
 
@@ -23,7 +24,7 @@ export type ServiceProtocol = (typeof SERVICE_PROTOCOLS)[number]
  * The service types NKeeper can connect with, in the order the editor offers them. The others are
  * only read: older versions and imports may have stored them, but they can't be added any more.
  */
-export const SUPPORTED_PROTOCOLS: readonly ServiceProtocol[] = ['Ssh', 'Telnet', 'Rdp', 'Rpc', 'Vnc', 'Http', 'Https', 'Kvm', 'Idrac']
+export const SUPPORTED_PROTOCOLS: readonly ServiceProtocol[] = ['Ssh', 'Telnet', 'Rdp', 'Rpc', 'Vnc', 'Http', 'Https', 'Kvm', 'Proxmox', 'Idrac']
 
 export function isSupportedProtocol(protocol: ServiceProtocol): boolean {
   return SUPPORTED_PROTOCOLS.includes(protocol)
@@ -44,6 +45,7 @@ export const PROTOCOL_INFO: Record<ServiceProtocol, { label: string; name: strin
   Rpc: { label: 'RPC', name: 'Windows RPC', defaultPort: 135 },
   Kvm: { label: 'KVM', name: 'KVM / libvirt (over SSH)', defaultPort: 22 },
   Idrac: { label: 'iDRAC', name: 'Dell iDRAC (Redfish, console, RACADM)', defaultPort: 443 },
+  Proxmox: { label: 'Proxmox', name: 'Proxmox VE (web interface, VM consoles)', defaultPort: 8006 },
   Other: { label: 'Other', name: 'Other' },
 }
 

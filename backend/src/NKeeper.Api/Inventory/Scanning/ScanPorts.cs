@@ -35,7 +35,8 @@ internal static class ScanPorts
         >= 5900 and <= 5909 => ServiceProtocol.Vnc,
         23 => ServiceProtocol.Telnet,
         80 or 8080 => ServiceProtocol.Http,
-        443 or 8443 or 8006 or 9090 => ServiceProtocol.Https,
+        443 or 8443 or 9090 => ServiceProtocol.Https,
+        8006 => ServiceProtocol.Proxmox,
         _ => null,
     };
 

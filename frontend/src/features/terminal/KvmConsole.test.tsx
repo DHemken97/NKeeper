@@ -212,14 +212,30 @@ describe('KVM hosts', () => {
     expect(consoleBody).toEqual({ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: '200' })
   })
 
-  it('opens a Proxmox VM host’s console from its own Connect menu, with its hypervisor’s login', async () => {
+  it('opens a Proxmox VM host’s console through its node’s Proxmox API, trusting the node’s certificate first', async () => {
+    const node: Host = {
+      ...hypervisor,
+      services: [
+        { protocol: 'Kvm', port: null, label: null },
+        { protocol: 'Proxmox', port: null, label: null },
+      ],
+      credentials: [{ id: 'c1', label: null, username: 'root', domain: 'pam', notes: null, hasPassword: true, hasPrivateKey: false }],
+    }
     const app01: Host = { ...hypervisor, id: 'h-app', name: 'app01', isVirtualMachine: true, hypervisorId: 'h-kvm', virtualMachineId: 'proxmox:lab/105', services: [], credentials: [] }
-    let consoleBody: unknown
-    const { user } = renderWorkspace({
-      'GET /api/hosts': () => jsonResponse(200, [hypervisor, app01]),
-      'POST /api/vnc/consoles': (_url, init) => {
-        consoleBody = JSON.parse(String(init.body))
-        return jsonResponse(200, consoleReady('v1'))
+    const bodies: unknown[] = []
+    const { user, fetchMock } = renderWorkspace({
+      'GET /api/hosts': () => jsonResponse(200, [node, app01]),
+      'POST /api/proxmox/consoles': (_url, init) => {
+        bodies.push(JSON.parse(String(init.body)))
+        return bodies.length === 1
+          ? jsonResponse(200, {
+              status: 'trustRequired',
+              sessionId: null,
+              password: null,
+              target: 'https://10.0.0.5:8006/',
+              certificate: { fingerprint: 'AA:BB', subject: 'CN=pve1.lab', issuer: 'CN=Proxmox CA', expires: '2027-01-01T00:00:00Z' },
+            })
+          : jsonResponse(200, { status: 'ready', sessionId: 'v1', password: 'PVEVNC:ticket', target: 'https://10.0.0.5:8006/', certificate: null })
       },
     })
 
@@ -227,22 +243,37 @@ describe('KVM hosts', () => {
     await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
     expect(screen.queryByRole('menuitem', { name: /No services/ })).not.toBeInTheDocument()
     await user.hover(screen.getByRole('menuitem', { name: /^Proxmox console.*kvm01/ }))
-    await user.click(screen.getByRole('menuitem', { name: /^virt/ }))
+    await user.click(screen.getByRole('menuitem', { name: /root/ }))
+
+    const prompt = await screen.findByRole('alertdialog', { name: 'Trust this certificate?' })
+    expect(within(prompt).getByText('AA:BB')).toBeInTheDocument()
+    await user.click(within(prompt).getByRole('button', { name: 'Trust and connect' }))
 
     await waitFor(() => expect(vnc.FakeRfb.instances).toHaveLength(1))
-    expect(consoleBody).toEqual({ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: '105' })
-    expect(screen.getByRole('tab', { name: /app01.*Proxmox console · kvm01 · virt/, selected: true })).toBeInTheDocument()
+    expect(bodies).toEqual([
+      { hostId: 'h-kvm', serviceIndex: 1, credentialId: 'c1', vm: 105 },
+      { hostId: 'h-kvm', serviceIndex: 1, credentialId: 'c1', trustFingerprint: 'AA:BB', vm: 105 },
+    ])
+    const rfb = vnc.FakeRfb.instances[0]
+    expect(rfb.url).toMatch(/^ws:\/\/.*\/api\/vnc\/channel\/v1$/)
+    expect(rfb.options.credentials?.password).toBe('PVEVNC:ticket')
+    expect(screen.getByRole('tab', { name: /app01.*Proxmox console · kvm01/, selected: true })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Close app01' }))
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith('/api/vnc/consoles/v1') && init?.method === 'DELETE')).toBe(true),
+    )
   })
 
-  it('offers a Proxmox console only for Proxmox VMs, and only through a KVM service', async () => {
-    const node: Host = { ...hypervisor, services: [{ protocol: 'Ssh', port: null, label: null }] }
+  it('offers a Proxmox console only for Proxmox VMs, and only through a Proxmox service', async () => {
     const proxmoxVm: Host = { ...hypervisor, id: 'h-app', name: 'app01', isVirtualMachine: true, hypervisorId: 'h-kvm', virtualMachineId: 'proxmox:lab/105', services: [] }
     const libvirtVm: Host = { ...proxmoxVm, id: 'h-web', name: 'web01', virtualMachineId: 'libvirt:9f0c6b5e-1111-4a2b-9c3d-000000000001' }
-    const { user } = renderWorkspace({ 'GET /api/hosts': () => jsonResponse(200, [node, proxmoxVm, libvirtVm]) })
+    // The node has a KVM service only: SSH isn't how Proxmox consoles open.
+    const { user } = renderWorkspace({ 'GET /api/hosts': () => jsonResponse(200, [hypervisor, proxmoxVm, libvirtVm]) })
 
     fireEvent.contextMenu(await screen.findByRole('button', { name: /app01/ }))
     await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
-    expect(screen.getByRole('menuitem', { name: /^Proxmox console.*Add a KVM service to kvm01/ })).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('menuitem', { name: /^Proxmox console.*Add a Proxmox service to kvm01/ })).toHaveAttribute('aria-disabled', 'true')
     await user.keyboard('{Escape}')
 
     fireEvent.contextMenu(await screen.findByRole('button', { name: /web01/ }))
