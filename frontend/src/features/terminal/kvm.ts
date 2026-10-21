@@ -1,13 +1,16 @@
 import type { HostKeyMessage, SessionRequest } from './types'
 
-/** A virtual machine on a KVM host, as libvirt reports it. */
+/** A virtual machine on a KVM host, as libvirt or Proxmox reports it. */
 export interface VirtualMachine {
-  uuid: string
+  /** libvirt's UUID, or the Proxmox VM ID. */
+  id: string
   name: string
-  /** virsh's state text, e.g. "running", "shut off", "paused". */
+  /** The state text, e.g. "running", "shut off", "paused" (libvirt) or "running", "stopped" (Proxmox). */
   state: string
   /** The console type ("spice" or "vnc"), or null for none. */
   display: string | null
+  /** The Proxmox node the VM is on; null for libvirt. */
+  node?: string | null
 }
 
 export interface HostKeyPrompt {
@@ -24,7 +27,7 @@ export function kvmRequestBody(request: SessionRequest, trustFingerprint?: strin
     username: request.oneOff?.username,
     password: request.oneOff?.password,
     trustFingerprint,
-    vm: request.vm?.uuid,
+    vm: request.vm?.id,
   }
 }
 

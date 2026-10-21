@@ -360,7 +360,7 @@ export function WorkspacePage() {
         protocol,
         title: vm.name,
         detail: `Console · ${source.title}`,
-        request: { ...source.request, vm: { uuid: vm.uuid, name: vm.name } },
+        request: { ...source.request, vm: { id: vm.id, name: vm.name } },
       },
     ])
     setActiveTab(id)

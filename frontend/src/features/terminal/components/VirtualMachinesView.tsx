@@ -21,8 +21,8 @@ interface ListResponse {
 }
 
 /**
- * The virtual machines of a KVM host (libvirt over SSH, like virt-manager), with a console button
- * for each running VM that has a SPICE or VNC display.
+ * The virtual machines of a KVM host (libvirt over SSH, like virt-manager, or a Proxmox VE node and
+ * its cluster), with a console button for each running VM that has a SPICE or VNC display.
  */
 export function VirtualMachinesView({ session, active, onShowHost, onOpenConsole }: VirtualMachinesViewProps) {
   const [phase, setPhase] = useState<SessionPhase>({ kind: 'connecting' })
@@ -31,6 +31,8 @@ export function VirtualMachinesView({ session, active, onShowHost, onOpenConsole
   const [attempt, setAttempt] = useState(0)
   const trustRef = useRef<string | undefined>(undefined)
   const target = session.title
+  // Proxmox lists the whole cluster, so say which node each VM is on.
+  const showNode = vms?.some((vm) => vm.node) ?? false
 
   useEffect(() => {
     let cancelled = false
@@ -114,6 +116,7 @@ export function VirtualMachinesView({ session, active, onShowHost, onOpenConsole
                 <thead>
                   <tr>
                     <th scope="col">Name</th>
+                    {showNode ? <th scope="col">Node</th> : null}
                     <th scope="col">State</th>
                     <th scope="col">Console</th>
                     <th scope="col">
@@ -125,8 +128,9 @@ export function VirtualMachinesView({ session, active, onShowHost, onOpenConsole
                   {vms.map((vm) => {
                     const running = vm.state === 'running'
                     return (
-                      <tr key={vm.uuid}>
+                      <tr key={vm.id}>
                         <td className={styles.vmName}>{vm.name}</td>
+                        {showNode ? <td>{vm.node ?? '—'}</td> : null}
                         <td>
                           <span className={`${styles.dot} ${running ? styles.connected : ''}`} /> {vm.state}
                         </td>

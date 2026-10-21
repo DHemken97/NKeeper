@@ -124,7 +124,9 @@ internal static class InternalScan
         var sshPort = connection is { Length: 4 } && int.TryParse(connection[3], CultureInfo.InvariantCulture, out var p) ? p : (int?)null;
 
         var mac = FindMac(sections, serverIp, notes);
-        var isKvmHost = First(sections, "libvirt") == "yes";
+        var hasLibvirt = First(sections, "libvirt") == "yes";
+        var isProxmoxNode = Lines(sections, "proxmox").Any(l => l.StartsWith("node	", StringComparison.Ordinal));
+        var isKvmHost = hasLibvirt || isProxmoxNode;
 
         var ports = new SortedSet<int>();
         foreach (var line in Lines(sections, "listening"))
@@ -168,7 +170,10 @@ internal static class InternalScan
 
         if (isKvmHost)
         {
-            notes.Add($"libvirt (virsh) is installed, so this can be a KVM host, reached over SSH{(sshPort is { } port ? $" on port {port}" : "")}.");
+            var via = sshPort is { } port ? $" on port {port}" : "";
+            notes.Add(isProxmoxNode
+                ? $"This is a Proxmox VE node, so it can be a KVM host, reached over SSH{via} (as root, or a user with passwordless sudo)."
+                : $"libvirt (virsh) is installed, so this can be a KVM host, reached over SSH{via}.");
         }
 
         var virtualization = First(sections, "virt") is { } virt && virt != "none" ? virt : null;

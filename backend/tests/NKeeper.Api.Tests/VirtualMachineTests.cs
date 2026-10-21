@@ -122,7 +122,11 @@ public sealed class VirtualMachineTests(PostgresServerFixture postgres, SshServe
                 Assert.Equal(["10.0.0.53", "2001:db8::53"], g.Addresses);
             },
             g => Assert.Equal(("VM 102", "pve2"), (g.Name, g.Node)));
-        Assert.Contains(findings.Notes, n => n.Contains("as root", StringComparison.Ordinal));
+        Assert.Contains(findings.Notes, n => n.Contains("scan the node as root", StringComparison.Ordinal));
+
+        // A Proxmox node's VMs open from a KVM service, even without libvirt.
+        Assert.True(findings.IsKvmHost);
+        Assert.Contains(findings.Notes, n => n.Contains("Proxmox VE node", StringComparison.Ordinal));
 
         Assert.Equal("kvm", InternalScan.Parse(output.Replace("@@virt\nnone", "@@virt\nkvm", StringComparison.Ordinal)).Virtualization);
     }

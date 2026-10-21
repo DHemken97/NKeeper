@@ -13,7 +13,7 @@
 - [VNC](#vnc)
 - [Web interfaces (HTTP/HTTPS)](#web-interfaces-httphttps)
 - [Windows RPC](#windows-rpc)
-- [KVM virtual machines (SPICE and VNC consoles)](#kvm-virtual-machines-spice-and-vnc-consoles)
+- [KVM and Proxmox virtual machines (SPICE and VNC consoles)](#kvm-and-proxmox-virtual-machines-spice-and-vnc-consoles)
 - [Dell iDRAC (virtual console, status and power, RACADM)](#dell-idrac-virtual-console-status-and-power-racadm)
 - [Trusting servers](#trusting-servers)
 - [Health and Wake-on-LAN](#health-and-wake-on-lan)
@@ -123,7 +123,7 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - the hostname, IP address and MAC address;
   - the operating system, as an `os` tag that you can group by;
   - a service for each open port NKeeper has a service for. Other open ports are listed for information;
-  - a **KVM** service when libvirt is installed (internal scans);
+  - a **KVM** service when libvirt is installed, or the host is a Proxmox VE node (internal scans);
   - each local account as a **credential without a password**. Using it asks for the password; set the password in the host's editor to save it;
   - **Virtual machine**, when the scan finds the host runs under a hypervisor (it asks `systemd-detect-virt`);
   - the **CPU cores**, **memory** and **serial number** (internal scans). A VM's serial number is invented by its hypervisor, so it's never offered.
@@ -236,9 +236,9 @@ If web sessions don't load from other computers, the server needs the wildcard D
 
 An **RPC** service (port 135, the endpoint mapper) is mainly for [scanning Windows hosts](#scanning-hosts). **Connect ▸ RPC** also opens a low-level tool for administrators who know DCE/RPC. NKeeper binds the interface and signs in with NTLM using the credential and its domain. You then send calls as an operation number and a request stub in hex, and see the response stub or the fault. Calls are authenticated but not signed or encrypted.
 
-## KVM virtual machines (SPICE and VNC consoles)
+## KVM and Proxmox virtual machines (SPICE and VNC consoles)
 
-Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH credential. Then **Connect ▸ KVM ▸ credential**:
+Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH credential. The same service works for libvirt hosts and Proxmox VE nodes: NKeeper finds out which one it is. Then **Connect ▸ KVM ▸ credential**:
 
 - **The VM list:** like virt-manager, NKeeper connects over SSH, asks libvirt (`qemu:///system`) for the virtual machines, and lists each one's name, state and console type. **Refresh** updates the list.
 - **The console:** **Open console** on a running VM with a SPICE or VNC display opens it in its own tab, with **Ctrl+Alt+Del** and **Fullscreen**.
@@ -248,6 +248,14 @@ Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH cre
 - **One SPICE console at a time:** opening another SPICE console replaces the first. VNC consoles have no such limit.
 - **On the hypervisor:** the SSH user must be able to use `qemu:///system` (usually by being in the `libvirt` group), and sshd must allow TCP forwarding (the OpenSSH default).
 - **Not supported:** SPICE configured for TLS only, and displays that listen on a Unix socket instead of a port. When a VM has both a SPICE and a VNC display, NKeeper opens the one libvirt lists first.
+
+**Proxmox VE nodes** work the same way, with these differences:
+
+- **The VM list** is the whole cluster's, read with `pvesh`, with a **Node** column. Containers and templates aren't listed.
+- **The console** is VNC, opened the way Proxmox's own console opens it: `qm vncproxy` relays the VM's display, with a one-time VNC password that NKeeper sets and uses for you. VMs on other nodes of the cluster are reached through the node you connected to, over the cluster's own SSH between nodes.
+- **No console:** a VM whose display is a serial terminal (`vga: serial0`) or `none` has no console button.
+- **On the node:** `pvesh` and `qm` need **root**. Sign in as root, or as a user who may use `sudo` without a password. TCP forwarding isn't needed.
+- **Idle consoles:** Proxmox ends a console after 15 minutes with nothing happening on it. **Reconnect** opens it again.
 
 ## Dell iDRAC (virtual console, status and power, RACADM)
 

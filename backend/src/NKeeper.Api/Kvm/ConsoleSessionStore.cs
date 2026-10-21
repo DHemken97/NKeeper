@@ -1,32 +1,26 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
-using Renci.SshNet;
 
 namespace NKeeper.Api.Kvm;
 
 /// <summary>
-/// An open VM console (SPICE or VNC): an SSH connection to the hypervisor with a tunnel to the VM's
-/// display port, bound on the API's loopback. Each channel the browser opens (SPICE uses several,
-/// VNC one) becomes one connection through that tunnel.
+/// An open VM console (SPICE or VNC): an SSH connection to the hypervisor and the way through it to
+/// the VM's display (a tunnel to its port, or Proxmox's VNC proxy). Each channel the browser opens
+/// (SPICE uses several, VNC one) becomes one connection through it.
 /// </summary>
 public sealed class ConsoleSession : IDisposable
 {
-    private readonly SshClient _client;
-    private readonly ForwardedPortLocal _tunnel;
     private int _channels;
 
-    internal ConsoleSession(Guid userId, Guid hostId, string vmName, SshClient client, ConsoleDisplay display, DateTimeOffset now)
+    internal ConsoleSession(Guid userId, Guid hostId, string vmName, string protocol, string? password, ConsoleEndpoint endpoint, DateTimeOffset now)
     {
         Id = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
         UserId = userId;
         HostId = hostId;
         VmName = vmName;
-        Protocol = display.Protocol;
-        Password = display.Password;
-        _client = client;
-        _tunnel = new ForwardedPortLocal("127.0.0.1", 0, display.Host, (uint)display.Port);
-        _client.AddForwardedPort(_tunnel);
-        _tunnel.Start();
+        Protocol = protocol;
+        Password = password;
+        Endpoint = endpoint;
         CreatedAtUtc = LastActivityUtc = now;
     }
 
@@ -44,8 +38,8 @@ public sealed class ConsoleSession : IDisposable
     /// <summary>The VM's display password, if it has one (the browser client needs it for the protocol's own login).</summary>
     public string? Password { get; }
 
-    /// <summary>Loopback port of the tunnel to the VM's display.</summary>
-    public int TunnelPort => (int)_tunnel.BoundPort;
+    /// <summary>How channels reach the VM's display.</summary>
+    internal ConsoleEndpoint Endpoint { get; }
 
     public DateTimeOffset CreatedAtUtc { get; }
 
@@ -61,19 +55,7 @@ public sealed class ConsoleSession : IDisposable
         LastActivityUtc = now;
     }
 
-    public void Dispose()
-    {
-        try
-        {
-            _tunnel.Stop();
-        }
-        catch (ObjectDisposedException)
-        {
-        }
-
-        _tunnel.Dispose();
-        _client.Dispose();
-    }
+    public void Dispose() => Endpoint.Dispose();
 }
 
 /// <summary>Open VM consoles, in memory (per API instance).</summary>
@@ -87,7 +69,8 @@ public sealed class ConsoleSessionStore(TimeProvider timeProvider, Auditing.Audi
 
     private readonly ConcurrentDictionary<string, ConsoleSession> _sessions = new(StringComparer.Ordinal);
 
-    internal ConsoleSession? TryCreate(Guid userId, Guid hostId, string vmName, SshClient client, ConsoleDisplay display)
+    /// <summary>Opens a console that takes ownership of <paramref name="endpoint"/>, unless the user has too many.</summary>
+    internal ConsoleSession? TryCreate(Guid userId, Guid hostId, string vmName, string protocol, string? password, ConsoleEndpoint endpoint)
     {
         RemoveExpired();
         if (_sessions.Values.Count(s => s.UserId == userId) >= MaxSessionsPerUser)
@@ -95,7 +78,7 @@ public sealed class ConsoleSessionStore(TimeProvider timeProvider, Auditing.Audi
             return null;
         }
 
-        var session = new ConsoleSession(userId, hostId, vmName, client, display, timeProvider.GetUtcNow());
+        var session = new ConsoleSession(userId, hostId, vmName, protocol, password, endpoint, timeProvider.GetUtcNow());
         _sessions[session.Id] = session;
         logger.LogInformation(
             "{Protocol} console {SessionId} opened by user {UserId} for VM {Vm} on host {HostId}",

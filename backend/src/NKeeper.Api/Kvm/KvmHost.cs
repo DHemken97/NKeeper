@@ -8,8 +8,15 @@ using Renci.SshNet.Common;
 
 namespace NKeeper.Api.Kvm;
 
-/// <summary>A virtual machine on a KVM host, as libvirt reports it.</summary>
-public sealed record VirtualMachine(Guid Uuid, string Name, string State, string? Display);
+/// <summary>A virtual machine on a KVM host, as libvirt or Proxmox reports it.</summary>
+/// <param name="Id">libvirt's UUID, or the Proxmox VM ID.</param>
+/// <param name="State">libvirt's state ("running", "shut off"…) or Proxmox's ("running", "stopped"…).</param>
+/// <param name="Display">The console protocol (one of <see cref="ConsoleProtocols"/>), or null for none.</param>
+/// <param name="Node">The Proxmox node the VM is on; null for libvirt (the host itself).</param>
+public sealed record VirtualMachine(string Id, string Name, string State, string? Display, string? Node = null);
+
+/// <summary>A hypervisor's VMs, and whether it is a Proxmox node (and which one).</summary>
+internal sealed record HypervisorListing(IReadOnlyList<VirtualMachine> Vms, string? ProxmoxNode);
 
 /// <summary>The console protocols NKeeper opens for VMs (libvirt's display URI schemes).</summary>
 public static class ConsoleProtocols
@@ -25,7 +32,8 @@ public sealed record ConsoleDisplay(string Protocol, string Host, int Port, stri
 
 /// <summary>
 /// Talks to a KVM hypervisor the way virt-manager does: over SSH, running <c>virsh</c> against
-/// <c>qemu:///system</c>. The SSH host key must be trusted (it is shared with SSH sessions).
+/// <c>qemu:///system</c>; or to a Proxmox VE node (see <see cref="ProxmoxHost"/>), which is detected.
+/// The SSH host key must be trusted (it is shared with SSH sessions).
 /// </summary>
 internal static partial class KvmHost
 {
@@ -33,13 +41,19 @@ internal static partial class KvmHost
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>All VMs (running or not) with their state and graphical display, if any.</summary>
-    public static async Task<List<VirtualMachine>> ListAsync(SshClient client, CancellationToken cancellationToken)
+    public static async Task<HypervisorListing> ListAsync(SshClient client, CancellationToken cancellationToken)
     {
-        // One round trip: for each VM, its UUID, name, state and display URI, tab-separated.
+        // One round trip: Proxmox's listing on a Proxmox node; otherwise for each VM, its UUID,
+        // name, state and display URI, tab-separated.
         const string script =
-            "c='" + Virsh + "'; uuids=$($c list --all --uuid) || exit 3; for u in $uuids; do "
+            "if " + ProxmoxHost.Detect + "; then " + ProxmoxHost.ListScript + "; fi; "
+            + "c='" + Virsh + "'; uuids=$($c list --all --uuid) || exit 3; for u in $uuids; do "
             + "printf '%s\\t%s\\t%s\\t%s\\n' \"$u\" \"$($c domname \"$u\")\" \"$($c domstate \"$u\")\" \"$($c domdisplay \"$u\" 2>/dev/null | head -n 1)\"; done";
         var output = await RunAsync(client, script, cancellationToken);
+        if (ProxmoxHost.ParseListing(output) is { } proxmox)
+        {
+            return proxmox;
+        }
 
         var vms = new List<VirtualMachine>();
         foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -48,11 +62,11 @@ internal static partial class KvmHost
             if (fields.Length >= 3 && Guid.TryParse(fields[0], out var uuid))
             {
                 var display = fields.ElementAtOrDefault(3) is { Length: > 0 } uri ? uri.Split(':', 2)[0].ToLowerInvariant() : null;
-                vms.Add(new VirtualMachine(uuid, fields[1], fields[2], display is ConsoleProtocols.Spice or ConsoleProtocols.Vnc ? display : null));
+                vms.Add(new VirtualMachine(uuid.ToString("D"), fields[1], fields[2], display is ConsoleProtocols.Spice or ConsoleProtocols.Vnc ? display : null));
             }
         }
 
-        return [.. vms.OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)];
+        return new HypervisorListing([.. vms.OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)], null);
     }
 
     /// <summary>The VM's console address on the hypervisor (and password, when libvirt reveals it).</summary>
@@ -127,7 +141,8 @@ internal static partial class KvmHost
     private static string? QueryValue(string query, string name) =>
         query.TrimStart('?').Split('&').Select(p => p.Split('=', 2)).FirstOrDefault(p => p[0] == name && p.Length == 2)?[1];
 
-    private static async Task<string> RunAsync(SshClient client, string script, CancellationToken cancellationToken)
+    /// <summary>Runs a script and returns its output, or explains why libvirt (or Proxmox) refused.</summary>
+    internal static async Task<string> RunAsync(SshClient client, string script, CancellationToken cancellationToken, bool proxmox = false)
     {
         using var command = client.CreateCommand(script);
         command.CommandTimeout = CommandTimeout;
@@ -143,6 +158,11 @@ internal static partial class KvmHost
         if (command.ExitStatus is not 0)
         {
             var error = command.Error.Trim();
+            if (proxmox || command.ExitStatus == ProxmoxHost.RefusedExitStatus)
+            {
+                throw new SessionException(SessionErrorCodes.ConnectionFailed, ProxmoxHost.RefusedMessage(error, command.ExitStatus));
+            }
+
             throw new SessionException(
                 SessionErrorCodes.ConnectionFailed,
                 command.ExitStatus == 127 || error.Contains("not found", StringComparison.OrdinalIgnoreCase)

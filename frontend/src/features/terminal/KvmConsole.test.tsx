@@ -101,9 +101,9 @@ const hypervisor: Host = {
 }
 
 const vms = [
-  { uuid: 'a1', name: 'db-vm', state: 'shut off', display: null },
-  { uuid: 'b2', name: 'web vm', state: 'running', display: 'spice' },
-  { uuid: 'c3', name: 'legacy', state: 'running', display: 'vnc' },
+  { id: 'a1', name: 'db-vm', state: 'shut off', display: null },
+  { id: 'b2', name: 'web vm', state: 'running', display: 'spice' },
+  { id: 'c3', name: 'legacy', state: 'running', display: 'vnc' },
 ]
 
 beforeEach(() => {
@@ -180,6 +180,36 @@ describe('KVM hosts', () => {
     expect(within(rows[0]).queryByRole('button')).not.toBeInTheDocument()
     expect(within(rows[1]).getByRole('button', { name: 'Open console' })).toBeInTheDocument()
     expect(within(rows[2]).getByRole('button', { name: 'Open console' })).toBeInTheDocument()
+  })
+
+  it('shows which node each VM of a Proxmox cluster is on, and opens its VNC console by VM ID', async () => {
+    let consoleBody: unknown
+    const { user } = renderWorkspace({
+      'POST /api/kvm/vms': () =>
+        jsonResponse(200, {
+          status: 'ready',
+          vms: [
+            { id: '200', name: 'remote', state: 'running', display: 'vnc', node: 'pve2' },
+            { id: '102', name: 'serial-vm', state: 'running', display: null, node: 'pve1' },
+          ],
+          hostKey: null,
+        }),
+      'POST /api/vnc/consoles': (_url, init) => {
+        consoleBody = JSON.parse(String(init.body))
+        return jsonResponse(200, consoleReady('v1'))
+      },
+    })
+
+    await openHost(user)
+    const table = await screen.findByRole('table')
+    expect(within(table).getByRole('columnheader', { name: 'Node' })).toBeInTheDocument()
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows.map((row) => within(row).getAllByRole('cell')[1].textContent)).toEqual(['pve2', 'pve1'])
+    expect(within(rows[1]).queryByRole('button')).not.toBeInTheDocument()
+
+    await openConsoleOf(user, 'remote')
+    await waitFor(() => expect(vnc.FakeRfb.instances).toHaveLength(1))
+    expect(consoleBody).toEqual({ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: '200' })
   })
 
   it('opens a VM console over NKeeper’s tunnel and closes it with the tab', async () => {

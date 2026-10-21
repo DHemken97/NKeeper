@@ -58,9 +58,9 @@ public sealed class KvmTests(PostgresServerFixture postgres, SshServerFixture ss
         var vms = listed.GetProperty("vms").Deserialize<List<VirtualMachine>>(Json)!;
 
         Assert.Equal(["db-vm", "vnc-vm", "web vm"], vms.Select(v => v.Name));
-        Assert.Equal(new VirtualMachine(StoppedVm, "db-vm", "shut off", null), vms[0]);
-        Assert.Equal(new VirtualMachine(VncVm, "vnc-vm", "running", "vnc"), vms[1]);
-        Assert.Equal(new VirtualMachine(RunningVm, "web vm", "running", "spice"), vms[2]);
+        Assert.Equal(new VirtualMachine(StoppedVm.ToString(), "db-vm", "shut off", null), vms[0]);
+        Assert.Equal(new VirtualMachine(VncVm.ToString(), "vnc-vm", "running", "vnc"), vms[1]);
+        Assert.Equal(new VirtualMachine(RunningVm.ToString(), "web vm", "running", "spice"), vms[2]);
 
         // The key is now a trusted SSH host key, shared with SSH sessions.
         var stored = (await _client.GetFromJsonAsync<HostResponse>($"/api/hosts/{host.Id}", Json, Ct))!;

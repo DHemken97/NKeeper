@@ -64,7 +64,7 @@ NKeeper holds credentials for the machines it connects to, so it's built to keep
 - **VNC** has no transport security. The session says "Unencrypted to host".
 - **Jump hosts** are SSH servers the API tunnels through. Their host key must already be trusted, and the target's own host key or certificate is still verified end to end, so a jump host can't impersonate the hosts behind it. Users need access to both the host and its jump host.
 - **Files (SFTP)** go through the API: uploads and downloads stream through it, never directly between browser and host. Downloads use one-time links that expire after a minute and work only for the user who asked. Every file operation is audited.
-- **KVM consoles** are tunnelled through the SSH connection to the hypervisor (with its host key verified). Each console belongs to the user who opened it, and closes when idle or after 12 hours.
+- **KVM consoles** are tunnelled through the SSH connection to the hypervisor (with its host key verified). On Proxmox, each console gets a new random VNC password, which Proxmox accepts for 30 seconds. It's passed on standard input, so it never shows in the node's process list. Each console belongs to the user who opened it, and closes when idle or after 12 hours.
 - **WebSocket hijacking:** browsers attach cookies to cross-site WebSocket handshakes and CORS doesn't apply to them. So session endpoints only accept handshakes whose `Origin` is NKeeper itself (or a configured `Cors:AllowedOrigins` entry).
 - **Limits and logging:** each user has session limits. Every session is logged with user, host, credential ID and duration, never secrets.
 

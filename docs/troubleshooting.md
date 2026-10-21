@@ -46,6 +46,8 @@ Start with the logs: `docker compose logs -f backend` (Docker), `journalctl -u n
 | A web session stays blank from other computers | They can't resolve `nkw-…` names, or don't trust the certificate. Add the wildcard DNS record and install the CA. See [Installation](installation.md#dns-for-web-sessions). |
 | KVM: "libvirt refused the request" | The SSH user needs access to `qemu:///system`, usually through membership in the `libvirt` group. |
 | KVM: the console doesn't open | The VM must be running with a SPICE display that isn't TLS-only, or a VNC display, listening on a TCP port. The hypervisor's sshd must allow TCP forwarding. |
+| KVM on Proxmox: "Proxmox refused the request" | `pvesh` and `qm` only run as root. Use a root credential, or let the user run `sudo` without a password. |
+| KVM on Proxmox: the console of a VM on another node doesn't open | NKeeper reaches other nodes the way Proxmox does, with `ssh root@<node>` from the node you connected to. Check that `ssh root@<node> true` works there without a prompt (`pvecm updatecerts` repairs the cluster's keys), or add that node to NKeeper and open the console from it. The API's log says why the console proxy stopped. |
 | KVM: a VNC console says libvirt didn't give NKeeper the password | libvirt reveals console passwords only to accounts with full (read-write) access. Give the SSH user that access (e.g. the `libvirt` group), or remove the VM's VNC password. |
 
 ## Development

@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using Microsoft.AspNetCore.Authorization;
@@ -13,6 +12,7 @@ using NKeeper.Api.Security;
 using NKeeper.Api.Ssh;
 using NKeeper.Infrastructure.Inventory;
 using Renci.SshNet;
+using Renci.SshNet.Common;
 
 namespace NKeeper.Api.Controllers;
 
@@ -23,8 +23,9 @@ public sealed record KvmRequest : SessionStartMessage
     [StringLength(128)]
     public string? TrustFingerprint { get; init; }
 
-    /// <summary>For consoles: the VM's libvirt UUID.</summary>
-    public Guid? Vm { get; init; }
+    /// <summary>For consoles: the VM's libvirt UUID or Proxmox VM ID.</summary>
+    [StringLength(64)]
+    public string? Vm { get; init; }
 }
 
 public sealed record HostKeyPromptResponse(string Algorithm, string Fingerprint);
@@ -36,7 +37,9 @@ public sealed record ConsoleSessionResponse(string Status, string? SessionId, st
 /// <summary>
 /// KVM hosts managed with libvirt, over SSH like virt-manager: list virtual machines and open
 /// their SPICE or VNC consoles, tunnelled through the SSH connection (the console ports usually
-/// listen on the hypervisor's loopback only). The browser never connects to the hypervisor.
+/// listen on the hypervisor's loopback only). Proxmox VE nodes are detected and handled the way
+/// Proxmox's own console does it (VNC through <c>qm vncproxy</c>). The browser never connects to
+/// the hypervisor.
 /// </summary>
 /// <remarks>
 /// VNC consoles live under /api/vnc/, which reverse proxies already treat as WebSocket traffic
@@ -44,7 +47,7 @@ public sealed record ConsoleSessionResponse(string Status, string? SessionId, st
 /// </remarks>
 [ApiController]
 [Authorize]
-public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSettings> cors, TimeProvider timeProvider) : ControllerBase
+public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSettings> cors, TimeProvider timeProvider, ILogger<KvmController> logger) : ControllerBase
 {
     private const int DefaultSshPort = 22;
 
@@ -55,7 +58,7 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
         try
         {
             using var client = await ConnectAsync(request, cancellationToken);
-            return new VirtualMachinesResponse("ready", await KvmHost.ListAsync(client, cancellationToken), null);
+            return new VirtualMachinesResponse("ready", (await KvmHost.ListAsync(client, cancellationToken)).Vms, null);
         }
         catch (HostKeyTrustRequiredException trust)
         {
@@ -101,17 +104,18 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
 
     private async Task<ActionResult<ConsoleSessionResponse>> OpenConsoleAsync(KvmRequest request, string protocol, CancellationToken cancellationToken)
     {
-        if (request.Vm is not { } vm)
+        if (request.Vm is not { Length: > 0 } vm)
         {
             return Problem(statusCode: StatusCodes.Status400BadRequest, detail: "Choose a virtual machine.");
         }
 
         SshClient? client = null;
+        ConsoleEndpoint? endpoint = null;
         try
         {
             client = await ConnectAsync(request, cancellationToken);
-            var vms = await KvmHost.ListAsync(client, cancellationToken);
-            var machine = vms.FirstOrDefault(v => v.Uuid == vm)
+            var listing = await KvmHost.ListAsync(client, cancellationToken);
+            var machine = listing.Vms.FirstOrDefault(v => string.Equals(v.Id, vm, StringComparison.OrdinalIgnoreCase))
                 ?? throw new SessionException(SessionErrorCodes.HostNotFound, "This virtual machine no longer exists.");
             if (!string.Equals(machine.State, "running", StringComparison.Ordinal))
             {
@@ -125,16 +129,29 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
                     SessionErrorCodes.ConnectionFailed, $"“{machine.Name}” has no {ConsoleProtocols.DisplayName(protocol)} display.");
             }
 
-            var display = await KvmHost.GetConsoleDisplayAsync(client, vm, protocol, cancellationToken);
+            string? password;
+            if (listing.ProxmoxNode is { } node)
+            {
+                var command = await ProxmoxHost.VncProxyCommandAsync(client, node, machine, cancellationToken);
+                password = ProxmoxHost.NewTicket();
+                endpoint = new CommandEndpoint(client, command, password, logger);
+            }
+            else
+            {
+                var display = await KvmHost.GetConsoleDisplayAsync(client, Guid.Parse(machine.Id), protocol, cancellationToken);
+                password = display.Password;
+                endpoint = new TunnelEndpoint(client, display);
+            }
 
-            var session = consoles.TryCreate(User.GetUserId(), request.HostId, machine.Name, client, display);
+            client = null; // Owned by the endpoint now.
+            var session = consoles.TryCreate(User.GetUserId(), request.HostId, machine.Name, protocol, password, endpoint);
             if (session is null)
             {
                 return Failure(new SessionException(
                     SessionErrorCodes.TooManySessions, $"You already have {ConsoleSessionStore.MaxSessionsPerUser} open VM consoles. Close one and try again."));
             }
 
-            client = null; // Owned by the session now.
+            endpoint = null; // Owned by the session now.
             return new ConsoleSessionResponse("ready", session.Id, session.Password, null);
         }
         catch (HostKeyTrustRequiredException trust)
@@ -147,6 +164,7 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
         }
         finally
         {
+            endpoint?.Dispose();
             client?.Dispose();
         }
     }
@@ -175,13 +193,14 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
         // reject an upgrade that ignores it.
         var subProtocol = HttpContext.WebSockets.WebSocketRequestedProtocols.Contains("binary") ? "binary" : null;
         using var socket = await HttpContext.WebSockets.AcceptWebSocketAsync(subProtocol);
-        using var tcp = new TcpClient { NoDelay = true };
+        ConsoleChannel channel;
         try
         {
-            await tcp.ConnectAsync(IPAddress.Loopback, session.TunnelPort, cancellationToken);
+            channel = await session.Endpoint.OpenChannelAsync(cancellationToken);
         }
-        catch (SocketException)
+        catch (Exception ex) when (ex is SocketException or SshException or ObjectDisposedException or InvalidOperationException)
         {
+            logger.LogWarning(ex, "Couldn't open a channel of console {SessionId}", id);
             await socket.CloseOutputAsync(WebSocketCloseStatus.EndpointUnavailable, "Console closed", CancellationToken.None);
             return new EmptyResult();
         }
@@ -189,7 +208,7 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
         session.ChannelOpened();
         try
         {
-            await RelayAsync(socket, tcp.GetStream(), cancellationToken);
+            await RelayAsync(socket, channel, cancellationToken);
         }
         finally
         {
@@ -199,8 +218,8 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
         return new EmptyResult();
     }
 
-    /// <summary>Copies bytes both ways until either side closes.</summary>
-    private static async Task RelayAsync(WebSocket socket, NetworkStream stream, CancellationToken cancellationToken)
+    /// <summary>Copies bytes both ways until either side closes, then closes the channel.</summary>
+    private static async Task RelayAsync(WebSocket socket, ConsoleChannel channel, CancellationToken cancellationToken)
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
@@ -215,7 +234,8 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
                     return;
                 }
 
-                await stream.WriteAsync(buffer.AsMemory(0, result.Count), stop.Token);
+                await channel.ToVm.WriteAsync(buffer.AsMemory(0, result.Count), stop.Token);
+                await channel.ToVm.FlushAsync(stop.Token);
             }
         }
 
@@ -224,7 +244,7 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
             var buffer = new byte[64 * 1024];
             while (true)
             {
-                var read = await stream.ReadAsync(buffer, stop.Token);
+                var read = await channel.FromVm.ReadAsync(buffer, stop.Token);
                 if (read == 0)
                 {
                     return;
@@ -238,6 +258,9 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
         var vm = FromVmAsync();
         await Task.WhenAny(browser, vm);
         await stop.CancelAsync();
+
+        // Closing the channel also ends reads that can't be cancelled (a command's output).
+        await channel.DisposeAsync();
         await Task.WhenAll(browser, vm).ContinueWith(_ => { }, TaskScheduler.Default);
         if (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
         {

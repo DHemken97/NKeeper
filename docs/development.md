@@ -73,7 +73,7 @@ backend/
     Desktop/                            RDP/VNC: guacd handshake, Guacamole protocol, instruction filter, RDP certificate probe
     Idrac/                              Redfish client; iDRAC status, power and virtual console credentials
     Inventory/                          HostManager (hosts, tags, services, credentials, cloning), validation
-    Kvm/                                libvirt over SSH (virsh), SPICE and VNC console tunnels
+    Kvm/                                libvirt (virsh) and Proxmox (pvesh, qm) over SSH, SPICE and VNC consoles
     RemoteSessions/                     shared session plumbing: WebSocket protocol, target resolution, trusted keys, limits, origin check
     Security/                           antiforgery and account-status filters
     Ssh/                                SSH terminal sessions (SSH.NET)
@@ -121,7 +121,8 @@ All sessions start from a **target**: a host, one of its services, and a saved c
 - **KVM** (`/api/kvm/vms`, `/api/spice/sessions`, `/api/vnc/consoles`):
   - lists VMs by running `virsh` over SSH;
   - a console opens an SSH local port forward to the VM's SPICE or VNC port (virsh reports VNC as a display number, port 5900 + N);
-  - spice-html5 then opens one WebSocket per SPICE channel on `/api/spice/channel/{id}`, and noVNC one on `/api/vnc/channel/{id}`, each relayed raw to that forward. VNC consoles live under `/api/vnc/` so proxies already treat them as WebSockets.
+  - spice-html5 then opens one WebSocket per SPICE channel on `/api/spice/channel/{id}`, and noVNC one on `/api/vnc/channel/{id}`, each relayed raw to that forward. VNC consoles live under `/api/vnc/` so proxies already treat them as WebSockets;
+  - a Proxmox node (one with `/etc/pve/nodes`) is detected by the same listing script. Its VMs come from `pvesh get /cluster/resources`, and each VNC channel runs `qm vncproxy <vmid>` over SSH, with its stdin and stdout relayed instead of a port forward. The one-time VNC password goes in as the first line of input (`LC_PVE_TICKET`), never on a command line. A VM on another node is reached with `ssh root@<node>` from the connected node, as Proxmox does.
 
 - **iDRAC** (`/api/idrac/overview`, `/api/idrac/power`, `/api/idrac/console`):
   - an iDRAC service has its own address (`HostService.Address`), which `SessionTargetResolver` connects to instead of the host's;
@@ -146,7 +147,7 @@ cd frontend && npm run build           # type-check and production build
 | Fixture | Used for |
 | --- | --- |
 | PostgreSQL 17 | Every database test. Each test gets its own migrated database, so the migrations are tested on PostgreSQL. Or set `NKEEPER_TEST_POSTGRES` to a server connection string whose role can `CREATE DATABASE`. |
-| OpenSSH server | SSH sessions (password, key, one-off, host key trust and change), access checks, and KVM with a fake `virsh` and an echo server standing in for the SPICE and VNC displays |
+| OpenSSH server | SSH sessions (password, key, one-off, host key trust and change), access checks, and KVM with a fake `virsh` and an echo server standing in for the SPICE and VNC displays. A second one is a fake Proxmox node (fake `pvesh`, `qm` and cluster `ssh`, used through `sudo`) |
 | xrdp, x11vnc and guacd | RDP and VNC end to end, including certificate trust and the instruction filter |
 | An in-process HTTP/HTTPS server | Web sessions: proxying, cookies, framing, certificates, isolation |
 | An in-process fake iDRAC (Redfish over HTTPS) | iDRAC status, power, console credentials and launch, certificate trust |
