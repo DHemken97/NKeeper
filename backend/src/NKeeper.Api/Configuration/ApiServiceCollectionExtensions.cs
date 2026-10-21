@@ -89,6 +89,8 @@ internal static class ApiServiceCollectionExtensions
         services.AddHostedService<NKeeper.Api.Health.HealthMonitor>();
         services.AddOptions<WebProxySettings>()
             .Bind(configuration.GetSection(WebProxySettings.SectionName))
+            // Installers write the setting even when it's blank: blank means the default (web.<host>).
+            .PostConfigure(web => web.BaseDomain = string.IsNullOrWhiteSpace(web.BaseDomain) ? null : web.BaseDomain.Trim().TrimEnd('.').ToLowerInvariant())
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddHttpForwarder();
