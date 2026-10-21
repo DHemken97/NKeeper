@@ -69,7 +69,7 @@ public sealed class MigrationHostsFixture : IAsyncLifetime
             "set -e; rm -rf /var/lib/fake-virsh /var/lib/fake-mount /var/lib/fake-drbd /var/lib/fake-disk /srv/vms /var/lib/libvirt/images"
             + " && mkdir -p /var/lib/fake-virsh /var/lib/fake-mount /var/lib/fake-drbd /var/lib/fake-disk/drbd0"
             + " && touch /var/lib/fake-mount/table && echo 'qcow2 image' > /var/lib/fake-disk/drbd0/web.qcow2"
-            + " && { [ -b /dev/drbd0 ] || mknod /dev/drbd0 b 147 0; }"
+            + " && { [ -b /dev/drbd0 ] || mknod /dev/drbd0 b 147 0; } && { [ -b /dev/sda2 ] || mknod /dev/sda2 b 8 2; }"
             + $" && echo '{UserName} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/nkeeper-test && chmod 440 /etc/sudoers.d/nkeeper-test";
         const string xml =
             $"<domain type='kvm'>\\n  <name>web</name>\\n  <uuid>{VmUuid}</uuid>\\n  <devices>\\n    <disk type='file' device='disk'>\\n      <source file='/srv/vms/web.qcow2'/>\\n      <target dev='vda'/>\\n    </disk>\\n  </devices>\\n</domain>\\n";

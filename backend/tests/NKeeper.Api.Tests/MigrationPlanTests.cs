@@ -165,7 +165,7 @@ public sealed class MigrationPlanTests
     [Fact]
     public void LocalDisks_BlockLibvirt_AndNeedCopyingOnProxmox()
     {
-        var local = new GuestDisk("scsi0", "/dev/pve/vm-100-disk-0", DiskLayouts.Local, null, [], "local-lvm");
+        var local = new GuestDisk("scsi0", "/dev/pve/vm-100-disk-0", DiskLayouts.Local, null, [new StorageLayer(LayerKinds.Lvm, "pve/vm-100-disk-0"), new StorageLayer(LayerKinds.Local, "sda")], "local-lvm");
 
         Assert.Contains(MigrationPlanner.Plan(Input([local]), new MigrationOptions()).Blockers, b => b.Contains("can only copy image files", StringComparison.Ordinal));
         Assert.Contains(MigrationPlanner.Plan(Input([local], via: "proxmox"), new MigrationOptions()).Blockers, b => b.Contains("copy local disks", StringComparison.Ordinal));
@@ -222,6 +222,21 @@ public sealed class MigrationPlanTests
     }
 
     [Fact]
+    public void AnImageFileWhoseStorageCouldntBeTraced_IsNeverCopied()
+    {
+        // Even with its image read: it may be on DRBD or iSCSI, which has to move instead.
+        var untraced = LocalFile with { Layers = [], Note = "NKeeper couldn't tell what this is stored on." };
+
+        var plan = MigrationPlanner.Plan(Input([untraced], images: Image()), new MigrationOptions { WithLocalDisks = true });
+
+        Assert.Contains(plan.Blockers, b => b.Contains("couldn't tell what disk vda", StringComparison.Ordinal));
+        Assert.DoesNotContain(plan.Steps, s => s.Kind is StepKinds.DiskCopy or StepKinds.DiskCreate);
+        Assert.False(StorageTrace.IsLocalFile(untraced));
+        Assert.False(StorageTrace.IsLocalFile(OnDrbdFilesystem));
+        Assert.True(StorageTrace.IsLocalFile(LocalFile));
+    }
+
+    [Fact]
     public void StoppedVm_IsMovedWithoutShuttingDownOrStarting()
     {
         var plan = MigrationPlanner.Plan(Input([OnDrbdFilesystem], state: "shut off"), new MigrationOptions());
@@ -261,6 +276,27 @@ public sealed class MigrationPlanTests
             vda.Layers);
         Assert.Equal(DiskLayouts.Network, result.Disks[1].Layout);
         Assert.Equal("vg0-db (/srv/db)", result.IscsiInUse[("iqn.2003-01.org.example.san:disk1", "10.0.0.5:3260")]);
+    }
+
+    [Fact]
+    public void Trace_KnowsAnIscsiSessionsDisk_WhenLsblkDoesntSayIscsi()
+    {
+        var status = new StorageStatus(
+            new IscsiStatus(null, [new IscsiSession("iqn.2003-01.org.example.san:vms", "10.0.0.5:3260", "LOGGED_IN", ["sdc"])], []),
+            null,
+            null);
+        var output = string.Join('\n',
+            "@@disk",
+            "@@mount",
+            """{"filesystems":[{"source":"/dev/sdc1","target":"/srv/vms","fstype":"ext4","uuid":"abcd"}]}""",
+            "@@tree",
+            """{"blockdevices":[{"name":"sdc1","kname":"sdc1","type":"part","tran":null,"children":[{"name":"sdc","kname":"sdc","type":"disk","tran":null}]}]}""");
+
+        var disk = Assert.Single(StorageTrace.Parse(output, [new DiskPath("vda", "/srv/vms/web.qcow2")], status).Disks);
+
+        Assert.Equal(DiskLayouts.Filesystem, disk.Layout);
+        Assert.Equal([new StorageLayer(LayerKinds.Iscsi, "iqn.2003-01.org.example.san:vms", "10.0.0.5:3260")], disk.Layers);
+        Assert.False(StorageTrace.IsLocalFile(disk));
     }
 
     [Fact]

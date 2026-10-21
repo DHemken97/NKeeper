@@ -165,13 +165,22 @@ internal static class MigrationPlanner
             var where = disk.Storage is null ? disk.Path : $"{disk.Storage} ({disk.Path})";
             if (input.Via == "kvm")
             {
-                if (input.LocalImages?.TryGetValue(disk.Path, out var image) == true)
+                // Only a file traced down to the old host's own disks is copied; one that might be on DRBD or iSCSI never is.
+                if (!disk.Layers.Any(l => l.Kind == LayerKinds.Local))
+                {
+                    blockers.Add($"NKeeper couldn't tell what disk {disk.Name} ({disk.Path}) is stored on, so it won't copy it: it may be on shared storage (DRBD, iSCSI) that moves instead.");
+                }
+                else if (!StorageTrace.IsLocalFile(disk))
+                {
+                    blockers.Add($"Disk {disk.Name} ({disk.Path}) is a device on {source}'s own disks; NKeeper can only copy image files.");
+                }
+                else if (input.LocalImages?.TryGetValue(disk.Path, out var image) == true)
                 {
                     localFiles.Add((disk, image));
                 }
                 else
                 {
-                    blockers.Add($"Disk {disk.Name} ({disk.Path}) is a device on {source}'s own disks; NKeeper can only copy image files.");
+                    blockers.Add($"NKeeper couldn't read the image file {disk.Path} on {source}.");
                 }
             }
             else if (!copyLocal)

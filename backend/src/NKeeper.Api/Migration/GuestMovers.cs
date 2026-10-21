@@ -564,8 +564,8 @@ internal sealed partial class LibvirtMover(Guid vm, string vmName, SshClient sou
 
     protected override async Task<IReadOnlyDictionary<string, LocalImage>?> LocalImagesAsync(IReadOnlyList<GuestDisk> disks, CancellationToken cancellationToken)
     {
-        // Files (not devices) on the old host's own storage.
-        var files = disks.Where(d => d.Layout == DiskLayouts.Local && d.Mount is not null).Select(d => StorageTrace.Quoted(d.Path)).Distinct().ToList();
+        // Files (not devices) on the old host's own disks; files on DRBD or iSCSI move with that storage.
+        var files = disks.Where(StorageTrace.IsLocalFile).Select(d => StorageTrace.Quoted(d.Path)).Distinct().ToList();
         if (files.Count == 0)
         {
             return null;

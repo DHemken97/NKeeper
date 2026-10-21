@@ -106,6 +106,16 @@ internal static partial class StorageTrace
         return script.ToString();
     }
 
+    /// <summary>
+    /// An image file on a file system traced down to the host's own disks, with no DRBD, multipath or
+    /// iSCSI under it: the only kind of disk NKeeper copies. A file on shared storage moves with that
+    /// storage, and one whose storage couldn't be traced might be on it.
+    /// </summary>
+    internal static bool IsLocalFile(GuestDisk disk) =>
+        disk.Layout == DiskLayouts.Local && disk.Mount is not null
+        && disk.Layers.Any(l => l.Kind == LayerKinds.Local)
+        && !disk.Layers.Any(l => l.Kind is LayerKinds.Drbd or LayerKinds.Multipath or LayerKinds.Iscsi);
+
     /// <summary>A path that came from the host's own tools, checked so it can go in single quotes.</summary>
     internal static string Quoted(string path) =>
         SafePath().IsMatch(path) ? path : throw new SessionException(SessionErrorCodes.ConnectionFailed, $"NKeeper can't handle the disk path “{path}”.");
@@ -245,13 +255,14 @@ internal static partial class StorageTrace
         {
             layer = new StorageLayer(LayerKinds.Lvm, lvs.GetValueOrDefault($"/dev/mapper/{name}") ?? name);
         }
-        else if (type == "mpath")
+        else if (type == "mpath" || status.Multipath?.Any(m => m.DmDevice == kname) == true)
         {
-            var map = status.Multipath?.FirstOrDefault(m => m.Name == name || m.Wwid == name);
+            var map = status.Multipath?.FirstOrDefault(m => m.Name == name || m.Wwid == name || m.DmDevice == kname);
             layer = new StorageLayer(LayerKinds.Multipath, map?.Wwid ?? name, map?.Name ?? name);
         }
-        else if (type == "disk" && Text(device, "tran") == "iscsi")
+        else if (type == "disk" && (Text(device, "tran") == "iscsi" || status.Iscsi?.Sessions.Any(s => s.Disks.Contains(kname)) == true))
         {
+            // An iSCSI session's disk even when lsblk doesn't say so (older lsblk leaves TRAN empty).
             var session = status.Iscsi?.Sessions.FirstOrDefault(s => s.Disks.Contains(kname));
             layer = session is null ? new StorageLayer(LayerKinds.Iscsi, kname) : new StorageLayer(LayerKinds.Iscsi, session.Target, session.Portal);
         }
