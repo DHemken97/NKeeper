@@ -13,7 +13,8 @@ Provenance:
 
 Contents: `src/*.js` and `src/thirdparty/{jsbn,prng4,rng,rsa,sha1}.js`, **unmodified**. Not
 included: the demo pages and `thirdparty/browser-es-module-loader` (a development polyfill).
-`main.d.ts` is NKeeper's own type declaration for the parts NKeeper uses.
+`main.d.ts`, `spicemsg.d.ts` and `enums.d.ts` are NKeeper's own type declarations for the
+parts NKeeper uses.
 
 NKeeper loads it only for VM consoles (lazy-loaded) and does not use its drag-and-drop file
 transfer or window-resize helpers, which rely on a page-global connection. Because the library

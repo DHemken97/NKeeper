@@ -3,9 +3,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { api, ApiError, apiWebSocketUrl } from '../../../lib/api'
 import { certificatePrompt, hostKeyPrompt, kvmRequestBody, proxmoxConsoleBody, type CertificatePrompt, type HostKeyPrompt } from '../kvm'
+import { typeIntoVnc } from '../typeText'
 import type { RemoteSession, SessionPhase } from '../types'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
 import styles from './Session.module.css'
+import { TypeClipboardButton } from './TypeClipboardButton'
 
 interface VncConsoleProps {
   session: RemoteSession
@@ -190,6 +192,10 @@ export function VncConsole({ session, active, onShowHost, via = 'kvm' }: VncCons
             <Button variant="ghost" size="sm" onClick={ctrlAltDel}>
               Ctrl+Alt+Del
             </Button>
+            <TypeClipboardButton
+              type={(text, signal) => (rfbRef.current ? typeIntoVnc(rfbRef.current, text, signal) : Promise.reject(new Error('The console is closed.')))}
+              onDone={() => rfbRef.current?.focus({ preventScroll: true })}
+            />
             <Button variant="ghost" size="sm" onClick={() => void toggleFullscreen()}>
               Fullscreen
             </Button>

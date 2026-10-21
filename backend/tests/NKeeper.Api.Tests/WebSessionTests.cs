@@ -29,6 +29,21 @@ public sealed class WebSessionTests(PostgresServerFixture postgres, WebTargetFix
 
     public async ValueTask DisposeAsync() => await _factory.DisposeAsync();
 
+    [Theory]
+    [InlineData("", null)]
+    [InlineData("   ", null)]
+    [InlineData(" Web.Example.NET. ", "web.example.net")]
+    public async Task BaseDomain_BlankMeansTheDefault(string configured, string? expected)
+    {
+        // Installers write WebProxy__BaseDomain even when it's empty.
+        await using var factory = new NKeeperApiFactory(
+            await postgres.CreateDatabaseAsync(Ct), settings: new Dictionary<string, string> { ["WebProxy:BaseDomain"] = configured });
+
+        var settings = factory.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<NKeeper.Api.Configuration.WebProxySettings>>().Value;
+
+        Assert.Equal(expected, settings.BaseDomain);
+    }
+
     [Fact]
     public async Task HttpSession_RelaysTheTarget_AsIfBrowsedDirectly()
     {

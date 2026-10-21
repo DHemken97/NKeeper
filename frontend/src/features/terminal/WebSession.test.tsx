@@ -183,6 +183,14 @@ describe('sessionOrigin', () => {
     expect(sessionOrigin('abc', 'nkeeper-web.example.net', location)).toBe('https://nkw-abc.nkeeper-web.example.net')
   })
 
+  it('treats a blank base domain (an empty setting) as the default', () => {
+    const location = { protocol: 'https:', hostname: 'nkeeper.example.com', port: '' }
+    expect(sessionOrigin('abc', '', location)).toBe('https://nkw-abc.web.nkeeper.example.com')
+    expect(sessionOrigin('abc', '  ', location)).toBe('https://nkw-abc.web.nkeeper.example.com')
+    expect(sessionOrigin('abc', 'web.example.net.', location)).toBe('https://nkw-abc.web.example.net')
+    expect(sessionOrigin('abc', '', { protocol: 'http:', hostname: '10.0.0.5', port: '' })).toBeNull()
+  })
+
   it('needs a host name or a base domain when NKeeper is opened by IP address', () => {
     expect(sessionOrigin('abc', null, { protocol: 'http:', hostname: '10.0.0.5', port: '8080' })).toBeNull()
     expect(sessionOrigin('abc', null, { protocol: 'http:', hostname: '[::1]', port: '8080' })).toBeNull()

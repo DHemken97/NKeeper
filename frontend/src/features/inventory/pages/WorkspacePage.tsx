@@ -9,11 +9,11 @@ import { accountApi } from '../../account/api/accountApi'
 import { healthApi, hostsApi } from '../api/inventoryApi'
 import { BulkEditPanel } from '../components/BulkEditPanel'
 import { GroupByPicker } from '../components/GroupByPicker'
+import { GuestTaskDialog } from '../components/GuestTaskDialog'
 import { HostDetails } from '../components/HostDetails'
 import { HostEditor } from '../components/HostEditor'
 import { HostTree, type SelectMode } from '../components/HostTree'
 import { ImportHostsDialog } from '../components/ImportHostsDialog'
-import { ProxmoxTaskDialog } from '../components/ProxmoxTaskDialog'
 import { ScanDialog } from '../components/ScanDialog'
 import {
   buildTree,
@@ -38,11 +38,12 @@ import {
   directWebUrl,
   hostMenuEntries,
   IDRAC_MODES,
-  proxmoxVmId,
+  guestId,
   serviceLabel,
   WEB_PROTOCOLS,
   type HostMenuActions,
-  type ProxmoxTask,
+  type GuestTask,
+  type GuestVia,
   type ConnectMode,
   type IdracMode,
 } from '../hostMenu'
@@ -75,6 +76,7 @@ const VirtualMachinesView = lazy(() =>
 )
 const SpiceConsole = lazy(() => import('../../terminal/components/SpiceConsole').then((m) => ({ default: m.SpiceConsole })))
 const VncConsole = lazy(() => import('../../terminal/components/VncConsole').then((m) => ({ default: m.VncConsole })))
+const KvmVmConsole = lazy(() => import('../../terminal/components/KvmVmConsole').then((m) => ({ default: m.KvmVmConsole })))
 const FileBrowser = lazy(() => import('../../terminal/components/FileBrowser').then((m) => ({ default: m.FileBrowser })))
 const StorageView = lazy(() => import('../../terminal/components/StorageView').then((m) => ({ default: m.StorageView })))
 const IdracView = lazy(() => import('../../terminal/components/IdracView').then((m) => ({ default: m.IdracView })))
@@ -198,17 +200,16 @@ export function WorkspacePage() {
     account?: HostCredential
     purpose: 'connect' | 'scan'
     mode?: ConnectMode
-    /** A Proxmox VM whose console opens through `host`, its hypervisor. */
-    vm?: Host
-    /** With `vm`: a Proxmox task to run instead of opening the console. */
-    proxmoxTask?: ProxmoxTask
+    /** A VM whose console opens (or task runs) through `host`, its hypervisor. */
+    vm?: { host: Host; via: GuestVia; task?: GuestTask }
   } | null>(null)
-  /** Tasks ▸ Proxmox: an action on a VM through its node's Proxmox service. */
-  const [proxmoxTask, setProxmoxTask] = useState<{
+  /** Tasks ▸ Proxmox / KVM: an action on a VM through its hypervisor's service. */
+  const [guestTask, setGuestTask] = useState<{
     vm: Host
     node: Host
     serviceIndex: number
-    task: ProxmoxTask
+    via: GuestVia
+    task: GuestTask
     credentialId?: string
     oneOff?: { username: string; password: string; domain?: string }
   } | null>(null)
@@ -367,16 +368,20 @@ export function WorkspacePage() {
     setActiveTab(id)
   }
 
-  /** Opens a Proxmox VM host's console through its node's Proxmox service (the Proxmox API); the tab belongs to the VM. */
-  function openProxmoxConsole(
+  /**
+   * Opens a VM host's console through its hypervisor: Proxmox's API, or its libvirt host over SSH
+   * (whose VM is looked up first, to open SPICE or VNC). The tab belongs to the VM.
+   */
+  function openGuestConsole(
     vm: Host,
     hypervisor: Host,
     serviceIndex: number,
+    via: GuestVia,
     credential?: HostCredential,
     oneOff?: { username: string; password: string; domain?: string },
   ) {
-    const vmId = proxmoxVmId(vm)
-    if (!vmId) {
+    const guest = guestId(vm)
+    if (!guest) {
       return
     }
     const id = `session-${nextSessionId++}`
@@ -386,13 +391,23 @@ export function WorkspacePage() {
       {
         id,
         hostId: vm.id,
-        protocol: 'pvevnc',
+        protocol: via === 'proxmox' ? 'pvevnc' : 'kvmvm',
         title: vm.name,
-        detail: ['Proxmox console', hypervisor.name, account].filter(Boolean).join(' · '),
-        request: { hostId: hypervisor.id, serviceIndex, credentialId: credential?.id, oneOff, vm: { id: vmId, name: vm.name } },
+        detail: [via === 'proxmox' ? 'Proxmox console' : 'KVM console', hypervisor.name, account].filter(Boolean).join(' · '),
+        request: { hostId: hypervisor.id, serviceIndex, credentialId: credential?.id, oneOff, vm: { id: guest.id, name: vm.name } },
       },
     ])
     setActiveTab(id)
+  }
+
+  /** A libvirt VM's console tab, once its display is known: SPICE (one at a time) or VNC. */
+  function showKvmConsole(sessionId: string, display: 'spice' | 'vnc') {
+    const protocol = display === 'vnc' ? 'vmvnc' : 'spice'
+    setSessions((current) =>
+      current
+        .filter((s) => s.id === sessionId || protocol !== 'spice' || s.protocol !== 'spice')
+        .map((s) => (s.id === sessionId ? { ...s, protocol } : s)),
+    )
   }
 
   /** Opens a VM's console from a KVM host's tab, with the same login. */
@@ -455,14 +470,16 @@ export function WorkspacePage() {
         ? setScan({ host, kind: 'internal', login: { serviceIndex, credentialId: credential.id } })
         : setPrompt({ host, serviceIndex, account: credential, purpose: 'scan' }),
     scanExternal: (host) => setScan({ host, kind: 'external' }),
-    proxmoxConsole: {
+    guests: {
       hypervisorOf: (vm) => (vm.hypervisorId ? allHosts?.find((h) => h.id === vm.hypervisorId) : undefined),
-      connect: (vm, hypervisor, serviceIndex, credential) => openProxmoxConsole(vm, hypervisor, serviceIndex, credential),
-      connectWithPrompt: (vm, hypervisor, serviceIndex, account) => setPrompt({ host: hypervisor, serviceIndex, account, purpose: 'connect', vm }),
-      runTask: (vm, node, serviceIndex, task, credential, ask) =>
+      openConsole: (vm, hypervisor, serviceIndex, via, credential, ask) =>
         ask
-          ? setPrompt({ host: node, serviceIndex, account: credential, purpose: 'connect', vm, proxmoxTask: task })
-          : setProxmoxTask({ vm, node, serviceIndex, task, credentialId: credential?.id }),
+          ? setPrompt({ host: hypervisor, serviceIndex, account: credential, purpose: 'connect', vm: { host: vm, via } })
+          : openGuestConsole(vm, hypervisor, serviceIndex, via, credential),
+      runTask: (vm, node, serviceIndex, via, task, credential, ask) =>
+        ask
+          ? setPrompt({ host: node, serviceIndex, account: credential, purpose: 'connect', vm: { host: vm, via, task } })
+          : setGuestTask({ vm, node, serviceIndex, via, task, credentialId: credential?.id }),
     },
   }
 
@@ -830,6 +847,14 @@ export function WorkspacePage() {
                 host={allHosts?.find((h) => h.id === session.hostId)}
                 onHostChanged={handleChanged}
               />
+            ) : session.protocol === 'kvmvm' ? (
+              <KvmVmConsole
+                key={session.id}
+                session={session}
+                active={activeTab === session.id}
+                onShowHost={(id) => showHost(id)}
+                onDisplay={(display) => showKvmConsole(session.id, display)}
+              />
             ) : session.protocol === 'spice' ? (
               <SpiceConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'vmvnc' || session.protocol === 'pvevnc' ? (
@@ -885,16 +910,17 @@ export function WorkspacePage() {
             const domain = prompt.account?.domain ?? undefined
             if (prompt.purpose === 'scan') {
               setScan({ host: prompt.host, kind: 'internal', login: { serviceIndex: prompt.serviceIndex, username, password, ...(domain ? { domain } : {}) } })
-            } else if (prompt.vm && prompt.proxmoxTask) {
-              setProxmoxTask({
-                vm: prompt.vm,
+            } else if (prompt.vm?.task) {
+              setGuestTask({
+                vm: prompt.vm.host,
                 node: prompt.host,
                 serviceIndex: prompt.serviceIndex,
-                task: prompt.proxmoxTask,
+                via: prompt.vm.via,
+                task: prompt.vm.task,
                 oneOff: { username, password, ...(domain ? { domain } : {}) },
               })
             } else if (prompt.vm) {
-              openProxmoxConsole(prompt.vm, prompt.host, prompt.serviceIndex, undefined, { username, password, ...(domain ? { domain } : {}) })
+              openGuestConsole(prompt.vm.host, prompt.host, prompt.serviceIndex, prompt.vm.via, undefined, { username, password, ...(domain ? { domain } : {}) })
             } else {
               openSession(prompt.host, prompt.serviceIndex, undefined, { username, password, ...(domain ? { domain } : {}) }, prompt.mode)
             }
@@ -903,7 +929,7 @@ export function WorkspacePage() {
           onCancel={() => setPrompt(null)}
         />
       ) : null}
-      {proxmoxTask ? <ProxmoxTaskDialog {...proxmoxTask} onClose={() => setProxmoxTask(null)} /> : null}
+      {guestTask ? <GuestTaskDialog {...guestTask} onClose={() => setGuestTask(null)} /> : null}
       {scan ? (
         <ScanDialog
           host={scan.host}

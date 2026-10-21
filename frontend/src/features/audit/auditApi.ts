@@ -93,6 +93,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'account.change_password': 'Own password changed',
   'idrac.power': 'Power action',
   'proxmox.power': 'Proxmox power action',
+  'kvm.power': 'KVM power action',
   'proxmox.migrate': 'Proxmox migration',
   'storage.action': 'Storage action',
   'transfer.export': 'Data exported',
