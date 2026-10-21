@@ -87,7 +87,9 @@ public sealed class StorageTests(PostgresServerFixture postgres, StorageServerFi
         Assert.Equal("Found 1 target, 1 new.", discovered.GetProperty("message").GetString());
         Assert.Contains(new IscsiNode(Disk3, "10.0.0.9:3260", false), Storage(discovered).Iscsi!.Nodes);
 
-        var loggedIn = Storage(await ActAsync(host, StorageActions.IscsiLogin, target: Disk3, portal: "10.0.0.9:3260,1"));
+        var login = await ActAsync(host, StorageActions.IscsiLogin, target: Disk3, portal: "10.0.0.9:3260,1");
+        Assert.Equal($"Logged in to {Disk3} at 10.0.0.9:3260; its disks here: sdc.", login.GetProperty("message").GetString());
+        var loggedIn = Storage(login);
         Assert.Equal([Disk1, Disk3], loggedIn.Iscsi!.Sessions.Select(s => s.Target));
 
         var loggedOut = Storage(await ActAsync(host, StorageActions.IscsiLogout, target: Disk1, portal: "10.0.0.5:3260"));
@@ -117,6 +119,20 @@ public sealed class StorageTests(PostgresServerFixture postgres, StorageServerFi
         Assert.Equal(
             "iSCSI discovery · 10.0.0.66:3260 failed: iscsiadm: cannot make connection to 10.0.0.66:3260: Connection refused.",
             (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task ALoginThatExitsCleanlyButDoesntLogIn_IsReportedAsFailed()
+    {
+        var host = await CreateTrustedHostAsync();
+        await san.MakeLoginsSilentAsync();
+
+        var response = await ActResponseAsync(host, StorageActions.IscsiLogin, target: Disk2, portal: "10.0.0.5:3260");
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.Equal(
+            $"iSCSI login · {Disk2} · 10.0.0.5:3260 didn't take effect: the host has no session to {Disk2} at 10.0.0.5:3260 afterwards. The tool printed nothing and reported success.",
+            (await response.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("detail").GetString());
     }
 
     [Theory]

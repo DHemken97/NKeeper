@@ -240,7 +240,8 @@ internal sealed partial class MigrationJob(
             (StepKinds.IscsiDiscover, false) => $"$p iscsiadm -m discovery -t sendtargets -p '{Arg("portal")}' >/dev/null; echo same",
             (StepKinds.IscsiLogin, false) or (StepKinds.IscsiLogout, true) => IscsiSession(Arg("target"), Arg("portal"))
                 + "&& { echo same; exit 0; }; "
-                + $"$p iscsiadm -m node -T '{Arg("target")}' -p '{Arg("portal")}' --login >/dev/null && {{ command -v udevadm >/dev/null && $p udevadm settle; echo changed; }}",
+                + $"$p iscsiadm -m node -T '{Arg("target")}' -p '{Arg("portal")}' --login >/dev/null && {{ command -v udevadm >/dev/null && $p udevadm settle; }}; "
+                + IscsiSession(Arg("target"), Arg("portal")) + $"&& echo changed || {{ echo 'iscsiadm reported success, but there is no session to {Arg("target")} at {Arg("portal")}' >&2; exit 1; }}",
             (StepKinds.IscsiLogin, true) => $"$p iscsiadm -m node -T '{Arg("target")}' -p '{Arg("portal")}' --logout >/dev/null",
             (StepKinds.IscsiLogout, false) => IscsiSession(Arg("target"), Arg("portal")) + "|| { echo same; exit 0; }; "
                 + IscsiUnused(Arg("target"), Arg("portal"))
@@ -305,7 +306,8 @@ internal sealed partial class MigrationJob(
             : a.TryGetValue("wwid", out var wwid) ? $"d='/dev/disk/by-id/dm-uuid-mpath-{Safe(wwid)}'"
             : a.TryGetValue("uuid", out var uuid) ? $"d='UUID={Safe(uuid)}'"
             : $"d='{StorageTrace.Quoted(a["device"])}'";
-        return $"mountpoint -q '{mountpoint}' && {{ echo same; exit 0; }}; {device}; $p mkdir -p '{mountpoint}' && $p mount -t '{fstype}' \"$d\" '{mountpoint}' && echo changed";
+        return $"mountpoint -q '{mountpoint}' && {{ echo same; exit 0; }}; {device}; $p mkdir -p '{mountpoint}' && $p mount -t '{fstype}' \"$d\" '{mountpoint}' || exit 1; "
+            + $"mountpoint -q '{mountpoint}' && echo changed || {{ echo 'mount reported success, but {mountpoint} is not mounted' >&2; exit 1; }}";
     }
 
     private static string CheckPaths(string paths)

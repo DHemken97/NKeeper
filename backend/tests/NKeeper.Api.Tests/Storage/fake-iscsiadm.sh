@@ -1,7 +1,8 @@
 #!/bin/sh
 # Fake iscsiadm for NKeeper's tests. Known targets ("portal,group target") are kept in nodes and
 # logged-in sessions ("portal target") in sessions. Discovery at 10.0.0.9 finds a third target;
-# other portals don't answer. Like the real one it needs root.
+# other portals don't answer. Like the real one it needs root. With a "silent" file, logins exit 0
+# without logging in (as a misconfigured initiator can).
 [ "$(id -u)" = 0 ] || { echo "iscsiadm: must be run as root" >&2; exit 1; }
 d=/var/lib/fake-iscsi
 args="$*"
@@ -31,6 +32,7 @@ case "$args" in
   "-m session --rescan")
     echo "Rescanning session [sid: 1, target: iqn.2003-01.org.example.san:disk1, portal: 10.0.0.5,3260]" ;;
   "-m node -T "*" -p "*" --login")
+    [ -f $d/silent ] && exit 0
     set -- $args; t=$4; p=$6
     grep -q " $t\$" $d/nodes || { echo "iscsiadm: No records found" >&2; exit 21; }
     echo "$p $t" >> $d/sessions

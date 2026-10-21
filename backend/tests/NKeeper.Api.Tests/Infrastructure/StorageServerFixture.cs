@@ -84,6 +84,12 @@ public sealed class StorageServerFixture : IAsyncLifetime
         }
     }
 
+    /// <summary>Makes iSCSI logins exit 0 without logging in.</summary>
+    public async Task MakeLoginsSilentAsync()
+    {
+        await _container!.ExecAsync(["touch", "/var/lib/fake-iscsi/silent"]);
+    }
+
     /// <summary>Takes away the test user's sudo, as on a host where it needs a password.</summary>
     public async Task RemoveSudoAsync()
     {

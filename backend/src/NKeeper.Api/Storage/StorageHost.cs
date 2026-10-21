@@ -108,9 +108,61 @@ internal static partial class StorageHost
     public static async Task<StorageStatus> GetStatusAsync(SshClient client, CancellationToken cancellationToken) =>
         ParseStatus(await RunAsync(client, StatusScript, StatusTimeout, "Reading the host's storage", cancellationToken));
 
-    /// <summary>Runs an action's command; returns what it printed.</summary>
+    /// <summary>Runs an action's command; returns everything it printed (its errors and warnings too).</summary>
     public static Task<string> RunActionAsync(SshClient client, StorageCommand command, CancellationToken cancellationToken) =>
-        RunAsync(client, AsRoot + command.Script, ActionTimeout, command.Description, cancellationToken);
+        RunAsync(client, AsRoot + command.Script, ActionTimeout, command.Description, cancellationToken, withErrors: true);
+
+    /// <summary>
+    /// Why an action that exited cleanly didn't do what it should have, judged by the host's storage
+    /// afterwards (<paramref name="after"/>); null when it did. A tool can exit 0 without having
+    /// done it, so success is never taken from the exit code alone.
+    /// </summary>
+    internal static string? Unachieved(string action, string? target, string? portal, string? name, StorageStatus after)
+    {
+        var at = NormalizePortal(portal);
+        var session = after.Iscsi?.Sessions.FirstOrDefault(s => s.Target == target && s.Portal == at);
+        var map = after.Multipath?.FirstOrDefault(m => m.Name == name);
+        var resource = after.Drbd?.FirstOrDefault(r => r.Name == name);
+        return action switch
+        {
+            StorageActions.IscsiLogin when session is null =>
+                after.Iscsi?.Sessions.Any(s => s.Target == target) == true
+                    ? $"the host has a session to {target}, but not through {at}"
+                    : $"the host has no session to {target} at {at} afterwards",
+            StorageActions.IscsiLogin when session.State != "LOGGED_IN" => $"the session to {target} is {session.State}, not logged in",
+            StorageActions.IscsiLogout when session is not null => $"the host is still logged in to {target} at {at}",
+            StorageActions.MultipathFlush when map is not null => $"the multipath map {name} is still there",
+            StorageActions.DrbdUp when resource is not { Up: true } => $"{name} isn't up afterwards",
+            StorageActions.DrbdDown when resource is { Up: true } => $"{name} is still up",
+            StorageActions.DrbdPrimary when resource?.Role != "Primary" => $"{name} is {resource?.Role ?? "down"}, not Primary",
+            StorageActions.DrbdSecondary when resource?.Role != "Secondary" => $"{name} is {resource?.Role ?? "down"}, not Secondary",
+            StorageActions.DrbdDisconnect when resource?.Peers.Any(p => p.ConnectionState != "StandAlone") == true => $"{name} is still connected to its peers",
+            StorageActions.DrbdConnect when resource?.Peers.Any(p => p.ConnectionState == "StandAlone") == true => $"{name} is still disconnected (StandAlone)",
+            _ => null,
+        };
+    }
+
+    /// <summary>What a successful action changed, from the host's storage afterwards.</summary>
+    internal static string Achieved(string action, string? target, string? portal, string? name, StorageStatus after)
+    {
+        var at = NormalizePortal(portal);
+        var session = after.Iscsi?.Sessions.FirstOrDefault(s => s.Target == target && s.Portal == at);
+        var resource = after.Drbd?.FirstOrDefault(r => r.Name == name);
+        return action switch
+        {
+            StorageActions.IscsiLogin => $"Logged in to {target} at {at}{(session is { Disks.Count: > 0 } ? $"; its disks here: {string.Join(", ", session.Disks)}" : "; it has attached no disks (yet)")}.",
+            StorageActions.IscsiLogout => $"Logged out of {target} at {at}.",
+            StorageActions.IscsiRescan => "Rescanned the iSCSI sessions for new or resized LUNs.",
+            StorageActions.MultipathReload => "Reloaded the multipath maps.",
+            StorageActions.MultipathFlush => $"Removed the multipath map {name}.",
+            StorageActions.DrbdUp or StorageActions.DrbdPrimary or StorageActions.DrbdSecondary or StorageActions.DrbdAdjust =>
+                $"{name} is {(resource is { Up: true } ? resource.Role ?? "up" : "down")}{(resource is { Up: true } ? $", disk {string.Join("/", resource.Volumes.Select(v => v.DiskState ?? "unknown"))}" : "")}.",
+            StorageActions.DrbdDown => $"{name} is down.",
+            StorageActions.DrbdConnect or StorageActions.DrbdDisconnect =>
+                $"{name}: {(resource is null || resource.Peers.Count == 0 ? "no peers" : string.Join(", ", resource.Peers.Select(p => $"{p.Name} {p.ConnectionState}")))}.",
+            _ => "Done.",
+        };
+    }
 
     /// <summary>Runs a script as root (<c>$p</c> runs a command as root, the tools' folders are on the path); returns its output.</summary>
     /// <param name="what">What it does, for errors, e.g. "Mounting /srv/vms".</param>
@@ -246,7 +298,7 @@ internal static partial class StorageHost
             {
                 Finish();
                 var name = line["Target:".Length..].Trim().Split(' ')[0];
-                target = Iqn().IsMatch(name) ? name : null;
+                target = ShownName().IsMatch(name) ? name : null;
             }
             else if (line.StartsWith("Current Portal:", StringComparison.Ordinal))
             {
@@ -271,7 +323,7 @@ internal static partial class StorageHost
     internal static List<IscsiNode> ParseIscsiNodes(IEnumerable<string> lines, IReadOnlyList<IscsiSession> sessions) =>
         [.. lines
             .Select(l => l.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries))
-            .Where(f => f.Length == 2 && Iqn().IsMatch(f[1]) && NormalizePortal(f[0]) is { } p && PortalFormat().IsMatch(p))
+            .Where(f => f.Length == 2 && ShownName().IsMatch(f[1]) && NormalizePortal(f[0]) is { } p && ShownName().IsMatch(p))
             .Select(f => (Target: f[1], Portal: NormalizePortal(f[0])!))
             .Distinct()
             .Select(n => new IscsiNode(n.Target, n.Portal, sessions.Any(s => s.Target == n.Target && s.Portal == n.Portal)))
@@ -447,7 +499,8 @@ internal static partial class StorageHost
 
     private static SessionException Refused(string message) => new(SessionErrorCodes.BadRequest, message);
 
-    private static async Task<string> RunAsync(SshClient client, string script, TimeSpan timeout, string what, CancellationToken cancellationToken)
+    /// <param name="withErrors">Return what it wrote to stderr too (after its output), e.g. iscsiadm's messages.</param>
+    private static async Task<string> RunAsync(SshClient client, string script, TimeSpan timeout, string what, CancellationToken cancellationToken, bool withErrors = false)
     {
         using var command = client.CreateCommand(script);
         command.CommandTimeout = timeout;
@@ -461,7 +514,7 @@ internal static partial class StorageHost
         }
 
         return command.ExitStatus is 0
-            ? command.Result
+            ? withErrors ? $"{command.Result}\n{command.Error}" : command.Result
             : throw new SessionException(SessionErrorCodes.ConnectionFailed, RefusedMessage(what, command.Error.Trim(), command.ExitStatus));
     }
 
@@ -500,6 +553,14 @@ internal static partial class StorageHost
     /// <summary>An iSCSI name: iqn.yyyy-mm.reversed.domain[:anything], eui.(16 hex) or naa.(16 or 32 hex).</summary>
     [GeneratedRegex(@"^(?:iqn\.\d{4}-\d{2}\.[A-Za-z0-9][A-Za-z0-9.-]*(?::[A-Za-z0-9.:_-]+)?|eui\.[0-9A-Fa-f]{16}|naa\.[0-9A-Fa-f]{16}(?:[0-9A-Fa-f]{16})?)$")]
     private static partial Regex Iqn();
+
+    /// <summary>
+    /// A target or portal name as iscsiadm reports it, for showing: anything without spaces, quotes
+    /// or backslashes. Commands still accept only <see cref="Iqn"/> and <see cref="PortalFormat"/>,
+    /// so a name they can't use is refused with a message instead of hidden.
+    /// </summary>
+    [GeneratedRegex(@"^[^\s'""\\]{1,255}$")]
+    private static partial Regex ShownName();
 
     /// <summary>A portal: a host name, IPv4 address or [IPv6 address], and optionally a port.</summary>
     [GeneratedRegex(@"^(?:[A-Za-z0-9][A-Za-z0-9.-]{0,252}|\[[0-9A-Fa-f:.]{2,45}\])(?::\d{1,5})?$")]

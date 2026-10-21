@@ -77,9 +77,24 @@ public sealed class StorageController(AuditLog audit) : ControllerBase
             var output = await StorageHost.RunActionAsync(client, command, cancellationToken);
             await audit.RecordAsync(new AuditEntry("storage.action", request.HostId, command.Description));
 
+            // Success is judged by the host's state afterwards, not by the tool's exit code.
             var after = await StorageHost.GetStatusAsync(client, cancellationToken);
-            return new StorageResponse("ready", after, null, Message(request.Action, output, before, after));
+            var target = request.Target?.Trim();
+            if (StorageHost.Unachieved(request.Action, target, request.Portal, request.Name, after) is { } problem)
+            {
+                throw new SessionException(SessionErrorCodes.ConnectionFailed, $"{command.Description} didn't take effect: {problem}. {Printed(output)}");
+            }
+
+            return new StorageResponse(
+                "ready", after, null, Message(request.Action, output, before, after) ?? StorageHost.Achieved(request.Action, target, request.Portal, request.Name, after));
         }, cancellationToken);
+
+    /// <summary>What the tool printed, for an action that didn't take effect.</summary>
+    private static string Printed(string output)
+    {
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(4).ToList();
+        return lines.Count == 0 ? "The tool printed nothing and reported success." : $"The tool printed: “{string.Join(" ", lines)}”";
+    }
 
     /// <summary>Discovery's targets aren't obvious from the new state, so it says how many it found.</summary>
     private static string? Message(string action, string output, StorageStatus before, StorageStatus after)
