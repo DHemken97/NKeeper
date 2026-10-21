@@ -51,6 +51,13 @@ public sealed record MigrationRequest
     public HostLogin? SourceShell { get; init; }
 
     public MigrationOptions Options { get; init; } = new();
+
+    /// <summary>
+    /// Starting: the steps the user reviewed and confirmed, in order. The migration only starts if
+    /// planning again gives exactly these, so nothing runs that the user didn't see.
+    /// </summary>
+    [MaxLength(200)]
+    public IReadOnlyList<string>? ConfirmedSteps { get; init; }
 }
 
 /// <summary>
@@ -93,6 +100,13 @@ public sealed class MigrationsController(MigrationJobs jobs) : ControllerBase
                 if (plan.Blockers.Count > 0)
                 {
                     throw new SessionException(SessionErrorCodes.BadRequest, plan.Blockers[0]);
+                }
+
+                if (request.ConfirmedSteps is not { } confirmed || !confirmed.SequenceEqual(plan.Steps.Select(s => s.Title), StringComparer.Ordinal))
+                {
+                    throw new SessionException(
+                        SessionErrorCodes.BadRequest,
+                        "Something changed on the hosts since you reviewed the steps, so NKeeper didn't start. Review the steps again.");
                 }
 
                 var job = jobs.Start(User.GetUserId(), request.VmHostId == Guid.Empty ? request.Source.HostId : request.VmHostId, $"{request.Via}:{request.Vm}", mover, plan)

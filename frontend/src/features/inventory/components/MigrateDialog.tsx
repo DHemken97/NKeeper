@@ -69,6 +69,8 @@ interface Plan {
     hasIscsi: boolean
     hasDrbd: boolean
     hasLocalDisks: boolean
+    /** Whether NKeeper could see the disks (Proxmox needs SSH logins to the nodes for that). */
+    storageChecked: boolean
   }
 }
 
@@ -109,21 +111,51 @@ interface Options {
 
 type Phase =
   | { kind: 'setup' }
-  | { kind: 'checking' }
+  /** Detecting the storage; `previous` stays shown while an option change is checked again. */
+  | { kind: 'checking'; previous?: Plan }
   | { kind: 'trust'; role: Role; fingerprint: string; shown: string }
   | { kind: 'plan'; plan: Plan }
+  /** The final review: every step, exactly, before anything happens. */
+  | { kind: 'confirm'; plan: Plan }
   | { kind: 'running'; plan: Plan; jobId: string; job: JobView | null }
   | { kind: 'failed'; message: string }
 
 const POLL_MS = 1500
 
-const LAYOUTS: Record<GuestDisk['layout'], string> = {
-  managed: 'Proxmox storage',
-  network: 'Network storage',
-  shared: 'Cluster file system',
-  filesystem: 'File system on shared storage',
-  block: 'Shared block device',
-  local: 'Local disk',
+/** A layer in words, e.g. "DRBD resource r0" or "iSCSI target iqn… at 10.0.0.5:3260". */
+function layerName(layer: StorageLayer): string {
+  switch (layer.kind) {
+    case 'drbd':
+      return `DRBD resource ${layer.name}`
+    case 'lvm':
+      return `LVM volume ${layer.name}`
+    case 'multipath':
+      return `multipath device ${layer.detail ?? layer.name}`
+    case 'iscsi':
+      return `iSCSI target ${layer.name}${layer.detail ? ` at ${layer.detail}` : ''}`
+    default:
+      return `local disk ${layer.name}`
+  }
+}
+
+/** What a disk is, as NKeeper found it, e.g. "An image file on a file system on DRBD resource r0". */
+function describeDisk(disk: GuestDisk, sourceName: string): string {
+  const top = disk.layers[0]
+  const fs = disk.mount ? ` (${disk.mount.fsType} at ${disk.mount.mountPoint})` : ''
+  switch (disk.layout) {
+    case 'local':
+      return disk.mount ? `An image file on ${sourceName}’s own disk${fs}` : `${sourceName}’s own disk${disk.storage ? ` (Proxmox storage ${disk.storage})` : ''}`
+    case 'network':
+      return disk.mount ? `An image file on network storage${fs}` : `Network storage the hypervisor reaches by itself${disk.storage ? ` (${disk.storage})` : ''}`
+    case 'shared':
+      return `An image file on a cluster file system${fs}`
+    case 'filesystem':
+      return `An image file on a file system${fs} on ${top ? layerName(top) : 'shared storage'}`
+    case 'block':
+      return top ? `${layerName(top)[0].toUpperCase()}${layerName(top).slice(1)}, used directly as the disk` : 'A shared block device'
+    case 'managed':
+      return `Proxmox storage ${disk.storage ?? ''}, which Proxmox activates on the new node${disk.layers.some((l) => l.kind === 'iscsi') ? ' (over iSCSI)' : ''}`
+  }
 }
 
 const STEP_STATES: Record<string, string> = {
@@ -257,7 +289,7 @@ export function MigrateDialog({ vm, node, serviceIndex, via, credentialId, oneOf
   }, [loadAttempt])
 
   function check() {
-    setPhase({ kind: 'checking' })
+    setPhase((current) => ({ kind: 'checking', previous: current.kind === 'plan' ? current.plan : undefined }))
     api.post<MigrationResponse>('/api/migrations/plan', { body: body() }).then(
       (response) => {
         if (response.status === 'trustRequired' && response.login) {
@@ -274,7 +306,7 @@ export function MigrateDialog({ vm, node, serviceIndex, via, credentialId, oneOf
 
   function start(plan: Plan) {
     setPhase({ kind: 'running', plan, jobId: '', job: null })
-    api.post<MigrationResponse>('/api/migrations', { body: body() }).then(
+    api.post<MigrationResponse>('/api/migrations', { body: { ...body(), confirmedSteps: plan.steps.map((s) => s.title) } }).then(
       (response) =>
         setPhase(
           response.jobId
@@ -327,11 +359,12 @@ export function MigrateDialog({ vm, node, serviceIndex, via, credentialId, oneOf
   }, [jobId])
 
   const set = (change: Partial<Options>) => setOptions((current) => ({ ...current, ...change }))
-  const plan = phase.kind === 'plan' || phase.kind === 'running' ? phase.plan : null
+  const plan = phase.kind === 'plan' || phase.kind === 'confirm' || phase.kind === 'running' ? phase.plan : phase.kind === 'checking' ? (phase.previous ?? null) : null
   const job = phase.kind === 'running' ? phase.job : null
   const finished = job !== null && job.state !== 'running'
   const canCheck = proxmox ? targetNode !== '' : targetLogin !== null
-  const editable = phase.kind === 'setup' || phase.kind === 'plan'
+  // Where it goes is chosen before detecting; changing it means detecting again.
+  const choosing = phase.kind === 'setup' || (phase.kind === 'checking' && !phase.previous)
 
   return (
     <Dialog
@@ -361,26 +394,36 @@ export function MigrateDialog({ vm, node, serviceIndex, via, credentialId, oneOf
           ) : null}
           {phase.kind === 'setup' ? (
             <Button onClick={check} disabled={!canCheck}>
-              Check
+              Detect storage
             </Button>
           ) : null}
           {phase.kind === 'plan' ? (
-            <Button variant={phase.plan.mode === 'offline' && phase.plan.guestState === 'running' ? 'danger' : 'primary'} onClick={() => start(phase.plan)} disabled={phase.plan.blockers.length > 0}>
-              {phase.plan.mode === 'live' ? 'Migrate live' : phase.plan.guestState === 'running' ? 'Shut down and migrate' : 'Migrate'}
+            <Button onClick={() => setPhase({ kind: 'confirm', plan: phase.plan })} disabled={phase.plan.blockers.length > 0}>
+              Review steps…
             </Button>
+          ) : null}
+          {phase.kind === 'confirm' ? (
+            <>
+              <Button variant="secondary" onClick={() => setPhase({ kind: 'plan', plan: phase.plan })}>
+                Back
+              </Button>
+              <Button variant={phase.plan.mode === 'offline' && phase.plan.guestState === 'running' ? 'danger' : 'primary'} onClick={() => start(phase.plan)}>
+                {phase.plan.mode === 'live' ? 'Migrate live' : phase.plan.guestState === 'running' ? 'Shut down and migrate' : 'Migrate'}
+              </Button>
+            </>
           ) : null}
         </>
       }
     >
       <div className={fieldStyles.form}>
-        {editable || phase.kind === 'checking' ? (
+        {choosing ? (
           <>
             <div className={fieldStyles.field}>
               <label className={fieldStyles.label} htmlFor="migrate-target">
                 Move to
               </label>
               {proxmox ? (
-                <select id="migrate-target" className={listStyles.input} value={targetNode} onChange={(event) => setTargetNode(event.target.value)} disabled={!editable}>
+                <select id="migrate-target" className={listStyles.input} value={targetNode} onChange={(event) => setTargetNode(event.target.value)} disabled={phase.kind !== 'setup'}>
                   {nodes.every((n) => n.name === guestNode || !n.online) ? <option value="">No other node is online</option> : null}
                   {nodes
                     .filter((n) => n.name !== guestNode)
@@ -391,7 +434,7 @@ export function MigrateDialog({ vm, node, serviceIndex, via, credentialId, oneOf
                     ))}
                 </select>
               ) : (
-                <select id="migrate-target" className={listStyles.input} value={targetHostId} onChange={(event) => setTargetHostId(event.target.value)} disabled={!editable}>
+                <select id="migrate-target" className={listStyles.input} value={targetHostId} onChange={(event) => setTargetHostId(event.target.value)} disabled={phase.kind !== 'setup'}>
                   <option value="">Choose a KVM host…</option>
                   {kvmTargets.map((h) => (
                     <option key={h.id} value={h.id} disabled={usable(h).length === 0}>
@@ -407,7 +450,7 @@ export function MigrateDialog({ vm, node, serviceIndex, via, credentialId, oneOf
               host={targetHost}
               value={targetLogin?.credentialId ?? ''}
               onChange={setTargetCredentialId}
-              disabled={!editable}
+              disabled={phase.kind !== 'setup'}
               missing={proxmox && targetNode ? `No NKeeper host named ${targetNode} with an SSH login: NKeeper won’t check or move its storage.` : null}
             />
             {proxmox ? (
@@ -417,49 +460,28 @@ export function MigrateDialog({ vm, node, serviceIndex, via, credentialId, oneOf
                 host={sourceShellHost}
                 value={sourceShellLogin?.credentialId ?? ''}
                 onChange={setSourceShellCredentialId}
-                disabled={!editable}
+                disabled={phase.kind !== 'setup'}
                 missing={guestNode ? `No NKeeper host named ${guestNode} with an SSH login: NKeeper won’t check or move its storage.` : null}
               />
             ) : null}
-            <fieldset className={styles.options} disabled={!editable}>
-              <legend>How</legend>
-              <Checkbox label="Move it while it runs (live), when its storage allows" checked={options.live} onChange={(event) => set({ live: event.target.checked })} />
-              <Checkbox label="Start it on the new host after an offline move, if it was running" checked={options.startAfter} onChange={(event) => set({ startAfter: event.target.checked })} />
-              <div className={fieldStyles.field}>
-                <label className={fieldStyles.label} htmlFor="migrate-iscsi">
-                  iSCSI on the old host afterwards
-                </label>
-                <select
-                  id="migrate-iscsi"
-                  className={listStyles.input}
-                  value={options.logoutOldIscsi === null ? 'default' : options.logoutOldIscsi ? 'logout' : 'stay'}
-                  onChange={(event) => set({ logoutOldIscsi: event.target.value === 'default' ? null : event.target.value === 'logout' })}
-                >
-                  <option value="default">{proxmox ? 'Stay logged in (default for Proxmox)' : 'Log out (default for KVM)'}</option>
-                  <option value="stay">Stay logged in</option>
-                  <option value="logout">Log out of the targets only this VM used</option>
-                </select>
-              </div>
-              <div className={fieldStyles.field}>
-                <label className={fieldStyles.label} htmlFor="migrate-drbd">
-                  DRBD on the old host afterwards
-                </label>
-                <select id="migrate-drbd" className={listStyles.input} value={options.drbdDownOnOld ? 'down' : 'secondary'} onChange={(event) => set({ drbdDownOnOld: event.target.value === 'down' })}>
-                  <option value="secondary">Stay Secondary (keeps replicating)</option>
-                  <option value="down">Take the resource down</option>
-                </select>
-              </div>
-              {proxmox ? (
-                <Checkbox label="Copy disks on the node’s local storage" checked={options.withLocalDisks} onChange={(event) => set({ withLocalDisks: event.target.checked })} />
-              ) : null}
-            </fieldset>
           </>
         ) : null}
+
+        {plan && phase.kind !== 'running' && phase.kind !== 'confirm' ? (
+          <p className={scanStyles.text}>
+            {plan.sourceName} → {plan.targetName}.{' '}
+            <Button variant="ghost" size="sm" onClick={() => setPhase({ kind: 'setup' })} disabled={phase.kind !== 'plan'}>
+              Change
+            </Button>
+          </p>
+        ) : null}
+        {plan && phase.kind !== 'confirm' ? <StorageFound plan={plan} /> : null}
+        {plan && phase.kind !== 'running' && phase.kind !== 'confirm' ? <RelevantOptions plan={plan} options={options} set={set} proxmox={proxmox} disabled={phase.kind !== 'plan'} /> : null}
 
         {phase.kind === 'checking' ? (
           <div className={scanStyles.status}>
             <Spinner />
-            <span>Checking both hosts and the VM’s storage…</span>
+            <span>{phase.previous ? 'Checking again…' : 'Detecting the VM’s storage on both hosts…'}</span>
           </div>
         ) : null}
 
@@ -474,7 +496,8 @@ export function MigrateDialog({ vm, node, serviceIndex, via, credentialId, oneOf
           </div>
         ) : null}
 
-        {plan ? <PlanView plan={plan} job={job} /> : null}
+        {phase.kind === 'confirm' ? <Review plan={phase.plan} vm={vm.name} /> : null}
+        {plan && phase.kind !== 'confirm' ? <PlanView plan={plan} job={job} steps={phase.kind === 'running'} /> : null}
         {job && finished ? <Alert variant={job.state === 'succeeded' ? 'info' : 'error'}>{job.message}</Alert> : null}
         {phase.kind === 'running' && !finished ? (
           <div className={scanStyles.status}>
@@ -524,8 +547,146 @@ function LoginPicker({
   )
 }
 
-/** The plan: how it moves, its disks, what blocks it, and its steps (with their progress once it runs). */
-function PlanView({ plan, job }: { plan: Plan; job: JobView | null }) {
+/** What NKeeper found each disk to be, and whether there's any storage to hand over. */
+function StorageFound({ plan }: { plan: Plan }) {
+  if (!plan.choices.storageChecked) {
+    return <p className={scanStyles.muted}>NKeeper didn’t look at the storage: it needs an SSH login to both nodes for that. Proxmox checks its own storage when it moves the VM.</p>
+  }
+  const handover = plan.disks.some((d) => d.layout === 'filesystem' || d.layout === 'block') || plan.choices.hasIscsi
+  return (
+    <div className={styles.plan}>
+      <table className={styles.disks} aria-label="Disks">
+        <thead>
+          <tr>
+            <th scope="col">Disk</th>
+            <th scope="col">What it is</th>
+            <th scope="col">Path</th>
+          </tr>
+        </thead>
+        <tbody>
+          {plan.disks.map((disk) => (
+            <tr key={disk.name}>
+              <td>{disk.name}</td>
+              <td>
+                {describeDisk(disk, plan.sourceName)}
+                {disk.layers.length > 1 ? <div className={scanStyles.muted}>{chain(disk)}</div> : null}
+                {disk.note ? <div className={scanStyles.muted}>{disk.note}</div> : null}
+              </td>
+              <td className={styles.path}>{disk.path}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {plan.disks.length === 0 ? <p className={scanStyles.muted}>It has no disks.</p> : null}
+      {plan.disks.length > 0 && !handover ? <p className={scanStyles.muted}>There’s no storage to hand over: {plan.targetName} reaches it as it is.</p> : null}
+    </div>
+  )
+}
+
+/** Only the options that mean something for this VM and its storage. */
+function RelevantOptions({
+  plan,
+  options,
+  set,
+  proxmox,
+  disabled,
+}: {
+  plan: Plan
+  options: Options
+  set: (change: Partial<Options>) => void
+  proxmox: boolean
+  disabled: boolean
+}) {
+  const running = plan.guestState === 'running'
+  const { choices } = plan
+  const copyLocal = proxmox && (choices.hasLocalDisks || !choices.storageChecked)
+  if (!running && !choices.hasIscsi && !choices.hasDrbd && !copyLocal) {
+    return null
+  }
+  return (
+    <fieldset className={styles.options} disabled={disabled}>
+      <legend>Options</legend>
+      {running && choices.liveAvailable ? (
+        <Checkbox label="Move it while it runs (live)" checked={options.live} onChange={(event) => set({ live: event.target.checked })} />
+      ) : null}
+      {running && !choices.liveAvailable ? <p className={scanStyles.muted}>It can’t move while it runs, so it will be shut down: {choices.liveUnavailableReason}</p> : null}
+      {running && plan.mode === 'offline' ? (
+        <Checkbox label={`Start it on ${plan.targetName} afterwards`} checked={options.startAfter} onChange={(event) => set({ startAfter: event.target.checked })} />
+      ) : null}
+      {choices.hasIscsi ? (
+        <div className={fieldStyles.field}>
+          <label className={fieldStyles.label} htmlFor="migrate-iscsi">
+            iSCSI on {plan.sourceName} afterwards
+          </label>
+          <select
+            id="migrate-iscsi"
+            className={listStyles.input}
+            value={options.logoutOldIscsi === null ? 'default' : options.logoutOldIscsi ? 'logout' : 'stay'}
+            onChange={(event) => set({ logoutOldIscsi: event.target.value === 'default' ? null : event.target.value === 'logout' })}
+          >
+            <option value="default">{proxmox ? 'Stay logged in (default for Proxmox)' : 'Log out (default for KVM)'}</option>
+            <option value="stay">Stay logged in</option>
+            <option value="logout">Log out of the targets only this VM used</option>
+          </select>
+          {choices.logoutOldIscsi && choices.iscsiToLogOut.length > 0 ? <p className={scanStyles.muted}>Logs out of {choices.iscsiToLogOut.join('; ')}.</p> : null}
+          {choices.iscsiKept.length > 0 ? <p className={scanStyles.muted}>Stays logged in to {choices.iscsiKept.join('; ')}.</p> : null}
+        </div>
+      ) : null}
+      {choices.hasDrbd ? (
+        <div className={fieldStyles.field}>
+          <label className={fieldStyles.label} htmlFor="migrate-drbd">
+            DRBD on {plan.sourceName} afterwards
+          </label>
+          <select id="migrate-drbd" className={listStyles.input} value={options.drbdDownOnOld ? 'down' : 'secondary'} onChange={(event) => set({ drbdDownOnOld: event.target.value === 'down' })}>
+            <option value="secondary">Stay Secondary (keeps replicating)</option>
+            <option value="down">Take the resource down</option>
+          </select>
+        </div>
+      ) : null}
+      {copyLocal ? (
+        <Checkbox label="Copy disks on the node’s local storage" checked={options.withLocalDisks} onChange={(event) => set({ withLocalDisks: event.target.checked })} />
+      ) : null}
+    </fieldset>
+  )
+}
+
+/** The last word before anything happens: every step in order, on which host, and what happens if one fails. */
+function Review({ plan, vm }: { plan: Plan; vm: string }) {
+  const shutdown = plan.steps.findIndex((s) => s.kind === 'guest-shutdown')
+  const start = plan.steps.findIndex((s) => s.kind === 'guest-start')
+  const required = plan.steps.filter((s) => s.critical).length
+  return (
+    <div className={styles.plan}>
+      <p className={scanStyles.text}>
+        <strong>
+          {plan.mode === 'live' ? 'Live migration' : 'Offline migration'} of {vm} from {plan.sourceName} to {plan.targetName}.
+        </strong>{' '}
+        NKeeper will do exactly this, in this order, and nothing else:
+      </p>
+      <ol className={styles.review} aria-label="Steps to confirm">
+        {plan.steps.map((step, index) => (
+          <li key={index}>
+            {step.title}
+            {!step.critical ? <span className={scanStyles.muted}> (tidying up: if this fails, the migration still counts as done)</span> : null}
+          </li>
+        ))}
+      </ol>
+      {shutdown !== -1 ? (
+        <Alert>
+          {vm} is off from step {shutdown + 1}
+          {start !== -1 ? ` until step ${start + 1}` : ' and stays off afterwards'}.
+        </Alert>
+      ) : null}
+      <p className={scanStyles.muted}>
+        If any of the {required} required {required === 1 ? 'step fails' : 'steps fails'}, NKeeper stops there and undoes the steps it already did, newest first, so
+        everything is back on {plan.sourceName} as it was{shutdown !== -1 ? `, and ${vm} is started there again` : ''}.
+      </p>
+    </div>
+  )
+}
+
+/** What blocks the move, notes, and (once it runs) its steps and their progress. */
+function PlanView({ plan, job, steps }: { plan: Plan; job: JobView | null; steps: boolean }) {
   const host = (side: string) => (side === 'source' ? plan.sourceName : side === 'target' ? plan.targetName : side === 'both' ? 'both' : '')
   return (
     <div className={styles.plan}>
@@ -535,32 +696,6 @@ function PlanView({ plan, job }: { plan: Plan; job: JobView | null }) {
       {plan.blockers.map((b) => (
         <Alert key={b}>{b}</Alert>
       ))}
-      {plan.disks.length > 0 ? (
-        <table className={styles.disks} aria-label="Disks">
-          <thead>
-            <tr>
-              <th scope="col">Disk</th>
-              <th scope="col">Storage</th>
-              <th scope="col">On</th>
-            </tr>
-          </thead>
-          <tbody>
-            {plan.disks.map((disk) => (
-              <tr key={disk.name}>
-                <td>{disk.name}</td>
-                <td>
-                  {LAYOUTS[disk.layout]}
-                  {disk.storage ? <div className={scanStyles.muted}>{disk.storage}</div> : null}
-                </td>
-                <td>
-                  {chain(disk) || disk.path}
-                  {disk.note ? <div className={scanStyles.muted}>{disk.note}</div> : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : null}
       {plan.notes.length > 0 ? (
         <ul className={styles.notes}>
           {plan.notes.map((n) => (
@@ -568,9 +703,7 @@ function PlanView({ plan, job }: { plan: Plan; job: JobView | null }) {
           ))}
         </ul>
       ) : null}
-      {plan.choices.iscsiKept.length > 0 ? (
-        <p className={scanStyles.muted}>Staying logged in on {plan.sourceName} because something else uses them: {plan.choices.iscsiKept.join('; ')}.</p>
-      ) : null}
+      {steps ? (
       <ol className={styles.steps} aria-label="Steps">
         {(job?.steps ?? plan.steps.map((s) => ({ title: s.title, side: s.side, state: 'pending', message: null, critical: s.critical }))).map((step, index) => (
           <li key={index} className={styles[step.state] ?? ''} data-state={step.state}>
@@ -586,6 +719,7 @@ function PlanView({ plan, job }: { plan: Plan; job: JobView | null }) {
           </li>
         ))}
       </ol>
+      ) : null}
     </div>
   )
 }

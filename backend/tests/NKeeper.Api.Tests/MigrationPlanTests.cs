@@ -35,7 +35,7 @@ public sealed class MigrationPlanTests
         string state = "running",
         (bool, string?)? peer = null,
         IReadOnlyDictionary<(string, string), string>? inUse = null) =>
-        new(via, false, state, "kvm-a", "kvm-b", disks, inUse ?? new Dictionary<(string, string), string>(),
+        new(via, "web", false, state, "kvm-a", "kvm-b", disks, inUse ?? new Dictionary<(string, string), string>(),
             new StorageStatus(null, null, null), target ?? Drbd(Resource("r0"), Resource("r1")), peer ?? (true, null), (true, null), [], []);
 
     private static IEnumerable<string> Kinds(MigrationPlan plan) => plan.Steps.Select(s => $"{s.Side}:{s.Kind}");

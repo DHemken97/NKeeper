@@ -65,13 +65,25 @@ const plan = {
     },
   ],
   steps: [
-    { kind: 'guest-shutdown', side: 'source', title: 'Shut it down on kvm01', critical: true },
-    { kind: 'umount', side: 'source', title: 'Unmount /srv/vms on kvm01', critical: true },
-    { kind: 'guest-move', side: 'hypervisor', title: 'Move it to kvm02', critical: true },
+    { kind: 'guest-shutdown', side: 'source', title: 'Shut down web01 on kvm01 and wait until it’s off', critical: true },
+    { kind: 'umount', side: 'source', title: 'Unmount /srv/vms (ext4 on /dev/drbd0) on kvm01', critical: true },
+    { kind: 'guest-move', side: 'hypervisor', title: 'Copy web01’s libvirt definition from kvm01 to kvm02 (virsh dumpxml, then virsh define), then remove it from kvm01 (virsh undefine)', critical: true },
+    { kind: 'guest-start', side: 'target', title: 'Start web01 on kvm02', critical: true },
+    { kind: 'drbd-down', side: 'source', title: 'Take DRBD resource r0 down on kvm01 (drbdadm down)', critical: false },
   ],
   blockers: [],
   notes: ['It will be shut down for the move: Its disks are image files on /srv/vms, a file system that can’t be mounted on two hosts at once.'],
-  choices: { liveAvailable: false, liveUnavailableReason: null, logoutOldIscsi: true, iscsiToLogOut: [], iscsiKept: [], hasIscsi: false, hasDrbd: true, hasLocalDisks: false },
+  choices: {
+    liveAvailable: false,
+    liveUnavailableReason: 'Its disks are image files on /srv/vms, a file system that can’t be mounted on two hosts at once.',
+    logoutOldIscsi: true,
+    iscsiToLogOut: [],
+    iscsiKept: [],
+    hasIscsi: false,
+    hasDrbd: true,
+    hasLocalDisks: false,
+    storageChecked: true,
+  },
 }
 
 const job = (state: string, steps: string[], message: string | null = null) => ({
@@ -81,7 +93,7 @@ const job = (state: string, steps: string[], message: string | null = null) => (
   target: 'kvm02',
   mode: 'offline',
   state,
-  steps: plan.steps.map((s, i) => ({ title: s.title, side: s.side, state: steps[i], message: null, critical: true })),
+  steps: plan.steps.map((s, i) => ({ title: s.title, side: s.side, state: steps[i] ?? 'pending', message: null, critical: s.critical })),
   message,
 })
 
@@ -114,6 +126,7 @@ describe('migrating a VM with its storage', () => {
     const plans: Record<string, unknown>[] = []
     const links: unknown[] = []
     let polls = 0
+    let started: Record<string, unknown> | undefined
     const user = renderWorkspace([kvm01, kvm02, web01], {
       'POST /api/migrations/plan': (_url, init) => {
         plans.push(JSON.parse(String(init.body)))
@@ -121,10 +134,13 @@ describe('migrating a VM with its storage', () => {
           ? jsonResponse(200, { status: 'trustRequired', login: 'target', hostKey: { algorithm: 'ssh-ed25519', fingerprint: 'SHA256:kvm02' }, certificate: null, plan: null, jobId: null })
           : jsonResponse(200, { status: 'ready', login: null, hostKey: null, certificate: null, plan, jobId: null })
       },
-      'POST /api/migrations': () => jsonResponse(200, { status: 'started', login: null, hostKey: null, certificate: null, plan, jobId: 'j1' }),
+      'POST /api/migrations': (_url, init) => {
+        started = JSON.parse(String(init.body))
+        return jsonResponse(200, { status: 'started', login: null, hostKey: null, certificate: null, plan, jobId: 'j1' })
+      },
       'GET /api/migrations/j1': () => {
         polls++
-        return jsonResponse(200, polls === 1 ? job('running', ['done', 'running', 'pending']) : job('succeeded', ['done', 'done', 'done'], 'Moved to kvm02.'))
+        return jsonResponse(200, polls === 1 ? job('running', ['done', 'running']) : job('succeeded', ['done', 'done', 'done', 'done', 'done'], 'Moved to kvm02.'))
       },
       'POST /api/hosts/hypervisor-links': (_url, init) => {
         links.push(JSON.parse(String(init.body)))
@@ -133,14 +149,23 @@ describe('migrating a VM with its storage', () => {
     })
 
     const dialog = await openMigrate(user, /web01/, /^KVM.*kvm01/, /^root/)
+    // Before the storage is known, only where it goes is asked.
+    expect(within(dialog).queryByRole('group', { name: 'Options' })).not.toBeInTheDocument()
+    expect(within(dialog).queryByLabelText(/iSCSI/)).not.toBeInTheDocument()
     await user.selectOptions(within(dialog).getByLabelText('Move to'), 'kvm02')
-    await user.click(within(dialog).getByRole('button', { name: 'Check' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Detect storage' }))
     expect(await within(dialog).findByText('ssh-ed25519 SHA256:kvm02')).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: 'Trust and continue' }))
 
     const disks = await within(dialog).findByRole('table', { name: 'Disks' })
-    expect(within(disks).getByRole('row', { name: /vda/ })).toHaveTextContent('File system on shared storage/srv/vms (ext4) → DRBD r0')
-    expect(within(dialog).getByText(/can’t be mounted on two hosts at once/)).toBeInTheDocument()
+    expect(within(disks).getByRole('row', { name: /vda/ })).toHaveTextContent('An image file on a file system (ext4 at /srv/vms) on DRBD resource r0')
+    const options = within(dialog).getByRole('group', { name: 'Options' })
+    expect(within(options).getByText(/so it will be shut down: Its disks are image files on \/srv\/vms/)).toBeInTheDocument()
+    expect(within(options).queryByRole('checkbox', { name: /live/ })).not.toBeInTheDocument()
+    expect(within(options).getByRole('checkbox', { name: 'Start it on kvm02 afterwards' })).toBeChecked()
+    expect(within(options).getByLabelText('DRBD on kvm01 afterwards')).toBeInTheDocument()
+    expect(within(options).queryByLabelText(/iSCSI/)).not.toBeInTheDocument()
+    expect(within(options).queryByRole('checkbox', { name: /local storage/ })).not.toBeInTheDocument()
     expect(plans[1]).toMatchObject({
       via: 'kvm',
       vmHostId: 'h-web',
@@ -151,11 +176,25 @@ describe('migrating a VM with its storage', () => {
     })
     expect(plans[1].options).not.toHaveProperty('logoutOldIscsi')
 
+    // Nothing starts before the user has seen every step.
+    expect(within(dialog).queryByRole('button', { name: 'Shut down and migrate' })).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Review steps…' }))
+    const review = within(dialog).getByRole('list', { name: 'Steps to confirm' })
+    expect(within(review).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Shut down web01 on kvm01 and wait until it’s off',
+      'Unmount /srv/vms (ext4 on /dev/drbd0) on kvm01',
+      'Copy web01’s libvirt definition from kvm01 to kvm02 (virsh dumpxml, then virsh define), then remove it from kvm01 (virsh undefine)',
+      'Start web01 on kvm02',
+      'Take DRBD resource r0 down on kvm01 (drbdadm down) (tidying up: if this fails, the migration still counts as done)',
+    ])
+    expect(within(dialog).getByText('web01 is off from step 1 until step 4.')).toBeInTheDocument()
+    expect(within(dialog).getByText(/If any of the 4 required steps fails, NKeeper stops there and undoes/)).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: 'Shut down and migrate' }))
 
     expect(await within(dialog).findByText('Moved to kvm02.', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(started?.confirmedSteps).toEqual(plan.steps.map((s) => s.title))
     const steps = within(dialog).getByRole('list', { name: 'Steps' })
-    expect(within(steps).getAllByRole('listitem').map((li) => li.getAttribute('data-state'))).toEqual(['done', 'done', 'done'])
+    expect(within(steps).getAllByRole('listitem').map((li) => li.getAttribute('data-state'))).toEqual(['done', 'done', 'done', 'done', 'done'])
     expect(links).toEqual([{ links: [{ guestId: 'h-web', hypervisorId: 'h-kvm2', virtualMachineId: 'libvirt:9f0c6b5e-1111-4a2b-9c3d-000000000001' }] }])
   })
 
@@ -164,22 +203,56 @@ describe('migrating a VM with its storage', () => {
     const user = renderWorkspace([kvm01, kvm02, web01], {
       'POST /api/migrations/plan': (_url, init) => {
         plans.push(JSON.parse(String(init.body)))
-        return jsonResponse(200, { status: 'ready', plan: { ...plan, blockers: ['DRBD resource r0 isn’t configured on kvm02.'] } })
+        return jsonResponse(200, { status: 'ready', plan: { ...plan, blockers: ['DRBD resource r0 isn’t configured on kvm02.'], choices: { ...plan.choices, hasIscsi: true } } })
       },
     })
 
     const dialog = await openMigrate(user, /web01/, /^KVM.*kvm01/, /^root/)
     await user.selectOptions(within(dialog).getByLabelText('Move to'), 'kvm02')
-    await user.click(within(dialog).getByRole('button', { name: 'Check' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Detect storage' }))
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('isn’t configured on kvm02')
-    expect(within(dialog).getByRole('button', { name: 'Shut down and migrate' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Review steps…' })).toBeDisabled()
 
-    await user.selectOptions(within(dialog).getByLabelText('iSCSI on the old host afterwards'), 'stay')
-    await user.selectOptions(within(dialog).getByLabelText('DRBD on the old host afterwards'), 'down')
+    await user.selectOptions(within(dialog).getByLabelText('iSCSI on kvm01 afterwards'), 'stay')
+    await user.selectOptions(await within(dialog).findByLabelText('DRBD on kvm01 afterwards'), 'down')
 
-    await within(dialog).findByRole('button', { name: 'Shut down and migrate' })
+    await within(dialog).findByRole('button', { name: 'Review steps…' })
     expect(plans.at(-1)).toMatchObject({ options: { logoutOldIscsi: false, drbdDownOnOld: true } })
+  })
+
+  it('says when a disk is just a file, and offers no storage options when there’s nothing to hand over', async () => {
+    const files = {
+      ...plan,
+      guestState: 'shut off',
+      disks: [
+        { name: 'vda', path: '/var/lib/libvirt/images/web.qcow2', layout: 'local', mount: { device: '/dev/sda2', mountPoint: '/', fsType: 'ext4' }, layers: [{ kind: 'local', name: 'sda', detail: null }], storage: null, note: null },
+        { name: 'vdb', path: '/mnt/nas/data.raw', layout: 'network', mount: { device: 'nas:/vms', mountPoint: '/mnt/nas', fsType: 'nfs4' }, layers: [], storage: null, note: null },
+      ],
+      blockers: ['Disk vda is on kvm01’s own storage (/var/lib/libvirt/images/web.qcow2); NKeeper can only move VMs whose disks are on shared storage.'],
+      choices: { ...plan.choices, liveAvailable: false, liveUnavailableReason: 'It isn’t running.', hasDrbd: false, hasLocalDisks: true },
+    }
+    const network = { ...files, disks: [files.disks[1]], blockers: [] }
+    let calls = 0
+    const user = renderWorkspace([kvm01, kvm02, web01], {
+      'POST /api/migrations/plan': () => jsonResponse(200, { status: 'ready', plan: ++calls === 1 ? files : network }),
+    })
+
+    const dialog = await openMigrate(user, /web01/, /^KVM.*kvm01/, /^root/)
+    await user.selectOptions(within(dialog).getByLabelText('Move to'), 'kvm02')
+    await user.click(within(dialog).getByRole('button', { name: 'Detect storage' }))
+
+    const disks = await within(dialog).findByRole('table', { name: 'Disks' })
+    expect(within(disks).getByRole('row', { name: /vda/ })).toHaveTextContent('An image file on kvm01’s own disk (ext4 at /)')
+    expect(within(disks).getByRole('row', { name: /vdb/ })).toHaveTextContent('An image file on network storage (nfs4 at /mnt/nas)')
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('own storage')
+    expect(within(dialog).queryByRole('group', { name: 'Options' })).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Change' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Detect storage' }))
+    expect(await within(dialog).findByText('There’s no storage to hand over: kvm02 reaches it as it is.')).toBeInTheDocument()
+    expect(within(dialog).queryByRole('group', { name: 'Options' })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Review steps…' })).toBeEnabled()
   })
 
   it('uses SSH logins to the Proxmox nodes for their storage, and reports a migration that was put back', async () => {
@@ -202,7 +275,7 @@ describe('migrating a VM with its storage', () => {
         }),
       'POST /api/migrations/plan': (_url, init) => {
         plans.push(JSON.parse(String(init.body)))
-        return jsonResponse(200, { status: 'ready', plan: { ...plan, mode: 'live', sourceName: 'pve2', targetName: 'pve1' } })
+        return jsonResponse(200, { status: 'ready', plan: { ...plan, mode: 'live', sourceName: 'pve2', targetName: 'pve1', choices: { ...plan.choices, liveAvailable: true } } })
       },
       'POST /api/migrations': () => jsonResponse(200, { status: 'started', plan, jobId: 'j1' }),
       'GET /api/migrations/j1': () =>
@@ -215,7 +288,10 @@ describe('migrating a VM with its storage', () => {
 
     const dialog = await openMigrate(user, /app01/, /^Proxmox.*pve2/, /^root/)
     expect(await within(dialog).findByLabelText('Move to')).toHaveValue('pve1')
-    await user.click(within(dialog).getByRole('button', { name: 'Check' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Detect storage' }))
+    expect(await within(dialog).findByRole('checkbox', { name: 'Move it while it runs (live)' })).toBeChecked()
+    expect(within(dialog).queryByRole('checkbox', { name: /Start it on/ })).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Review steps…' }))
     await user.click(await within(dialog).findByRole('button', { name: 'Migrate live' }))
 
     expect(await within(dialog).findByText(/migration aborted\. Everything was put back/, {}, { timeout: 5000 })).toBeInTheDocument()

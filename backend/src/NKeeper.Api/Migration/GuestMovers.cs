@@ -56,7 +56,7 @@ internal abstract partial class GuestMover(SshClient? sourceShell, SshClient? ta
         await CheckHostsAsync(blockers, notes, cancellationToken);
         if (SourceShell is null || TargetShell is null)
         {
-            return new PlanInput(Via, IsContainer, state, SourceName, TargetName, null, new Dictionary<(string, string), string>(), null, null, null, null, blockers, notes);
+            return new PlanInput(Via, GuestName, IsContainer, state, SourceName, TargetName, null, new Dictionary<(string, string), string>(), null, null, null, null, blockers, notes);
         }
 
         var source = await StorageHost.GetStatusAsync(SourceShell, cancellationToken);
@@ -75,7 +75,7 @@ internal abstract partial class GuestMover(SshClient? sourceShell, SshClient? ta
 
         var peer = await PeerSshAsync(back: false, cancellationToken);
         var reverse = Via == "kvm" ? await PeerSshAsync(back: true, cancellationToken) : null;
-        return new PlanInput(Via, IsContainer, state, SourceName, TargetName, disks, trace.IscsiInUse, source, target, peer, reverse, blockers, notes);
+        return new PlanInput(Via, GuestName, IsContainer, state, SourceName, TargetName, disks, trace.IscsiInUse, source, target, peer, reverse, blockers, notes);
     }
 
     /// <summary>Checks both hosts are what they should be (e.g. the logins reach the right nodes).</summary>

@@ -87,7 +87,7 @@ public sealed class VmMigrationTests(PostgresServerFixture postgres, MigrationHo
 
         Assert.True(job.State == "rolledBack", Describe(job));
         var failed = Assert.Single(job.Steps, s => s.State == "failed");
-        Assert.Equal("Mount /srv/vms on kvm-b", failed.Title);
+        Assert.Equal("Mount /srv/vms (ext4) on kvm-b", failed.Title);
         Assert.Contains("wrong fs type", job.Message, StringComparison.Ordinal);
         Assert.Equal(["undone", "undone", "undone", "undone"], job.Steps.Where(s => s.State.StartsWith("undo", StringComparison.Ordinal)).Select(s => s.State));
         Assert.Equal("running", await VirshAsync(kvm.Source, "domstate"));
@@ -108,6 +108,22 @@ public sealed class VmMigrationTests(PostgresServerFixture postgres, MigrationHo
         Assert.Contains("kvm-b already has a VM with this UUID defined", await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Start_RunsOnlyTheStepsTheUserConfirmed()
+    {
+        var plan = await PlanAsync(new MigrationOptions());
+        var titles = plan.Steps.Select(s => s.Title).ToArray();
+
+        foreach (var confirmed in new[] { null, titles[..^1], [.. titles.Reverse()] })
+        {
+            var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/migrations", Request(new MigrationOptions(), confirmed), Ct);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Contains("Review the steps again", await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+        }
+
+        Assert.Equal("running", await VirshAsync(kvm.Source, "domstate"));
+    }
+
     private async Task<MigrationPlan> PlanAsync(MigrationOptions options)
     {
         var answer = await PostTrustingAsync("/api/migrations/plan", options);
@@ -116,7 +132,8 @@ public sealed class VmMigrationTests(PostgresServerFixture postgres, MigrationHo
 
     private async Task<MigrationJobView> RunAsync(MigrationOptions options)
     {
-        var started = await PostTrustingAsync("/api/migrations", options);
+        var plan = await PlanAsync(options);
+        var started = await PostTrustingAsync("/api/migrations", options, [.. plan.Steps.Select(s => s.Title)]);
         var id = started.GetProperty("jobId").GetString()!;
         var deadline = DateTimeOffset.UtcNow.AddSeconds(90);
         while (true)
@@ -132,11 +149,11 @@ public sealed class VmMigrationTests(PostgresServerFixture postgres, MigrationHo
     }
 
     /// <summary>Posts, trusting each host key the answer asks about (one per login), until it's answered.</summary>
-    private async Task<JsonElement> PostTrustingAsync(string path, MigrationOptions options)
+    private async Task<JsonElement> PostTrustingAsync(string path, MigrationOptions options, string[]? confirmedSteps = null)
     {
         for (var attempt = 0; attempt < 4; attempt++)
         {
-            var response = await _client.SendJsonAsync(HttpMethod.Post, path, Request(options), Ct);
+            var response = await _client.SendJsonAsync(HttpMethod.Post, path, Request(options, confirmedSteps), Ct);
             Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(Ct));
             var answer = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
             if (answer.GetProperty("status").GetString() != "trustRequired")
@@ -150,7 +167,7 @@ public sealed class VmMigrationTests(PostgresServerFixture postgres, MigrationHo
         throw new InvalidOperationException("Still asked to trust a host after trusting both.");
     }
 
-    private object Request(MigrationOptions options) => new
+    private object Request(MigrationOptions options, string[]? confirmedSteps = null) => new
     {
         via = "kvm",
         vmHostId = _source.Id,
@@ -158,6 +175,7 @@ public sealed class VmMigrationTests(PostgresServerFixture postgres, MigrationHo
         source = new { hostId = _source.Id, serviceIndex = 0, credentialId = _source.Credentials[0].Id, trustFingerprint = _trust.GetValueOrDefault("source") },
         target = new { hostId = _target.Id, serviceIndex = 0, credentialId = _target.Credentials[0].Id, trustFingerprint = _trust.GetValueOrDefault("target") },
         options,
+        confirmedSteps,
     };
 
     private static string Describe(MigrationJobView job) =>

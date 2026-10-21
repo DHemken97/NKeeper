@@ -132,7 +132,7 @@ All sessions start from a **target**: a host, one of its services, and a saved c
 - **Migrations** (`/api/migrations/plan`, `/api/migrations`, `/api/migrations/{id}`):
   - a `GuestMover` (`ProxmoxMover` through the API, `LibvirtMover` with virsh over SSH) holds the logins to both hosts and gives the planner the VM's disks (`virsh domblklist`, or the Proxmox configuration, `storage.cfg` and `pvesm path`), both hosts' storage (`StorageHost`) and SSH tests between the hosts;
   - `StorageTrace` follows each disk down with `findmnt`, `lsblk -s` and `lvs` into layers (LVM, DRBD, multipath, iSCSI, local) and a layout (filesystem, block, shared, network, managed by Proxmox, local), and finds which iSCSI LUNs something else uses;
-  - `MigrationPlanner` is pure: from that and the options it makes the blockers, notes and `PlannedStep`s (offline or live). Starting plans again first;
+  - `MigrationPlanner` is pure: from that and the options it makes the blockers, notes and `PlannedStep`s (offline or live), each titled with exactly what it does where. Starting plans again first, and only starts if the steps are exactly the ones the user confirmed (`confirmedSteps`);
   - `MigrationJobs` runs a plan on the server: each step is a script (or a mover call) that says whether it changed anything, and a failed critical step undoes the changed ones, newest first. Jobs belong to the user who started them and are kept for two hours;
   - tests: `MigrationPlanTests` (planner and parsers) and `VmMigrationTests`, which move a VM between two SSH containers with fake virsh, DRBD and mount tools (`tests/NKeeper.Api.Tests/Migration/`) that refuse steps in the wrong order.
 - **Storage** (`/api/storage/status`, `/api/storage/action`):

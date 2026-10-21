@@ -34,6 +34,7 @@ public sealed record PlannedStep(string Kind, string Side, string Title, IReadOn
 /// <param name="LogoutOldIscsi">The choice in effect (the default, when the user didn't choose).</param>
 /// <param name="IscsiToLogOut">Targets (and portals) the old host would log out of.</param>
 /// <param name="IscsiKept">Targets the old host stays logged in to although asked to log out, with what else uses them.</param>
+/// <param name="StorageChecked">Whether NKeeper could see the disks (Proxmox needs SSH logins to the nodes for that).</param>
 public sealed record PlanChoices(
     bool LiveAvailable,
     string? LiveUnavailableReason,
@@ -42,7 +43,8 @@ public sealed record PlanChoices(
     IReadOnlyList<string> IscsiKept,
     bool HasIscsi,
     bool HasDrbd,
-    bool HasLocalDisks);
+    bool HasLocalDisks,
+    bool StorageChecked);
 
 /// <summary>A migration as it would run: "live" or "offline", the disks, and the steps; it can't start while there are blockers.</summary>
 public sealed record MigrationPlan(
@@ -89,6 +91,7 @@ public static class StepKinds
 /// <param name="Blockers">Problems the hypervisor found (e.g. the VM is already defined on the new host).</param>
 internal sealed record PlanInput(
     string Via,
+    string GuestName,
     bool IsContainer,
     string State,
     string SourceName,
@@ -117,7 +120,7 @@ internal static class MigrationPlanner
         var blockers = new List<string>(input.Blockers);
         var notes = new List<string>(input.Notes);
         var steps = new List<PlannedStep>();
-        var (source, target) = (input.SourceName, input.TargetName);
+        var (source, target, vm) = (input.SourceName, input.TargetName, input.GuestName);
         var running = input.State == "running";
         var disks = input.Disks ?? [];
         var logout = options.LogoutOldIscsi ?? input.Via == "kvm";
@@ -230,110 +233,116 @@ internal static class MigrationPlanner
             var args = Args(("target", layer.Name), ("portal", portal));
             if (input.Target?.Iscsi?.Nodes.Any(n => n.Target == layer.Name && n.Portal == portal) != true)
             {
-                steps.Add(new(StepKinds.IscsiDiscover, "target", $"Discover iSCSI targets at {portal} on {target}", args));
+                steps.Add(new(StepKinds.IscsiDiscover, "target", $"Discover the iSCSI targets at portal {portal} on {target} (iscsiadm -m discovery)", args));
             }
 
-            steps.Add(new(StepKinds.IscsiLogin, "target", $"Log {target} in to {layer.Name} at {portal}", args));
+            steps.Add(new(StepKinds.IscsiLogin, "target", $"Log in to iSCSI target {layer.Name} at {portal} on {target}", args));
         }
 
         foreach (var map in wwids.Where(m => input.Target?.Multipath?.Any(t => t.Wwid == m.Name) != true))
         {
-            steps.Add(new(StepKinds.MultipathWait, "target", $"Wait for multipath map {map.Detail} ({map.Name}) on {target}", Args(("wwid", map.Name))));
+            steps.Add(new(StepKinds.MultipathWait, "target", $"Wait for multipath device {map.Detail} (WWID {map.Name}) to appear on {target}", Args(("wwid", map.Name))));
         }
 
         foreach (var resource in drbd)
         {
             if (input.Target?.Drbd?.FirstOrDefault(r => r.Name == resource.Name) is { Up: false })
             {
-                steps.Add(new(StepKinds.DrbdUp, "target", $"Bring DRBD resource {resource.Name} up on {target}", Args(("resource", resource.Name))));
+                steps.Add(new(StepKinds.DrbdUp, "target", $"Bring DRBD resource {resource.Name} up on {target} (drbdadm up)", Args(("resource", resource.Name))));
             }
 
-            steps.Add(new(StepKinds.DrbdReady, "target", $"Check {resource.Name} is connected and UpToDate on {target}", Args(("resource", resource.Name))));
+            steps.Add(new(StepKinds.DrbdReady, "target", $"Check DRBD resource {resource.Name} is connected and UpToDate on {target}", Args(("resource", resource.Name))));
         }
 
         foreach (var mount in sharedMounts)
         {
-            steps.Add(new(StepKinds.EnsureMounted, "target", $"Make sure {mount.MountPoint} is mounted on {target}", Args(("mountpoint", mount.MountPoint))));
+            steps.Add(new(StepKinds.EnsureMounted, "target", $"Mount {mount.MountPoint} ({mount.FsType}) on {target} from its /etc/fstab, if it isn't mounted already", Args(("mountpoint", mount.MountPoint))));
         }
 
-        var paths = input.Via == "kvm" ? string.Join('\n', disks.Where(d => d.Path.Length > 0).Select(d => d.Path)) : "";
+        var diskPaths = input.Via == "kvm" ? disks.Where(d => d.Path.Length > 0).Select(d => d.Path).ToList() : [];
+        var paths = string.Join('\n', diskPaths);
+        var checkPaths = $"Check {target} sees the VM's {(diskPaths.Count == 1 ? "disk" : "disks")}: {string.Join(", ", diskPaths)}";
         var move = Args(("live", live ? "1" : "0"), ("localDisks", options.WithLocalDisks ? "1" : "0"));
         if (live)
         {
             foreach (var resource in blockDrbd)
             {
-                steps.Add(new(StepKinds.DrbdAllowTwoPrimaries, "both", $"Let {resource.Name} be primary on both hosts during the move", Args(("resource", resource.Name))));
-                steps.Add(new(StepKinds.DrbdPrimary, "target", $"Make {resource.Name} primary on {target}", Args(("resource", resource.Name))));
+                steps.Add(new(StepKinds.DrbdAllowTwoPrimaries, "both", $"Allow DRBD resource {resource.Name} to be Primary on both {source} and {target} for the move (allow-two-primaries)", Args(("resource", resource.Name))));
+                steps.Add(new(StepKinds.DrbdPrimary, "target", $"Make DRBD resource {resource.Name} Primary on {target}", Args(("resource", resource.Name))));
             }
 
             foreach (var volume in blockLvm)
             {
-                steps.Add(new(StepKinds.LvmActivate, "target", $"Activate {volume.Name} on {target}", Args(("lv", volume.Name))));
+                steps.Add(new(StepKinds.LvmActivate, "target", $"Activate LVM volume {volume.Name} on {target}", Args(("lv", volume.Name))));
             }
 
             if (paths.Length > 0)
             {
-                steps.Add(new(StepKinds.CheckPaths, "target", $"Check {target} sees every disk", Args(("paths", paths))));
+                steps.Add(new(StepKinds.CheckPaths, "target", checkPaths, Args(("paths", paths))));
             }
 
-            steps.Add(new(StepKinds.GuestMove, "hypervisor", $"Move it to {target} while it runs", move));
+            steps.Add(new(StepKinds.GuestMove, "hypervisor", input.Via == "kvm"
+                ? $"Live-migrate {vm} from {source} to {target} while it keeps running (virsh migrate --live over SSH); its definition moves with it"
+                : $"Ask Proxmox to migrate {vm} from {source} to {target} while it keeps running{(options.WithLocalDisks ? ", copying its disks on local storage" : "")}", move));
             foreach (var resource in blockDrbd)
             {
-                steps.Add(new(StepKinds.DrbdSecondary, "source", $"Make {resource.Name} secondary on {source}", Args(("resource", resource.Name))));
-                steps.Add(new(StepKinds.DrbdDisallowTwoPrimaries, "both", $"Let {resource.Name} be primary on one host again", Args(("resource", resource.Name))));
+                steps.Add(new(StepKinds.DrbdSecondary, "source", $"Make DRBD resource {resource.Name} Secondary on {source}", Args(("resource", resource.Name))));
+                steps.Add(new(StepKinds.DrbdDisallowTwoPrimaries, "both", $"Allow DRBD resource {resource.Name} to be Primary on one host only again (on {source} and {target})", Args(("resource", resource.Name))));
             }
 
             foreach (var volume in blockLvm)
             {
-                steps.Add(new(StepKinds.LvmDeactivate, "source", $"Deactivate {volume.Name} on {source}", Args(("lv", volume.Name))));
+                steps.Add(new(StepKinds.LvmDeactivate, "source", $"Deactivate LVM volume {volume.Name} on {source}", Args(("lv", volume.Name))));
             }
         }
         else
         {
             if (running)
             {
-                steps.Add(new(StepKinds.GuestShutdown, "source", $"Shut it down on {source}", Args()));
+                steps.Add(new(StepKinds.GuestShutdown, "source", $"Shut down {vm} on {source} and wait until it's off", Args()));
             }
 
             foreach (var (disk, mount) in mounts)
             {
-                steps.Add(new(StepKinds.Unmount, "source", $"Unmount {mount.MountPoint} on {source}", MountArgs(disk, mount)));
+                steps.Add(new(StepKinds.Unmount, "source", $"Unmount {mount.MountPoint} ({mount.FsType} on {mount.Device}) on {source}", MountArgs(disk, mount)));
             }
 
             foreach (var volume in lvm)
             {
-                steps.Add(new(StepKinds.LvmDeactivate, "source", $"Deactivate {volume.Name} on {source}", Args(("lv", volume.Name))));
+                steps.Add(new(StepKinds.LvmDeactivate, "source", $"Deactivate LVM volume {volume.Name} on {source}", Args(("lv", volume.Name))));
             }
 
             foreach (var resource in drbd)
             {
-                steps.Add(new(StepKinds.DrbdSecondary, "source", $"Make {resource.Name} secondary on {source}", Args(("resource", resource.Name))));
+                steps.Add(new(StepKinds.DrbdSecondary, "source", $"Make DRBD resource {resource.Name} Secondary on {source}", Args(("resource", resource.Name))));
             }
 
             foreach (var resource in drbd)
             {
-                steps.Add(new(StepKinds.DrbdPrimary, "target", $"Make {resource.Name} primary on {target}", Args(("resource", resource.Name))));
+                steps.Add(new(StepKinds.DrbdPrimary, "target", $"Make DRBD resource {resource.Name} Primary on {target}", Args(("resource", resource.Name))));
             }
 
             foreach (var volume in lvm)
             {
-                steps.Add(new(StepKinds.LvmActivate, "target", $"Activate {volume.Name} on {target}", Args(("lv", volume.Name))));
+                steps.Add(new(StepKinds.LvmActivate, "target", $"Activate LVM volume {volume.Name} on {target}", Args(("lv", volume.Name))));
             }
 
             foreach (var (disk, mount) in mounts)
             {
-                steps.Add(new(StepKinds.Mount, "target", $"Mount {mount.MountPoint} on {target}", MountArgs(disk, mount)));
+                steps.Add(new(StepKinds.Mount, "target", $"Mount {mount.MountPoint} ({mount.FsType}) on {target}", MountArgs(disk, mount)));
             }
 
             if (paths.Length > 0)
             {
-                steps.Add(new(StepKinds.CheckPaths, "target", $"Check {target} sees every disk", Args(("paths", paths))));
+                steps.Add(new(StepKinds.CheckPaths, "target", checkPaths, Args(("paths", paths))));
             }
 
-            steps.Add(new(StepKinds.GuestMove, "hypervisor", $"Move it to {target}", move));
+            steps.Add(new(StepKinds.GuestMove, "hypervisor", input.Via == "kvm"
+                ? $"Copy {vm}'s libvirt definition from {source} to {target} (virsh dumpxml, then virsh define), then remove it from {source} (virsh undefine)"
+                : $"Ask Proxmox to move {vm} from {source} to {target} while it's off{(options.WithLocalDisks ? ", copying its disks on local storage" : "")}", move));
             if (running && options.StartAfter)
             {
-                steps.Add(new(StepKinds.GuestStart, "target", $"Start it on {target}", Args()));
+                steps.Add(new(StepKinds.GuestStart, "target", $"Start {vm} on {target}", Args()));
             }
         }
 
@@ -359,11 +368,11 @@ internal static class MigrationPlanner
             {
                 if (!steps.Any(s => s.Kind == StepKinds.MultipathFlush && s.Args["wwid"] == map.Name))
                 {
-                    steps.Add(new(StepKinds.MultipathFlush, "source", $"Remove multipath map {map.Detail} on {source}", Args(("wwid", map.Name), ("map", map.Detail ?? map.Name)), Critical: false));
+                    steps.Add(new(StepKinds.MultipathFlush, "source", $"Remove multipath device {map.Detail} (WWID {map.Name}) on {source}, unless it's still in use", Args(("wwid", map.Name), ("map", map.Detail ?? map.Name)), Critical: false));
                 }
             }
 
-            steps.Add(new(StepKinds.IscsiLogout, "source", $"Log {source} out of {layer.Name} at {layer.Detail}", Args(("target", layer.Name), ("portal", layer.Detail!)), Critical: false));
+            steps.Add(new(StepKinds.IscsiLogout, "source", $"Log out of iSCSI target {layer.Name} at {layer.Detail} on {source}, unless its disks are still in use", Args(("target", layer.Name), ("portal", layer.Detail!)), Critical: false));
         }
 
         if (logout && disks.Any(d => d.Layout == DiskLayouts.Managed && d.Layers.Any(l => l.Kind == LayerKinds.Iscsi)))
@@ -375,7 +384,7 @@ internal static class MigrationPlanner
         {
             foreach (var resource in drbd)
             {
-                steps.Add(new(StepKinds.DrbdDown, "source", $"Take {resource.Name} down on {source}", Args(("resource", resource.Name)), Critical: false));
+                steps.Add(new(StepKinds.DrbdDown, "source", $"Take DRBD resource {resource.Name} down on {source} (drbdadm down)", Args(("resource", resource.Name)), Critical: false));
             }
         }
 
@@ -389,7 +398,7 @@ internal static class MigrationPlanner
             steps,
             blockers,
             notes,
-            new PlanChoices(noLive is null, noLive, logout, toLogOut, kept, iscsi.Count > 0, drbd.Count > 0, hasLocal));
+            new PlanChoices(noLive is null, noLive, logout, toLogOut, kept, iscsi.Count > 0, drbd.Count > 0, hasLocal, input.Disks is not null));
     }
 
     /// <summary>How a file system is mounted on either host: its device is found again there by DRBD resource, LVM volume, multipath WWID or file system UUID.</summary>

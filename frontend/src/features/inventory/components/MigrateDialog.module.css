@@ -88,3 +88,20 @@
 .undoFailed .icon {
   color: #e5484d;
 }
+
+.path {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.8125rem;
+}
+
+.review {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: 1.5rem;
+  font-size: 0.875rem;
+}
+
+.review li::marker {
+  font-weight: 600;
+}
