@@ -94,6 +94,13 @@ public sealed class SshServerFixture : IAsyncLifetime
         await Task.Delay(TimeSpan.FromSeconds(2));
     }
 
+    /// <summary>The power actions the fake virsh ran, oldest first ("start &lt;uuid&gt;").</summary>
+    public async Task<string[]> VirshPowerLogAsync()
+    {
+        var log = await _container!.ExecAsync(["sh", "-c", "cat /tmp/virsh-power.log 2>/dev/null || true"]);
+        return log.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
     public void SkipIfUnavailable()
     {
         if (UnavailableReason is not null)

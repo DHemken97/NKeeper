@@ -119,8 +119,8 @@ All sessions start from a **target**: a host, one of its services, and a saved c
 - **Web** (`/api/web/sessions`):
   - creates a session with its own origin and a one-time launch link;
   - `WebProxyMiddleware` then forwards requests for `nkw-<id>.<domain>` hosts with YARP, rewriting cookies and framing headers.
-- **KVM** (`/api/kvm/vms`, `/api/spice/sessions`, `/api/vnc/consoles`):
-  - lists VMs by running `virsh` over SSH;
+- **KVM** (`/api/kvm/vms`, `/api/kvm/vm`, `/api/kvm/power`, `/api/spice/sessions`, `/api/vnc/consoles`):
+  - lists VMs by running `virsh` over SSH, and runs their power actions with it (`start`, `shutdown`, `reboot`, `suspend`, `managedsave`, `resume`, `destroy`, `reset`);
   - a console opens an SSH local port forward to the VM's SPICE or VNC port (virsh reports VNC as a display number, port 5900 + N);
   - spice-html5 then opens one WebSocket per SPICE channel on `/api/spice/channel/{id}`, and noVNC one on `/api/vnc/channel/{id}`, each relayed raw to that forward. VNC consoles live under `/api/vnc/` so proxies already treat them as WebSockets;
   - a Proxmox node (one with `/etc/pve/nodes`) is detected by the same listing script. Its VMs come from `pvesh get /cluster/resources`, and each VNC channel runs `qm vncproxy <vmid>` over SSH, with its stdin and stdout relayed instead of a port forward. The one-time VNC password goes in as the first line of input (`LC_PVE_TICKET`), never on a command line. A VM on another node is reached with `ssh root@<node>` from the connected node, as Proxmox does.

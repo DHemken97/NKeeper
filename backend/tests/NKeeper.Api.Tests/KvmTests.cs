@@ -139,6 +139,49 @@ public sealed class KvmTests(PostgresServerFixture postgres, SshServerFixture ss
         await Assert.ThrowsAnyAsync<InvalidOperationException>(() => OpenChannelAsync($"/api/spice/channel/{console.GetProperty("sessionId").GetString()}", bobCookies));
     }
 
+    [Fact]
+    public async Task OneVm_IsDescribed_WithItsConsoleType()
+    {
+        var host = await CreateTrustedHostAsync();
+
+        var answer = await PostAsync("/api/kvm/vm", Request(host, vm: VncVm));
+
+        Assert.Equal(new VirtualMachine(VncVm.ToString(), "vnc-vm", "running", "vnc"), answer.GetProperty("vm").Deserialize<VirtualMachine>(Json));
+    }
+
+    [Theory]
+    [InlineData("start", "start")]
+    [InlineData("shutdown", "shutdown")]
+    [InlineData("reboot", "reboot")]
+    [InlineData("pause", "suspend")]
+    [InlineData("hibernate", "managedsave")]
+    [InlineData("resume", "resume")]
+    [InlineData("stop", "destroy")]
+    [InlineData("reset", "reset")]
+    public async Task PowerActions_RunVirsh(string action, string command)
+    {
+        var host = await CreateTrustedHostAsync();
+
+        var answer = await PostAsync("/api/kvm/power", new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, vm = RunningVm, action });
+
+        Assert.Equal($"{command} {RunningVm}", (await ssh.VirshPowerLogAsync()).Last());
+        Assert.Equal("running", answer.GetProperty("vm").GetProperty("state").GetString());
+    }
+
+    [Theory]
+    [InlineData("stop", "domain is not running")]
+    [InlineData("explode", "Choose an action")]
+    public async Task PowerActions_ThatFail_AreExplained(string action, string message)
+    {
+        var host = await CreateTrustedHostAsync();
+
+        var response = await _client.SendJsonAsync(
+            HttpMethod.Post, "/api/kvm/power", new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, vm = StoppedVm, action }, Ct);
+
+        Assert.False(response.IsSuccessStatusCode);
+        Assert.Contains(message, await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("spice://127.0.0.1:5900", "127.0.0.1", 5900, null)]
     [InlineData("spice://127.0.0.1:5901/?password=s3cret", "127.0.0.1", 5901, "s3cret")]
