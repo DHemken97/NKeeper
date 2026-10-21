@@ -212,11 +212,15 @@ public sealed class ProxmoxController(ConsoleSessionStore consoles) : Controller
     }
 
     /// <summary>Resolves the node's Proxmox service, checks its certificate and signs in; or answers with the certificate to trust.</summary>
-    private async Task<(ProxmoxConnection? Connection, string Display, WebCertificateResponse? Certificate)> OpenAsync(ProxmoxRequest request, CancellationToken cancellationToken)
+    private Task<(ProxmoxConnection? Connection, string Display, WebCertificateResponse? Certificate)> OpenAsync(ProxmoxRequest request, CancellationToken cancellationToken) =>
+        ConnectAsync(request, HttpContext.RequestServices, User, cancellationToken);
+
+    /// <summary>The same, for others that use a node's API (migrations).</summary>
+    internal static async Task<(ProxmoxConnection? Connection, string Display, WebCertificateResponse? Certificate)> ConnectAsync(
+        ProxmoxRequest request, IServiceProvider services, System.Security.Claims.ClaimsPrincipal user, CancellationToken cancellationToken)
     {
-        var services = HttpContext.RequestServices;
         var target = await services.GetRequiredService<SessionTargetResolver>()
-            .ResolveAsync(request, RequestUser.From(User), ServiceProtocol.Proxmox, ProxmoxApi.DefaultPort, cancellationToken);
+            .ResolveAsync(request, RequestUser.From(user), ServiceProtocol.Proxmox, ProxmoxApi.DefaultPort, cancellationToken);
         if (target.Password is null)
         {
             throw new SessionException(SessionErrorCodes.MissingSecret, "This credential has no password.");
@@ -228,7 +232,7 @@ public sealed class ProxmoxController(ConsoleSessionStore consoles) : Controller
         try
         {
             var trust = await CertificateTrust.CheckAsync(
-                target.HostId, target.Address, target.Port, target.KeyProtocol, target.KnownKeys, request.TrustFingerprint, User.GetUserId(),
+                target.HostId, target.Address, target.Port, target.KeyProtocol, target.KnownKeys, request.TrustFingerprint, user.GetUserId(),
                 services.GetRequiredService<TrustedKeyStore>(), cancellationToken, tunnel);
             if (trust.Prompt is { } certificate)
             {
@@ -269,7 +273,7 @@ public sealed class ProxmoxController(ConsoleSessionStore consoles) : Controller
     private Auditing.AuditLog Audit => HttpContext.RequestServices.GetRequiredService<Auditing.AuditLog>();
 
     /// <summary>A signed-in API connection to the node, through its jump-host tunnel (owned until handed to a console).</summary>
-    private sealed class ProxmoxConnection(SessionTarget target, ProxmoxApi api, JumpTunnel tunnel) : IDisposable
+    internal sealed class ProxmoxConnection(SessionTarget target, ProxmoxApi api, JumpTunnel tunnel) : IDisposable
     {
         private bool _handedOver;
 

@@ -112,6 +112,11 @@ internal static partial class StorageHost
     public static Task<string> RunActionAsync(SshClient client, StorageCommand command, CancellationToken cancellationToken) =>
         RunAsync(client, AsRoot + command.Script, ActionTimeout, command.Description, cancellationToken);
 
+    /// <summary>Runs a script as root (<c>$p</c> runs a command as root, the tools' folders are on the path); returns its output.</summary>
+    /// <param name="what">What it does, for errors, e.g. "Mounting /srv/vms".</param>
+    public static Task<string> RunAsRootAsync(SshClient client, string script, TimeSpan timeout, string what, CancellationToken cancellationToken) =>
+        RunAsync(client, AsRoot + script, timeout, what, cancellationToken);
+
     /// <summary>
     /// The command for an action on the host as it is now (<paramref name="status"/>), or why it
     /// can't be done. <paramref name="name"/> is a multipath map or DRBD resource.

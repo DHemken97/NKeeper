@@ -79,6 +79,7 @@ internal static class ApiServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddSingleton<NKeeper.Api.Auditing.AuditLog>();
+        services.AddSingleton<NKeeper.Api.Migration.MigrationJobs>();
         services.AddHostedService<NKeeper.Api.Auditing.AuditRetention>();
         services.AddOptions<NKeeper.Api.Health.HealthSettings>()
             .Bind(configuration.GetSection(NKeeper.Api.Health.HealthSettings.SectionName))
