@@ -5,6 +5,9 @@
 #   scripts/setup.sh --yes              # no questions: Docker, HTTPS on 443 for this machine's name
 #   sudo scripts/setup.sh --mode native # systemd service + nginx + PostgreSQL on this machine
 #
+# Running it again upgrades with the previous answers, and skips what hasn't changed: NKeeper is
+# only rebuilt when its source has changed (--rebuild builds it anyway).
+#
 # Modes
 #   docker  (recommended) PostgreSQL, the API, guacd and nginx in Docker Compose containers.
 #   native  The API as a systemd service behind the distribution's nginx, with its PostgreSQL.
@@ -24,8 +27,8 @@ API_PORT=5080
 
 mode="" names="" web_domain="" local_only=false https_port=443 http_port=80
 admin_user="" admin_email="" admin_password="" admin_password_arg="" cert="" key=""
-assume_yes=false install_docker=false uninstall=false purge=false no_guacd=false
-https_port_set=false http_port_set=false
+assume_yes=false install_docker=false uninstall=false purge=false no_guacd=false rebuild=false
+https_port_set=false http_port_set=false web_domain_set=false
 
 usage() {
     cat <<'EOF'
@@ -45,6 +48,8 @@ Usage: scripts/setup.sh [options]
   --admin-password PASS    Their password (default: generated and shown once)
   --install-docker         Install Docker if missing (docker mode), without asking
   --no-guacd               Native mode: skip guacd (RDP and VNC won't work)
+  --rebuild                Build NKeeper even if its source hasn't changed since the last
+                           build (e.g. to pick up .NET, Node.js or base image updates)
   -y, --yes                Don't ask; use the defaults
   --uninstall              Remove NKeeper (keeps the database unless --purge)
   --purge                  With --uninstall: also delete the database and certificates
@@ -56,7 +61,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --mode) mode=$2; shift ;;
         --hostname) names=${2//,/ }; shift ;;
-        --web-domain) web_domain=$2; shift ;;
+        --web-domain) web_domain=$2; web_domain_set=true; shift ;;
         --local-only) local_only=true ;;
         --https-port) https_port=$2; https_port_set=true; shift ;;
         --http-port) http_port=$2; http_port_set=true; shift ;;
@@ -67,6 +72,7 @@ while [ $# -gt 0 ]; do
         --admin-password) admin_password=$2 admin_password_arg=$2; shift ;;
         --install-docker) install_docker=true ;;
         --no-guacd) no_guacd=true ;;
+        --rebuild) rebuild=true ;;
         -y|--yes) assume_yes=true ;;
         --uninstall) uninstall=true ;;
         --purge) purge=true ;;
@@ -148,6 +154,20 @@ set_env() {
 
 get_env() { [ -f "$1" ] && sed -n "s/^$2=//p" "$1" | tail -n 1 || true; }
 
+# source_hash DIR...: one hash of the files under DIRs (of the checkout) that a build uses, to
+# tell whether they changed since the last build. Git's file list when it's a Git checkout (so
+# ignored output like node_modules doesn't count), else every file but build output.
+source_hash() {
+    (
+        cd "$REPO"
+        if command -v git >/dev/null 2>&1 && git -c safe.directory="$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            git -c safe.directory="$REPO" ls-files -z --cached --others --exclude-standard -- "$@"
+        else
+            find "$@" \( -name node_modules -o -name bin -o -name obj -o -name dist -o -name .git \) -prune -o -type f -print0
+        fi | sort -z | { xargs -0 sha256sum 2>/dev/null || true; } | sha256sum | cut -c1-64
+    )
+}
+
 port_in_use() {
     if command -v ss >/dev/null 2>&1; then
         ss -Hltn "sport = :$1" 2>/dev/null | grep -q .
@@ -185,29 +205,36 @@ choose_settings() {
     [[ "$mode" == docker || "$mode" == native ]] || die "--mode must be docker or native"
 
     # A re-run keeps the previous answers unless options override them.
-    local previous="" previous_https="" previous_http="" previous_bind=""
+    local previous="" previous_https="" previous_http="" previous_bind="" previous_web=""
     if [ "$mode" = docker ]; then
         previous=$(get_env "$REPO/.env" NKEEPER_SERVER_NAMES)
         previous_https=$(get_env "$REPO/.env" NKEEPER_HTTPS_PORT)
         previous_http=$(get_env "$REPO/.env" NKEEPER_HTTP_REDIRECT_PORT)
         previous_bind=$(get_env "$REPO/.env" NKEEPER_HTTPS_BIND)
+        previous_web=$(get_env "$REPO/.env" NKEEPER_WEB_BASE_DOMAIN)
         # .env.example's values (localhost on 8443) aren't a previous choice.
         if [ "$previous" = localhost ] && [ "$previous_https" = 8443 ]; then previous="" previous_https="" previous_http=""; fi
     else
         previous=$(get_env "$NATIVE_CONFIG/nkeeper.env" NKEEPER_SERVER_NAMES | tr -d '"')
         previous_https=$(get_env "$NATIVE_CONFIG/nkeeper.env" NKEEPER_HTTPS_PORT)
         previous_http=$(get_env "$NATIVE_CONFIG/nkeeper.env" NKEEPER_HTTP_PORT)
+        previous_web=$(get_env "$NATIVE_CONFIG/nkeeper.env" WebProxy__BaseDomain)
         [ "$previous" = localhost ] && previous_bind=127.0.0.1
     fi
     $https_port_set || https_port=${previous_https:-443}
     $http_port_set || http_port=${previous_http:-80}
+    $web_domain_set || web_domain=$previous_web
     # A local-only install stays local-only unless new names are given.
     if [ -z "$names" ] && [ "$previous" = localhost ] && [ "$previous_bind" = 127.0.0.1 ]; then local_only=true; fi
 
     if $local_only; then
         names=localhost
+    elif [ -z "$names" ] && [ -n "$previous" ]; then
+        # Already installed: keep its names rather than asking again.
+        names=$previous
+        ok "Keeping the names NKeeper is opened with: $names (--hostname changes them)."
     elif [ -z "$names" ]; then
-        names=$(ask "Names or addresses people will use to open NKeeper (space-separated)" "${previous:-$(default_names)}")
+        names=$(ask "Names or addresses people will use to open NKeeper (space-separated)" "$(default_names)")
     fi
     [ -n "$names" ] || die "No host name given (use --hostname)"
     if { [ -n "$cert" ] && [ -z "$key" ]; } || { [ -z "$cert" ] && [ -n "$key" ]; }; then die "--cert and --key go together"; fi
@@ -319,8 +346,18 @@ docker_install() {
         done
     fi
 
-    step "Building and starting the containers (the first build takes a few minutes)"
-    compose up -d --build --remove-orphans
+    # Rebuild the images only when what they're built from changed (compose up leaves unchanged containers running).
+    local source
+    source="$(source_hash backend frontend)-$(get_env "$env" VITE_API_BASE_URL)"
+    if ! $rebuild && [ "$(get_env "$env" NKEEPER_BUILT_SOURCE)" = "$source" ] &&
+        "${DOCKER[@]}" image inspect nkeeper-backend:local nkeeper-frontend:local >/dev/null 2>&1; then
+        step "Starting the containers (NKeeper hasn't changed since its last build, so it isn't rebuilt)"
+        compose up -d --remove-orphans
+    else
+        step "Building and starting the containers (the first build takes a few minutes)"
+        compose up -d --build --remove-orphans
+        set_env "$env" NKEEPER_BUILT_SOURCE "$source"
+    fi
 
     if [ -n "$cert" ]; then
         step "Installing your certificate"
@@ -370,18 +407,36 @@ docker_uninstall() {
 
 pm=""
 
+# apt_installed PACKAGE...: whether each one (a name or a dpkg pattern) is installed.
+apt_installed() {
+    local package
+    for package in "$@"; do
+        dpkg-query -W -f='${db:Status-Abbrev}\n' "$package" 2>/dev/null | grep -q '^ii' || return 1
+    done
+}
+
 native_packages() {
+    local apt_packages=(postgresql nginx openssl curl ca-certificates tar xz-utils python3 python3-venv)
+    # No curl package: RHEL 9's curl-minimal (already present, since this script needs curl) conflicts with it.
+    local dnf_packages=(postgresql-server nginx openssl ca-certificates tar xz libicu python3 policycoreutils-python-utils)
     if command -v apt-get >/dev/null 2>&1; then
         pm=apt
         export DEBIAN_FRONTEND=noninteractive
+        if apt_installed "${apt_packages[@]}" 'libicu[0-9]*'; then
+            ok "Already installed."
+            return
+        fi
         apt-get update -qq
         local icu
         icu=$(apt-cache search --names-only '^libicu[0-9]+$' | awk '{print $1}' | sort -V | tail -n 1)
-        apt-get install -y -qq postgresql nginx openssl curl ca-certificates tar xz-utils python3 python3-venv ${icu:+"$icu"} >/dev/null
+        apt-get install -y -qq "${apt_packages[@]}" ${icu:+"$icu"} >/dev/null
     elif command -v dnf >/dev/null 2>&1; then
         pm=dnf
-        # No curl package: RHEL 9's curl-minimal (already present, since this script needs curl) conflicts with it.
-        dnf install -y -q postgresql-server nginx openssl ca-certificates tar xz libicu python3 policycoreutils-python-utils >/dev/null
+        if rpm -q "${dnf_packages[@]}" >/dev/null 2>&1; then
+            ok "Already installed."
+            return
+        fi
+        dnf install -y -q "${dnf_packages[@]}" >/dev/null
     else
         die "Native mode supports apt (Debian/Ubuntu) and dnf (RHEL/Rocky/Alma/Fedora). Use --mode docker instead."
     fi
@@ -392,6 +447,10 @@ native_packages() {
 # Windows scans fail, so a failed download is a warning.
 native_impacket() {
     step "Installing Impacket (Windows scans)"
+    if [ "$(/opt/impacket/bin/python3 -c 'import importlib.metadata as m; print(m.version("impacket"))' 2>/dev/null)" = 0.12.0 ]; then
+        ok "Impacket 0.12.0 is already in /opt/impacket."
+        return
+    fi
     if [ ! -x /opt/impacket/bin/python3 ] && ! python3 -m venv /opt/impacket >/dev/null 2>&1; then
         warn "Couldn't create /opt/impacket; scanning Windows hosts won't work."
         return
@@ -486,33 +545,69 @@ native_toolchain() {
     build_dir="$cache/src"
 }
 
+# The source each installed part was built from ($NATIVE_PREFIX/.source-api, .source-frontend),
+# so a re-run only rebuilds what changed.
+api_source="" frontend_source="" installed_new=false
+
 native_build() {
-    step "Building NKeeper (a few minutes the first time)"
+    api_source=$(source_hash backend)
+    frontend_source=$(source_hash frontend)
+    local build_api=true build_frontend=true
+    if ! $rebuild; then
+        [ -x "$NATIVE_PREFIX/api/NKeeper.Api" ] && [ "$(cat "$NATIVE_PREFIX/.source-api" 2>/dev/null)" = "$api_source" ] && build_api=false
+        [ -s "$NATIVE_PREFIX/frontend/index.html" ] && [ "$(cat "$NATIVE_PREFIX/.source-frontend" 2>/dev/null)" = "$frontend_source" ] && build_frontend=false
+    fi
+    rm -rf "$NATIVE_PREFIX/api.new" "$NATIVE_PREFIX/frontend.new"
+    if ! $build_api && ! $build_frontend; then
+        step "NKeeper hasn't changed since its last build, so it isn't rebuilt (--rebuild builds it anyway)"
+        return
+    fi
+
+    local what="API and web interface"
+    $build_api || what="web interface"
+    $build_frontend || what=API
+    native_toolchain
+    step "Building NKeeper's $what (a few minutes the first time)"
     # Build from a copy, so the checkout doesn't fill with root-owned build output.
     rm -rf "$build_dir" && mkdir -p "$build_dir"
     (cd "$REPO" && tar --exclude=node_modules --exclude=bin --exclude=obj --exclude=dist --exclude=.git -cf - backend frontend) | tar -xf - -C "$build_dir"
 
-    (cd "$build_dir/frontend" && PATH="$node_bin_dir:$PATH" npm ci --no-audit --no-fund --loglevel=error && PATH="$node_bin_dir:$PATH" npm run build --silent) >/dev/null
-    DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 "$dotnet_bin" publish "$build_dir/backend/src/NKeeper.Api/NKeeper.Api.csproj" \
-        -c Release -r "$rid" --self-contained -o "$build_dir/api" -p:DebugType=none >/dev/null
-
     mkdir -p "$NATIVE_PREFIX"
     # Readable by the nkeeper user and nginx even when root's umask is strict.
     chmod 755 "$NATIVE_PREFIX"
-    rm -rf "$NATIVE_PREFIX/api.new" "$NATIVE_PREFIX/frontend.new"
-    # Not --preserve=context: SELinux labels from the build cache would stop systemd running the API.
-    cp -R --preserve=mode,timestamps "$build_dir/api" "$NATIVE_PREFIX/api.new"
-    cp -R --preserve=mode,timestamps "$build_dir/frontend/dist" "$NATIVE_PREFIX/frontend.new"
-    chown -R root:root "$NATIVE_PREFIX/api.new" "$NATIVE_PREFIX/frontend.new"
-    chmod -R a+rX "$NATIVE_PREFIX/api.new" "$NATIVE_PREFIX/frontend.new"
+    if $build_frontend; then
+        (cd "$build_dir/frontend" && PATH="$node_bin_dir:$PATH" npm ci --no-audit --no-fund --loglevel=error && PATH="$node_bin_dir:$PATH" npm run build --silent) >/dev/null
+        # Not --preserve=context: SELinux labels from the build cache would stop systemd running the API.
+        cp -R --preserve=mode,timestamps "$build_dir/frontend/dist" "$NATIVE_PREFIX/frontend.new"
+    fi
+    if $build_api; then
+        DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 "$dotnet_bin" publish "$build_dir/backend/src/NKeeper.Api/NKeeper.Api.csproj" \
+            -c Release -r "$rid" --self-contained -o "$build_dir/api" -p:DebugType=none >/dev/null
+        cp -R --preserve=mode,timestamps "$build_dir/api" "$NATIVE_PREFIX/api.new"
+    fi
+    local part
+    for part in api.new frontend.new; do
+        [ -d "$NATIVE_PREFIX/$part" ] || continue
+        chown -R root:root "$NATIVE_PREFIX/$part"
+        chmod -R a+rX "$NATIVE_PREFIX/$part"
+    done
     ok "Built."
 }
 
 native_install_files() {
+    [ -d "$NATIVE_PREFIX/api.new" ] || [ -d "$NATIVE_PREFIX/frontend.new" ] || return 0
     systemctl stop nkeeper >/dev/null 2>&1 || true
-    rm -rf "$NATIVE_PREFIX/api" "$NATIVE_PREFIX/frontend"
-    mv "$NATIVE_PREFIX/api.new" "$NATIVE_PREFIX/api"
-    mv "$NATIVE_PREFIX/frontend.new" "$NATIVE_PREFIX/frontend"
+    if [ -d "$NATIVE_PREFIX/api.new" ]; then
+        rm -rf "$NATIVE_PREFIX/api"
+        mv "$NATIVE_PREFIX/api.new" "$NATIVE_PREFIX/api"
+        echo "$api_source" >"$NATIVE_PREFIX/.source-api"
+    fi
+    if [ -d "$NATIVE_PREFIX/frontend.new" ]; then
+        rm -rf "$NATIVE_PREFIX/frontend"
+        mv "$NATIVE_PREFIX/frontend.new" "$NATIVE_PREFIX/frontend"
+        echo "$frontend_source" >"$NATIVE_PREFIX/.source-frontend"
+    fi
+    installed_new=true
     if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
         # The API binary as a program systemd may start; the rest keeps /opt's default label.
         semanage fcontext -a -t bin_t "$NATIVE_PREFIX/api/NKeeper\.Api" 2>/dev/null ||
@@ -525,7 +620,8 @@ native_config() {
     step "Configuring the NKeeper service"
     id nkeeper >/dev/null 2>&1 || useradd --system --home-dir "$NATIVE_PREFIX" --shell /usr/sbin/nologin nkeeper
     mkdir -p "$NATIVE_CONFIG"
-    local env="$NATIVE_CONFIG/nkeeper.env" fresh=true
+    local env="$NATIVE_CONFIG/nkeeper.env" fresh=true before
+    before=$(cat "$env" /etc/systemd/system/nkeeper.service 2>/dev/null | sha256sum)
     # NKEEPER_INSTALLED is only set once NKeeper has started (and created the administrator), so a
     # run that stopped earlier asks for the administrator again.
     [ -n "$(get_env "$env" NKEEPER_INSTALLED)" ] && fresh=false
@@ -607,7 +703,10 @@ CapabilityBoundingSet=
 WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
+    [ "$(cat "$env" /etc/systemd/system/nkeeper.service | sha256sum)" = "$before" ] || config_changed=true
 }
+
+config_changed=false
 
 # guacd_check WHERE LOG_COMMAND: waits for guacd to listen on 4822, or warns.
 guacd_check() {
@@ -623,6 +722,10 @@ native_guacd() {
     $no_guacd && { warn "Skipping guacd: RDP and VNC sessions won't work."; return; }
     step "Starting guacd (for RDP and VNC) in a container on 127.0.0.1:4822"
     if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        if [ "$(docker inspect -f '{{.Config.Image}} {{.State.Running}}' nkeeper-guacd 2>/dev/null)" = "$GUACD_IMAGE true" ]; then
+            ok "guacd already runs in Docker (container nkeeper-guacd)."
+            return
+        fi
         docker rm -f nkeeper-guacd >/dev/null 2>&1 || true
         docker run -d --name nkeeper-guacd --restart unless-stopped -p 127.0.0.1:4822:4822 \
             --cap-drop ALL --security-opt no-new-privileges "$GUACD_IMAGE" >/dev/null
@@ -632,8 +735,10 @@ native_guacd() {
     if ! command -v podman >/dev/null 2>&1; then
         if [ "$pm" = apt ]; then apt-get install -y -qq podman >/dev/null; else dnf install -y -q podman >/dev/null; fi
     fi
-    podman pull -q "$GUACD_IMAGE" >/dev/null
-    cat >/etc/systemd/system/nkeeper-guacd.service <<EOF
+    podman image exists "$GUACD_IMAGE" || podman pull -q "$GUACD_IMAGE" >/dev/null
+    local unit=/etc/systemd/system/nkeeper-guacd.service before=""
+    before=$(cat "$unit" 2>/dev/null || true)
+    cat >"$unit" <<EOF
 [Unit]
 Description=guacd for NKeeper (RDP and VNC), in a Podman container
 After=network-online.target
@@ -648,6 +753,10 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+    if [ "$(cat "$unit")" = "$before" ] && systemctl is-active -q nkeeper-guacd; then
+        ok "guacd already runs in Podman (service nkeeper-guacd)."
+        return
+    fi
     systemctl daemon-reload
     systemctl enable nkeeper-guacd >/dev/null 2>&1
     systemctl restart nkeeper-guacd
@@ -698,7 +807,8 @@ EOF
 
     nginx -t -q || die "nginx rejected the configuration (see above)."
     systemctl enable nginx >/dev/null 2>&1
-    systemctl restart nginx
+    # A reload keeps open sessions; it starts nginx if it isn't running.
+    systemctl reload-or-restart nginx
 }
 
 native_firewall() {
@@ -728,9 +838,13 @@ native_install() {
     native_nginx
     native_firewall
 
-    step "Starting NKeeper"
     systemctl enable nkeeper >/dev/null 2>&1
-    systemctl restart nkeeper
+    if $installed_new || $config_changed || ! systemctl is-active -q nkeeper; then
+        step "Starting NKeeper"
+        systemctl restart nkeeper
+    else
+        step "NKeeper is unchanged and running, so it isn't restarted"
+    fi
     if ! wait_for "http://127.0.0.1:$API_PORT/health/ready" 120; then
         journalctl -u nkeeper -n 40 --no-pager >&2 || true
         die "NKeeper didn't start in time (log above). Check: journalctl -u nkeeper"

@@ -41,7 +41,7 @@ Get the repository onto the machine (`git clone`, or download and extract it), t
 4. Removes the administrator's password from the configuration once the account exists.
 5. Prints the address, the sign-in name and where the certificate authority file is.
 
-Running the script again **upgrades** NKeeper and keeps your data, accounts and earlier answers. Pass options to change them.
+Running the script again **upgrades** NKeeper and keeps your data, accounts and earlier answers (it doesn't ask for the names again). Pass options to change them, e.g. `--hostname`. It skips what hasn't changed: NKeeper is rebuilt only when its source changed since the last build (`--rebuild` builds it anyway, e.g. for .NET or base image updates), packages already installed aren't reinstalled, and guacd and NKeeper aren't restarted when nothing about them changed.
 
 ### Options
 
