@@ -313,6 +313,68 @@ public sealed class MigrationPlanTests
         Assert.Equal([new StorageLayer(LayerKinds.Drbd, "r1", "1")], disk.Layers);
     }
 
+    [Fact]
+    public void Trace_FollowsAnInactiveLvmVolume_ThroughItsVolumeGroup()
+    {
+        // A stopped VM's volume has no device; its volume group's physical volume is on DRBD.
+        var status = new StorageStatus(null, null, [new DrbdResource("r0", true, "Primary", [new DrbdVolume(0, 0, "UpToDate")], [])]);
+        var output = string.Join('\n',
+            "@@disk", "@@lv", "  drbdvg vm-100-disk-0", "@@tree",
+            """{"blockdevices":[{"name":"drbd0","kname":"drbd0","type":"disk","tran":null,"children":[{"name":"sda3","kname":"sda3","type":"part","tran":null}]}]}""");
+
+        var disk = Assert.Single(StorageTrace.Parse(output, [new DiskPath("scsi0", "/dev/drbdvg/vm-100-disk-0")], status).Disks);
+
+        Assert.Equal(DiskLayouts.Block, disk.Layout);
+        Assert.Equal([new StorageLayer(LayerKinds.Lvm, "drbdvg/vm-100-disk-0"), new StorageLayer(LayerKinds.Drbd, "r0", "0")], disk.Layers);
+        Assert.Contains("vgs --noheadings -o pv_name", StorageTrace.Script([new DiskPath("scsi0", "/dev/drbdvg/vm-100-disk-0")]), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Proxmox_NeverCopiesDisksOnDrbdOrIscsi_AndNeverSkipsOnesOnItsOwnDisk()
+    {
+        var lvmOnDrbd = new GuestDisk("scsi0", "/dev/drbdvg/vm-100-disk-0", DiskLayouts.Block, null, [new StorageLayer(LayerKinds.Lvm, "drbdvg/vm-100-disk-0"), new StorageLayer(LayerKinds.Drbd, "r0", "0")], "drbd-lvm");
+        var thinOnIscsi = lvmOnDrbd with { Layers = [new StorageLayer(LayerKinds.Lvm, "san/vm-100-disk-0"), new StorageLayer(LayerKinds.Iscsi, "iqn.2003-01.org.example.san:disk1", "10.0.0.5:3260")], Storage = "san-thin" };
+        var dirOnDrbd = OnDrbdFilesystem with { Storage = "vms" };
+        var dirOnLocalDisk = LocalFile with { Storage = "local" };
+        string? Check(GuestDisk disk, string type, bool shared) =>
+            ProxmoxMover.SharingBlocker(new DiskPath(disk.Name, disk.Path, disk.Storage, "trace", shared, null, type), disk, "pve1", "pve2");
+
+        Assert.Contains("LVM on drbd, which Proxmox would copy to pve2. Mark drbd-lvm as shared", Check(lvmOnDrbd, "lvm", false), StringComparison.Ordinal);
+        Assert.Contains("allow-two-primaries", Check(lvmOnDrbd, "lvm", false), StringComparison.Ordinal);
+        Assert.Contains("LVM-thin on iscsi: Proxmox would copy it to pve2", Check(thinOnIscsi, "lvmthin", false), StringComparison.Ordinal);
+        Assert.Contains("a file system on drbd that NKeeper moves between nodes; mark vms as shared", Check(dirOnDrbd, "dir", false), StringComparison.Ordinal);
+        Assert.Null(Check(dirOnDrbd, "dir", true));
+        Assert.Contains("is marked shared, but disk vda (/var/lib/libvirt/images/web.qcow2) is on pve1's own disk", Check(dirOnLocalDisk, "dir", true), StringComparison.Ordinal);
+        Assert.Null(Check(dirOnLocalDisk, "dir", false));
+    }
+
+    [Fact]
+    public void ProxmoxSharedLvmOnDrbd_NeedsTheResourcePrimaryOnTheNewNodeToo()
+    {
+        var managed = new GuestDisk("scsi0", "/dev/drbdvg/vm-100-disk-0", DiskLayouts.Managed, null, [new StorageLayer(LayerKinds.Lvm, "drbdvg/vm-100-disk-0"), new StorageLayer(LayerKinds.Drbd, "r0", "0")], "drbd-lvm");
+
+        var secondary = MigrationPlanner.Plan(Input([managed], via: "proxmox"), new MigrationOptions());
+        var primary = MigrationPlanner.Plan(Input([managed], target: Drbd(Resource("r0") with { Role = "Primary" }), via: "proxmox"), new MigrationOptions());
+
+        Assert.Contains(secondary.Blockers, b => b.Contains("which is Secondary on kvm-b", StringComparison.Ordinal) && b.Contains("allow-two-primaries", StringComparison.Ordinal));
+        Assert.Empty(primary.Blockers);
+        // Proxmox activates it: NKeeper hands nothing over.
+        Assert.DoesNotContain(primary.Steps, s => s.Kind is StepKinds.DrbdPrimary or StepKinds.DrbdSecondary or StepKinds.DiskCopy);
+    }
+
+    [Theory]
+    [InlineData("/dev/sdb", true)]
+    [InlineData("/dev/dm-3", true)]
+    [InlineData("/dev/mapper/mpatha", true)]
+    [InlineData("/dev/disk/by-id/dm-uuid-mpath-36001405aaaa", false)]
+    [InlineData("/dev/vg0/web", false)]
+    public void ASharedDisk_UsedByItsKernelName_Blocks(string path, bool blocks)
+    {
+        var plan = MigrationPlanner.Plan(Input([LvmOnIscsi with { Path = path }], target: new StorageStatus(new IscsiStatus(null, [], []), [], null)), new MigrationOptions());
+
+        Assert.Equal(blocks, plan.Blockers.Any(b => b.Contains("may be a different disk", StringComparison.Ordinal)));
+    }
+
     [Theory]
     [InlineData("/srv/vms/a b.qcow2", true)]
     [InlineData("/srv/vms/it's.qcow2", false)]

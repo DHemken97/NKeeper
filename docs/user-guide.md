@@ -316,7 +316,12 @@ Add a **Proxmox** service (HTTPS, port 8006 by default) to a Proxmox VE node, wi
   - **Live**, when the hosts reach each other over SSH and the new host has `qemu-img`: an empty image of the same format and size is created there, and `virsh migrate --live --copy-storage-all` copies the disk while the VM runs.
   - If the migration is put back, the copy on the new host is deleted. The old copy stays unless you choose to delete it.
 - **Cluster and network storage** (GFS2, OCFS2, NFS, Ceph…) is reached by every host. NKeeper only makes sure a cluster file system is mounted on the new host.
-- **Proxmox storage:** Proxmox activates its own iSCSI, shared LVM, Ceph, NFS and DRBD (LINSTOR) storage on the new node. NKeeper still makes sure the new node is logged in to the iSCSI targets. A **directory storage** on a file system NKeeper moves (e.g. on DRBD) must be marked **shared**, so Proxmox doesn't try to copy its disks.
+- **Proxmox storage:** Proxmox activates its own iSCSI, shared LVM, Ceph, NFS and DRBD (LINSTOR) storage on the new node. NKeeper still makes sure the new node is logged in to the iSCSI targets. Proxmox copies the disks on storage that isn't marked shared and leaves the rest where they are, so NKeeper traces directory, LVM and LVM-thin storage and blocks the migration when Proxmox would get it wrong:
+  - a **directory storage** on a file system NKeeper moves (e.g. on DRBD), or an **LVM storage** on DRBD or iSCSI, must be marked **shared**, so Proxmox doesn't copy its disks. **LVM-thin** on DRBD or iSCSI can't be shared, so its disks must move to other storage first;
+  - **shared LVM on DRBD** needs the resource Primary on the new node too (dual-primary, `allow-two-primaries`), since Proxmox activates the disk there while the old node goes on using the volume group;
+  - a storage **marked shared that is on the old node's own disk** would leave the VM without its disk on the new node.
+- **Shared disks by kernel name:** a VM that uses a disk on iSCSI or multipath as `/dev/sdb`, `/dev/dm-3` or `/dev/mapper/mpatha` can't move: the same name may be another disk on the new host. Use a `/dev/disk/by-id/…` name.
+- A **stopped VM's LVM volume** (not active, so without a device) is traced through its volume group's physical volumes.
 
 **Options** (each shown only when it applies):
 - **Live:** move a running VM while it runs, when its storage and the hosts allow; otherwise it's shut down for the move, and the check says why.

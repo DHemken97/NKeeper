@@ -137,7 +137,7 @@ internal sealed record PlanInput(
 /// which a file system can't do. Then, as chosen, the old host logs out of the iSCSI targets and
 /// takes DRBD down. Every step that changes something has an undo, for rolling back.
 /// </summary>
-internal static class MigrationPlanner
+internal static partial class MigrationPlanner
 {
     public static MigrationPlan Plan(PlanInput input, MigrationOptions options)
     {
@@ -264,6 +264,36 @@ internal static class MigrationPlanner
             {
                 blockers.Add($"DRBD resource {resource.Name} on {target} is {stale.DiskState ?? "unknown"}, not UpToDate. Let it finish syncing first.");
             }
+        }
+
+        // Proxmox's shared LVM on DRBD: Proxmox activates the volume on the new node itself, while the
+        // old one keeps using the volume group for its other VMs, so the resource stays Primary on both.
+        foreach (var (resource, storage) in disks.Where(d => d.Layout == DiskLayouts.Managed)
+            .SelectMany(d => d.Layers.Where(l => l.Kind == LayerKinds.Drbd).Select(l => (l.Name, d.Storage))).DistinctBy(r => r.Name))
+        {
+            var there = input.Target?.Drbd?.FirstOrDefault(r => r.Name == resource);
+            if (input.Target is { Drbd: null })
+            {
+                blockers.Add($"Storage {storage} is on DRBD resource {resource}, but {target} has no DRBD tools installed.");
+            }
+            else if (input.Target is not null && there is null)
+            {
+                blockers.Add($"Storage {storage} is on DRBD resource {resource}, which isn't configured on {target}.");
+            }
+            else if (there is not null && (!there.Up || there.Role?.StartsWith("Primary", StringComparison.Ordinal) != true))
+            {
+                blockers.Add($"Storage {storage} is shared LVM on DRBD resource {resource}, which is {(there.Up ? there.Role ?? "not Primary" : "down")} on {target}. Proxmox activates the disk there itself, so {resource} must be Primary on both nodes (allow-two-primaries) while {source} goes on using it.");
+            }
+            else if (there?.Volumes.FirstOrDefault(v => v.DiskState != "UpToDate") is { } stale)
+            {
+                blockers.Add($"DRBD resource {resource} on {target} is {stale.DiskState ?? "unknown"}, not UpToDate. Let it finish syncing first.");
+            }
+        }
+
+        // A shared disk used by its kernel name (sdb, dm-3, mpatha) may be a different disk on the new host.
+        foreach (var disk in disks.Where(d => d.Layout == DiskLayouts.Block && d.Layers.Any(l => l.Kind is LayerKinds.Iscsi or LayerKinds.Multipath) && UnstableName().IsMatch(d.Path)))
+        {
+            blockers.Add($"Disk {disk.Name} is {disk.Path}, a name the kernel gives disks in the order they appear, so on {target} it may be a different disk. Point the VM at a stable name first (/dev/disk/by-id/…, or the multipath WWID).");
         }
 
         foreach (var (disk, mount) in mounts)
@@ -545,4 +575,8 @@ internal static class MigrationPlanner
     }
 
     private static Dictionary<string, string> Args(params (string Key, string Value)[] pairs) => pairs.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+
+    /// <summary>A disk's kernel name (or a multipath alias), which can differ between hosts.</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"^/dev/(?:sd[a-z]+\d*|dm-\d+|mapper/mpath[a-z]+(?:-?part\d+)?)$")]
+    private static partial System.Text.RegularExpressions.Regex UnstableName();
 }

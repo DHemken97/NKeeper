@@ -277,19 +277,47 @@ internal sealed partial class ProxmoxMover(
             var note = storage is null ? $"Storage {id} isn't in storage.cfg." : $"{storage.Value.Type} storage {id}";
             return handling is "trace" or "managed" && !paths.ContainsKey(v.Volume)
                 ? new DiskPath(v.Name, v.Volume, id, "local", false, $"Couldn't find where {v.Volume} is.")
-                : new DiskPath(v.Name, paths.GetValueOrDefault(v.Volume) ?? v.Volume, id, handling, storage?.Shared ?? false, note);
+                : new DiskPath(v.Name, paths.GetValueOrDefault(v.Volume) ?? v.Volume, id, handling, storage?.Shared ?? false, note, storage?.Type);
         })];
     }
 
     protected override GuestDisk Classify(DiskPath path, GuestDisk? traced, List<string> blockers)
     {
         var disk = base.Classify(path, traced, blockers);
-        if (disk.Layout == DiskLayouts.Filesystem && path.Storage is { } storage && !path.Shared)
+        if (SharingBlocker(path, disk, _sourceNode, targetNode) is { } blocker)
         {
-            blockers.Add($"Disk {disk.Name} is on storage {storage}, a file system on {string.Join(" / ", disk.Layers.Select(l => l.Kind))} that NKeeper moves between nodes; mark {storage} as shared (Datacenter ▸ Storage) so Proxmox doesn't copy it.");
+            blockers.Add(blocker);
         }
 
         return disk with { Note = disk.Note ?? path.Note };
+    }
+
+    /// <summary>
+    /// Why Proxmox would do the wrong thing with a traced disk's storage, if it would: it copies the
+    /// disks on storage not marked shared (even one on DRBD or iSCSI, which NKeeper moves instead),
+    /// and leaves those on storage marked shared where they are (even on the old node's own disk).
+    /// </summary>
+    internal static string? SharingBlocker(DiskPath path, GuestDisk disk, string source, string target)
+    {
+        if (path.Handling != "trace" || path.Storage is not { } storage)
+        {
+            return null;
+        }
+
+        var on = string.Join(" / ", disk.Layers.Where(l => l.Kind is LayerKinds.Drbd or LayerKinds.Multipath or LayerKinds.Iscsi).Select(l => l.Kind).Distinct());
+        if (disk.Layout is DiskLayouts.Filesystem or DiskLayouts.Block && !path.Shared)
+        {
+            return path.StorageType == "lvmthin"
+                ? $"Disk {disk.Name} is on storage {storage}, LVM-thin on {on}: Proxmox would copy it to {target} instead of NKeeper moving the {on} it's on, and LVM-thin can't be shared between nodes. Move it to storage NKeeper can hand over (a directory, or LVM, on it and marked shared) first."
+                : disk.Layout == DiskLayouts.Filesystem
+                    ? $"Disk {disk.Name} is on storage {storage}, a file system on {on} that NKeeper moves between nodes; mark {storage} as shared (Datacenter ▸ Storage) so Proxmox doesn't copy it."
+                    : $"Disk {disk.Name} is on storage {storage}, LVM on {on}, which Proxmox would copy to {target}. Mark {storage} as shared (Datacenter ▸ Storage) so Proxmox activates it on {target} instead"
+                        + (disk.Layers.Any(l => l.Kind == LayerKinds.Drbd) ? "; on DRBD that needs the resource Primary on both nodes (allow-two-primaries)." : ".");
+        }
+
+        return disk.Layout == DiskLayouts.Local && path.Shared && disk.Layers.Any(l => l.Kind == LayerKinds.Local)
+            ? $"Storage {storage} is marked shared, but disk {disk.Name} ({disk.Path}) is on {source}'s own disk, so Proxmox wouldn't copy it and {target} wouldn't have it. Unmark {storage} as shared (so Proxmox copies it), or move the disk to shared storage first."
+            : null;
     }
 
     protected override async Task<(bool Ok, string? Error)?> PeerSshAsync(bool back, CancellationToken cancellationToken)
@@ -309,13 +337,17 @@ internal sealed partial class ProxmoxMover(
         }
     }
 
-    /// <summary>How a storage type moves: Proxmox activates iSCSI and shared LVM itself, network storage is everywhere, other non-shared block storage is local.</summary>
+    /// <summary>
+    /// How a storage type moves: Proxmox activates iSCSI and shared LVM itself, network storage is
+    /// everywhere. Directories and other LVM are traced, as they may be on DRBD or iSCSI (which
+    /// NKeeper moves, and Proxmox mustn't copy); other non-shared block storage is local.
+    /// </summary>
     private static string Handling((string Type, bool Shared)? storage) => storage switch
     {
         null => "local",
         { Type: var type } when RemoteTypes.Contains(type) => "remote",
         { Type: "iscsi" } or { Type: "lvm", Shared: true } => "managed",
-        { Type: "dir" or "btrfs" } => "trace",
+        { Type: "dir" or "btrfs" or "lvm" or "lvmthin" } => "trace",
         _ => "local",
     };
 

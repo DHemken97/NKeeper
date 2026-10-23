@@ -62,7 +62,8 @@ public sealed record GuestDisk(string Name, string Path, string Layout, StorageM
 /// network by every host) or "local" (the old host's own).
 /// </param>
 /// <param name="Shared">Proxmox: whether its storage is marked shared (then Proxmox doesn't copy it).</param>
-internal sealed record DiskPath(string Name, string Path, string? Storage = null, string Handling = "trace", bool Shared = false, string? Note = null);
+/// <param name="StorageType">Proxmox: its storage's type, e.g. <c>dir</c> or <c>lvmthin</c>.</param>
+internal sealed record DiskPath(string Name, string Path, string? Storage = null, string Handling = "trace", bool Shared = false, string? Note = null, string? StorageType = null);
 
 /// <summary>What tracing the old host's disks found: each disk, and which iSCSI LUNs something else uses.</summary>
 /// <param name="IscsiInUse">iSCSI targets (target and portal) used by more than this VM's disks, with what uses them.</param>
@@ -88,12 +89,16 @@ internal static partial class StorageTrace
     /// <summary>
     /// For each disk, <c>@@disk</c>, then <c>@@block</c> and its device, or <c>@@mount</c> and
     /// <c>findmnt</c>'s JSON for the file's file system; then <c>@@tree</c> and <c>lsblk -s</c>'s
-    /// JSON (what the device is built on). Then the LVM volumes, and what is built on each iSCSI disk.
+    /// JSON (what the device is built on). An LVM volume that isn't active (so has no device) is
+    /// <c>@@lv</c> and its <c>vg lv</c>, and the tree is of its volume group's physical volumes.
+    /// Then the LVM volumes, and what is built on each iSCSI disk.
     /// </summary>
     internal static string Script(IReadOnlyList<DiskPath> disks)
     {
         var script = new StringBuilder(
             "t() { if [ -b \"$1\" ]; then echo '@@block'; d=$(readlink -f \"$1\"); echo \"$d\"; "
+            + "elif case \"$1\" in /dev/*) true;; *) false;; esac && l=$($p lvs --noheadings -o vg_name,lv_name \"$1\" 2>/dev/null) && [ -n \"$l\" ]; then "
+            + "echo '@@lv'; echo $l; echo '@@tree'; lsblk -s -J -o NAME,KNAME,TYPE,TRAN $($p vgs --noheadings -o pv_name $(echo $l | cut -d' ' -f1) 2>/dev/null); d=''; "
             + "else echo '@@mount'; findmnt -n -J -o SOURCE,TARGET,FSTYPE,UUID --target \"$1\"; d=$(findmnt -n -o SOURCE --target \"$1\"); d=${d%%\\[*}; fi; "
             + "if [ -b \"$d\" ]; then echo '@@tree'; lsblk -s -J -o NAME,KNAME,TYPE,TRAN \"$d\"; fi; }; ");
         foreach (var disk in disks)
@@ -202,6 +207,12 @@ internal static partial class StorageTrace
 
         var layers = new List<StorageLayer>();
         var knames = new HashSet<string>(StringComparer.Ordinal);
+        if (sections.TryGetValue("lv", out var lv) && lv.FirstOrDefault()?.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var vg, var name])
+        {
+            // An inactive LVM volume: what its volume group is on follows.
+            layers.Add(new StorageLayer(LayerKinds.Lvm, $"{vg}/{name}"));
+        }
+
         if (sections.TryGetValue("tree", out var tree) && Json(string.Join('\n', tree)) is { } lsblk)
         {
             using (lsblk)
