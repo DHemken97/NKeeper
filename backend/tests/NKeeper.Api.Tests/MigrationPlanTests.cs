@@ -402,6 +402,53 @@ public sealed class MigrationPlanTests
         Assert.StartsWith("lsblk couldn't follow it (", disk.Note, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Like a host with DRBD 8.4 (its status has no minors), one resource per VM, each an XFS file
+    /// system at /vmimages/VM: the resources are known by their configured devices.
+    /// </summary>
+    private static StorageStatus Drbd84Host() => StorageHost.ParseStatus(string.Join('\n',
+        "@@drbd-resources", "aacv_cti aacv_pod",
+        "@@drbd-text",
+        "aacv_cti role:Primary suspended:no", "  disk:UpToDate", "  peer role:Secondary", "    replication:Established peer-disk:UpToDate",
+        "aacv_pod role:Primary suspended:no", "  disk:UpToDate", "  peer role:Secondary", "    replication:Established peer-disk:UpToDate",
+        "@@drbd-devices", "aacv_cti /dev/drbd1", "aacv_pod /dev/drbd1880"));
+
+    [Fact]
+    public void Drbd84Status_GetsItsMinorsFromTheConfiguredDevices()
+    {
+        var drbd = Drbd84Host().Drbd!;
+
+        Assert.Equal([("aacv_cti", (int?)1), ("aacv_pod", 1880)], drbd.Select(r => (r.Name, r.Volumes.Single().Minor)));
+    }
+
+    [Theory]
+    // lsblk followed it.
+    [InlineData("@@devno|93 758|@@tree|{\"blockdevices\":[{\"name\":\"drbd1880\",\"kname\":\"drbd1880\",\"type\":\"disk\",\"tran\":null}]}")]
+    // lsblk didn't: the device number says DRBD (major 147 = 0x93, minor 1880 = 0x758).
+    [InlineData("@@devno|93 758")]
+    // Nor that: the file system's device is DRBD's.
+    [InlineData("")]
+    public void AnImageOnAnXfsOnDrbd_IsOnItsResource_HoweverItsFound(string answer)
+    {
+        var output = string.Join('\n', ["@@disk", "@@mount", """{"filesystems":[{"source":"/dev/drbd1880","target":"/vmimages/aacv_pod","fstype":"xfs","uuid":"abcd"}]}""", .. answer.Split('|', StringSplitOptions.RemoveEmptyEntries)]);
+
+        var disk = Assert.Single(StorageTrace.Parse(output, [new DiskPath("vda", "/vmimages/aacv_pod/aacv_pod.qcow2")], Drbd84Host()).Disks);
+
+        Assert.Equal(DiskLayouts.Filesystem, disk.Layout);
+        Assert.Equal([new StorageLayer(LayerKinds.Drbd, "aacv_pod", "1880")], disk.Layers);
+        Assert.False(StorageTrace.IsLocalFile(disk));
+    }
+
+    [Fact]
+    public void ADrbdDevice_TheStatusDoesntList_IsStillDrbd_NeverLocal()
+    {
+        var output = string.Join('\n', "@@disk", "@@block", "/dev/drbd/by-res/other/0");
+
+        var disk = Assert.Single(StorageTrace.Parse(output, [new DiskPath("vdb", "/dev/drbd/by-res/other/0")], new StorageStatus(null, null, null)).Disks);
+
+        Assert.Equal((DiskLayouts.Block, LayerKinds.Drbd, "other"), (disk.Layout, disk.Layers.Single().Kind, disk.Layers.Single().Name));
+    }
+
     [Fact]
     public void AnImageFile_LsblkCantFollow_OnNoSharedStorage_IsCopied()
     {

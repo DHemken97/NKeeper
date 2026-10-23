@@ -101,7 +101,7 @@ internal static partial class StorageTrace
             + "elif case \"$1\" in /dev/*) true;; *) false;; esac && l=$($p lvs --noheadings -o vg_name,lv_name \"$1\" 2>/dev/null) && [ -n \"$l\" ]; then "
             + "echo '@@lv'; echo $l; echo '@@tree'; $p lsblk -s -J -o NAME,KNAME,TYPE,TRAN $($p vgs --noheadings -o pv_name $(echo $l | cut -d' ' -f1) 2>/dev/null); d=''; "
             + "else echo '@@mount'; $p findmnt -n -J -o SOURCE,TARGET,FSTYPE,UUID --target \"$1\"; d=$($p findmnt -n -o SOURCE --target \"$1\"); d=${d%%\\[*}; fi; "
-            + "if [ -n \"$d\" ] && $p test -b \"$d\"; then echo '@@tree'; $p lsblk -s -J -o NAME,KNAME,TYPE,TRAN \"$d\"; fi; }; ");
+            + "if [ -n \"$d\" ] && $p test -b \"$d\"; then echo '@@devno'; $p stat -L -c '%t %T' \"$d\"; echo '@@tree'; $p lsblk -s -J -o NAME,KNAME,TYPE,TRAN \"$d\"; fi; }; ");
         foreach (var disk in disks)
         {
             script.Append(CultureInfo.InvariantCulture, $"echo '@@disk'; t '{Quoted(disk.Path)}'; ");
@@ -245,7 +245,7 @@ internal static partial class StorageTrace
             // LUNs, DRBD's devices are DRBD's); a device or file system none of them hold is local.
             var device = sections.TryGetValue("block", out var block) ? block.FirstOrDefault(l => l.Length > 0)?.Trim() : mount?.Device;
             var why = Untraced(sections, mount);
-            var found = FromStatus([disk.Path, device, mount?.Device], status);
+            var found = FromDeviceNumber(sections.GetValueOrDefault("devno"), status) is { } drbd ? [drbd] : FromStatus([disk.Path, device, mount?.Device], status);
             layers.AddRange(found);
             note = found.Count > 0
                 ? $"lsblk couldn't follow it ({why}); it's on {string.Join(" / ", found.Select(l => l.Kind).Distinct())}, as {(found[0].Kind == LayerKinds.Drbd ? "DRBD" : found[0].Kind == LayerKinds.Multipath ? "multipath" : "iscsiadm")} lists it."
@@ -260,6 +260,21 @@ internal static partial class StorageTrace
         var layout = !shared ? DiskLayouts.Local : mount is null ? DiskLayouts.Block : DiskLayouts.Filesystem;
         return (new GuestDisk(disk.Name, disk.Path, layout, mount, layers, disk.Storage, note), knames);
     }
+
+    /// <summary>DRBD's block device major number: a device with it is DRBD's, whatever lsblk or drbdsetup say.</summary>
+    private const int DrbdMajor = 147;
+
+    /// <summary>The DRBD resource a device is, by its device number (<c>stat -c '%t %T'</c>: major and minor in hex); null when it isn't DRBD's.</summary>
+    private static StorageLayer? FromDeviceNumber(List<string>? devno, StorageStatus status) =>
+        devno?.FirstOrDefault(l => l.Trim().Length > 0)?.Trim().Split(' ') is [var major, var minor]
+        && int.TryParse(major, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var ma) && ma == DrbdMajor
+        && int.TryParse(minor, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var mi)
+            ? Drbd(mi, status)
+            : null;
+
+    /// <summary>A DRBD minor's layer: its resource, by the host's DRBD status, else named like its device.</summary>
+    private static StorageLayer Drbd(int minor, StorageStatus status) =>
+        new(LayerKinds.Drbd, status.Drbd?.FirstOrDefault(r => r.Volumes.Any(v => v.Minor == minor))?.Name ?? $"drbd{minor}", minor.ToString(CultureInfo.InvariantCulture));
 
     /// <summary>
     /// The shared storage one of these devices is, by what the host's storage tools list: a DRBD
@@ -282,6 +297,14 @@ internal static partial class StorageTrace
                         return [new StorageLayer(LayerKinds.Drbd, resource.Name, minor)];
                     }
                 }
+            }
+
+            // DRBD's device names are DRBD's, even when its status doesn't list them.
+            if (DrbdDevice().Match(device) is { Success: true } named)
+            {
+                return [named.Groups["minor"].Success
+                    ? Drbd(int.Parse(named.Groups["minor"].Value, CultureInfo.InvariantCulture), status)
+                    : new StorageLayer(LayerKinds.Drbd, named.Groups["resource"].Value)];
             }
 
             foreach (var map in status.Multipath ?? [])
@@ -316,6 +339,10 @@ internal static partial class StorageTrace
     [GeneratedRegex(@"^(?:-part|p)?\d+$")]
     private static partial Regex PartitionSuffix();
 
+    /// <summary><c>/dev/drbd1000</c>, or <c>/dev/drbd/by-res/r0</c> and <c>/dev/drbd/by-res/r0/0</c>.</summary>
+    [GeneratedRegex(@"^/dev/drbd(?:(?<minor>\d+)|/by-res/(?<resource>[A-Za-z0-9][A-Za-z0-9._-]*)(?:/\d+)?)$")]
+    private static partial Regex DrbdDevice();
+
     /// <summary>Why a disk's trace found nothing it's built on, with what the host answered, to fix it by.</summary>
     private static string Untraced(Dictionary<string, List<string>> sections, StorageMount? mount)
     {
@@ -344,8 +371,7 @@ internal static partial class StorageTrace
         var descend = true;
         if (kname.StartsWith("drbd", StringComparison.Ordinal) && int.TryParse(kname[4..], CultureInfo.InvariantCulture, out var minor))
         {
-            var resource = status.Drbd?.FirstOrDefault(r => r.Volumes.Any(v => v.Minor == minor))?.Name ?? kname;
-            layer = new StorageLayer(LayerKinds.Drbd, resource, minor.ToString(CultureInfo.InvariantCulture));
+            layer = Drbd(minor, status);
             descend = false;
         }
         else if (type == "lvm")

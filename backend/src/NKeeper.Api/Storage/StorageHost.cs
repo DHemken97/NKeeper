@@ -104,7 +104,9 @@ internal static partial class StorageHost
         + "echo '@@iscsi-sessions'; $p iscsiadm -m session -P 3 2>/dev/null; echo '@@iscsi-nodes'; $p iscsiadm -m node 2>/dev/null; fi; "
         + "if have multipath; then echo '@@multipath'; $p multipath -ll 2>/dev/null; fi; "
         + "if have drbdadm; then echo '@@drbd-resources'; $p drbdadm sh-resources 2>/dev/null; "
-        + "echo '@@drbd-json'; $p drbdsetup status --json 2>/dev/null || { echo '@@drbd-text'; $p drbdsetup status --verbose 2>/dev/null; }; fi; "
+        + "echo '@@drbd-json'; $p drbdsetup status --json 2>/dev/null || { echo '@@drbd-text'; $p drbdsetup status --verbose 2>/dev/null; }; "
+        // Each resource's devices by its configuration, in volume order: DRBD 8.4's status has no minors.
+        + "echo '@@drbd-devices'; for r in $($p drbdadm sh-resources 2>/dev/null); do for d in $($p drbdadm sh-dev \"$r\" 2>/dev/null); do echo \"$r $d\"; done; done; fi; "
         + "exit 0";
 
     private static readonly TimeSpan StatusTimeout = TimeSpan.FromSeconds(30);
@@ -266,9 +268,9 @@ internal static partial class StorageHost
         List<DrbdResource>? drbd = null;
         if (sections.TryGetValue("drbd-resources", out var configured))
         {
-            var running = sections.TryGetValue("drbd-text", out var text)
-                ? ParseDrbdText(text)
-                : ParseDrbdJson(string.Join('\n', sections.GetValueOrDefault("drbd-json") ?? []));
+            var running = WithMinors(
+                sections.TryGetValue("drbd-text", out var text) ? ParseDrbdText(text) : ParseDrbdJson(string.Join('\n', sections.GetValueOrDefault("drbd-json") ?? [])),
+                sections.GetValueOrDefault("drbd-devices") ?? []);
             var names = configured.SelectMany(l => l.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Where(n => MapName().IsMatch(n));
 
             // Resources that are configured but not up are listed as down, so they can be brought up.
@@ -386,6 +388,22 @@ internal static partial class StorageHost
         }
 
         return [.. maps.Where(m => MapName().IsMatch(m.Name)).OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>
+    /// Fills in the minors status didn't give (DRBD 8.4 prints none) from the configured devices
+    /// (<c>resource /dev/drbdN</c> lines, in volume order): the n-th volume is the n-th device.
+    /// </summary>
+    internal static List<DrbdResource> WithMinors(List<DrbdResource> resources, IEnumerable<string> devices)
+    {
+        var configured = devices
+            .Select(l => l.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Where(f => f.Length == 2 && f[1].StartsWith("/dev/drbd", StringComparison.Ordinal) && int.TryParse(f[1]["/dev/drbd".Length..], CultureInfo.InvariantCulture, out _))
+            .GroupBy(f => f[0], f => int.Parse(f[1]["/dev/drbd".Length..], CultureInfo.InvariantCulture), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+        return [.. resources.Select(r => configured.TryGetValue(r.Name, out var minors)
+            ? r with { Volumes = [.. r.Volumes.Select((v, i) => v.Minor is null && i < minors.Count ? v with { Minor = minors[i] } : v)] }
+            : r)];
     }
 
     /// <summary><c>drbdsetup status --json</c> (DRBD 9's utilities).</summary>
