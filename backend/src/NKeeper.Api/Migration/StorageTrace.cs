@@ -95,12 +95,13 @@ internal static partial class StorageTrace
     /// </summary>
     internal static string Script(IReadOnlyList<DiskPath> disks)
     {
+        // As root, like the rest: a login with sudo may not be able to enter the images' directory.
         var script = new StringBuilder(
-            "t() { if [ -b \"$1\" ]; then echo '@@block'; d=$(readlink -f \"$1\"); echo \"$d\"; "
+            "t() { if $p test -b \"$1\"; then echo '@@block'; d=$($p readlink -f \"$1\"); echo \"$d\"; "
             + "elif case \"$1\" in /dev/*) true;; *) false;; esac && l=$($p lvs --noheadings -o vg_name,lv_name \"$1\" 2>/dev/null) && [ -n \"$l\" ]; then "
-            + "echo '@@lv'; echo $l; echo '@@tree'; lsblk -s -J -o NAME,KNAME,TYPE,TRAN $($p vgs --noheadings -o pv_name $(echo $l | cut -d' ' -f1) 2>/dev/null); d=''; "
-            + "else echo '@@mount'; findmnt -n -J -o SOURCE,TARGET,FSTYPE,UUID --target \"$1\"; d=$(findmnt -n -o SOURCE --target \"$1\"); d=${d%%\\[*}; fi; "
-            + "if [ -b \"$d\" ]; then echo '@@tree'; lsblk -s -J -o NAME,KNAME,TYPE,TRAN \"$d\"; fi; }; ");
+            + "echo '@@lv'; echo $l; echo '@@tree'; $p lsblk -s -J -o NAME,KNAME,TYPE,TRAN $($p vgs --noheadings -o pv_name $(echo $l | cut -d' ' -f1) 2>/dev/null); d=''; "
+            + "else echo '@@mount'; $p findmnt -n -J -o SOURCE,TARGET,FSTYPE,UUID --target \"$1\"; d=$($p findmnt -n -o SOURCE --target \"$1\"); d=${d%%\\[*}; fi; "
+            + "if [ -n \"$d\" ] && $p test -b \"$d\"; then echo '@@tree'; $p lsblk -s -J -o NAME,KNAME,TYPE,TRAN \"$d\"; fi; }; ");
         foreach (var disk in disks)
         {
             script.Append(CultureInfo.InvariantCulture, $"echo '@@disk'; t '{Quoted(disk.Path)}'; ");

@@ -375,6 +375,20 @@ public sealed class MigrationPlanTests
         Assert.Equal(blocks, plan.Blockers.Any(b => b.Contains("may be a different disk", StringComparison.Ordinal)));
     }
 
+    [Fact]
+    public void Trace_RunsAsRoot_SoALoginWithSudoCanSeeImagesInDirectoriesOnlyRootEnters()
+    {
+        // Without it, findmnt finds nothing for /var/lib/libvirt/images/… when that is 0700, and every disk is "couldn't tell".
+        var script = StorageTrace.Script([new DiskPath("vda", "/var/lib/libvirt/images/web.qcow2")]);
+
+        foreach (var command in new[] { "$p test -b \"$1\"", "$p readlink -f", "$p findmnt -n -J", "$p findmnt -n -o SOURCE", "$p lsblk -s -J" })
+        {
+            Assert.Contains(command, script, StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotMatch(@"(?<!\$p )\b(findmnt|lsblk -s)\b", script);
+    }
+
     [Theory]
     [InlineData("/srv/vms/a b.qcow2", true)]
     [InlineData("/srv/vms/it's.qcow2", false)]
