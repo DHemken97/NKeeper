@@ -307,6 +307,8 @@ export interface ScannedGuest {
   note: string | null
   /** For a guest that isn't in NKeeper: the host that could be added for it (null without an address). */
   newHost: ProposedHost | null
+  /** Why a host NKeeper has with this name was taken to be a different VM (e.g. another site's "zproxy"). */
+  namesake: string | null
 }
 
 /** A host a scan could add for a VM or container NKeeper doesn't have yet. */

@@ -274,6 +274,17 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
         {links.length > 0 ? (
           <fieldset className={styles.group}>
             <legend className={styles.heading}>Virtual machines</legend>
+            {links.length > 1 ? (
+              <div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setChosenLinks(chosenLinks.size === links.length ? new Set() : new Set(links.map((g) => g.virtualMachineId)))}
+                >
+                  {chosenLinks.size === links.length ? 'Select none' : `Select all ${links.length}`}
+                </Button>
+              </div>
+            ) : null}
             {links.map((guest) => (
               <div key={guest.virtualMachineId} className={styles.proposal}>
                 <Checkbox
@@ -390,7 +401,7 @@ function guestResources(guest: ScannedGuest): string | null {
   return parts.length > 0 ? parts.join(', ') : null
 }
 
-/** What a new host would get: its address, MAC address, and where it runs. */
+/** What a new host would get: its address, MAC address, and where it runs; and why a host with its name isn't it. */
 function newHostDetail(guest: ScannedGuest): string {
   const host = guest.newHost!
   return [
@@ -398,6 +409,7 @@ function newHostDetail(guest: ScannedGuest): string {
     host.ipAddress ?? `hostname ${host.hostname}`,
     host.macAddress,
     guestResources(guest),
+    guest.namesake,
   ]
     .filter(Boolean)
     .join(' · ')

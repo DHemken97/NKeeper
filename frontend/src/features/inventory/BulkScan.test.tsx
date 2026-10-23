@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { routes } from '../../app/router'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
 import { AuthProvider } from '../auth/components/AuthProvider'
-import type { Host, ScanFindings } from './types'
+import type { Host, ScanFindings, ScannedGuest } from './types'
 
 const adminUser = { id: 'u1', userName: 'admin', email: 'admin@example.com', roles: ['Administrator'] }
 
@@ -147,5 +147,64 @@ describe('bulk internal scans', () => {
       password: 's3cret',
       trustFingerprint: 'fp',
     })
+  })
+  it('leave a host that VMs on two hypervisors both match unticked, and can select every VM at once', async () => {
+    const vm = (hostId: string, overrides: Partial<ScannedGuest>): ScannedGuest => ({
+      platform: 'libvirt',
+      virtualMachineId: `libvirt:${hostId}`,
+      name: 'zproxy',
+      state: 'running',
+      node: null,
+      onScannedHost: true,
+      macAddresses: [],
+      addresses: [],
+      guestHostId: null,
+      guestHostName: null,
+      matchedBy: null,
+      hypervisorHostId: hostId,
+      hypervisorHostName: hostId.slice(2),
+      linkProposed: false,
+      cpuCores: null,
+      memoryMiB: null,
+      note: null,
+      newHost: null,
+      namesake: null,
+      ...overrides,
+    })
+    const { user } = renderWorkspace((hostId) =>
+      jsonResponse(200, {
+        status: 'ready',
+        findings: {
+          ...findings('AA:BB:CC:00:00:01'),
+          guests: [
+            vm(hostId, { guestHostId: 'h-zproxy', guestHostName: 'zproxy', matchedBy: 'name', linkProposed: true, note: 'Not linked yet.' }),
+            vm(hostId, {
+              virtualMachineId: `libvirt:${hostId}-db`,
+              name: `db-${hostId}`,
+              namesake: '“db” has its name but a different MAC address, so it’s taken to be another VM.',
+              newHost: { name: `db-${hostId}`, hostname: `db-${hostId}`, ipAddress: null, macAddress: null, description: '' },
+            }),
+          ],
+        },
+        hostKey: null,
+      }),
+    )
+
+    const setup = await scanAll(user)
+    await user.click(within(setup).getByRole('button', { name: 'Scan 2 hosts' }))
+    const review = await screen.findByRole('dialog', { name: 'Scanned 2 of 3 hosts' })
+
+    const vms = within(review).getByRole('group', { name: 'Virtual machines' })
+    const links = within(vms).getAllByRole('checkbox')
+    links.forEach((c) => expect(c).not.toBeChecked())
+    expect(within(vms).getAllByText(/more than one hypervisor match it/)).toHaveLength(2)
+    await user.click(within(vms).getByRole('button', { name: 'Select all 2' }))
+    links.forEach((c) => expect(c).toBeChecked())
+    expect(within(vms).getByRole('button', { name: 'Select none' })).toBeInTheDocument()
+
+    const add = within(review).getByRole('group', { name: 'Add to NKeeper' })
+    expect(within(add).getAllByText(/different MAC address/)).toHaveLength(2)
+    await user.click(within(add).getByRole('button', { name: 'Select all 2' }))
+    within(add).getAllByRole('checkbox').forEach((c) => expect(c).toBeChecked())
   })
 })
