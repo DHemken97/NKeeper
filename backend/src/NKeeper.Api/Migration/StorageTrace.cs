@@ -238,15 +238,83 @@ internal static partial class StorageTrace
             return (new GuestDisk(disk.Name, disk.Path, DiskLayouts.Shared, c, layers, disk.Storage), knames);
         }
 
-        var shared = layers.Any(l => l.Kind is LayerKinds.Drbd or LayerKinds.Multipath or LayerKinds.Iscsi);
+        string? note = null;
         if (layers.Count == 0)
         {
-            return (new GuestDisk(disk.Name, disk.Path, DiskLayouts.Local, mount, [], disk.Storage, $"NKeeper couldn't tell what this is stored on: {Untraced(sections, mount)}"), knames);
+            // lsblk couldn't follow it: go by what the storage tools list (multipath maps are iSCSI
+            // LUNs, DRBD's devices are DRBD's); a device or file system none of them hold is local.
+            var device = sections.TryGetValue("block", out var block) ? block.FirstOrDefault(l => l.Length > 0)?.Trim() : mount?.Device;
+            var why = Untraced(sections, mount);
+            var found = FromStatus([disk.Path, device, mount?.Device], status);
+            layers.AddRange(found);
+            note = found.Count > 0
+                ? $"lsblk couldn't follow it ({why}); it's on {string.Join(" / ", found.Select(l => l.Kind).Distinct())}, as {(found[0].Kind == LayerKinds.Drbd ? "DRBD" : found[0].Kind == LayerKinds.Multipath ? "multipath" : "iscsiadm")} lists it."
+                : $"lsblk couldn't follow it ({why}), and no DRBD, multipath or iSCSI device holds it, so it's taken to be on this host's own disks.";
+            if (found.Count == 0)
+            {
+                layers.Add(new StorageLayer(LayerKinds.Local, device is { Length: > 0 } ? device : "unknown"));
+            }
         }
 
+        var shared = layers.Any(l => l.Kind is LayerKinds.Drbd or LayerKinds.Multipath or LayerKinds.Iscsi);
         var layout = !shared ? DiskLayouts.Local : mount is null ? DiskLayouts.Block : DiskLayouts.Filesystem;
-        return (new GuestDisk(disk.Name, disk.Path, layout, mount, layers, disk.Storage), knames);
+        return (new GuestDisk(disk.Name, disk.Path, layout, mount, layers, disk.Storage, note), knames);
     }
+
+    /// <summary>
+    /// The shared storage one of these devices is, by what the host's storage tools list: a DRBD
+    /// device (<c>/dev/drbd1</c>, <c>/dev/drbd/by-res/r0/0</c>), a multipath map (its alias, dm
+    /// device or WWID name, or a partition of it) with the iSCSI sessions under it, or a disk an
+    /// iSCSI session attached. Empty when none is.
+    /// </summary>
+    internal static List<StorageLayer> FromStatus(IEnumerable<string?> devices, StorageStatus status)
+    {
+        foreach (var device in devices.OfType<string>().Where(d => d.StartsWith("/dev/", StringComparison.Ordinal)))
+        {
+            foreach (var resource in status.Drbd ?? [])
+            {
+                foreach (var volume in resource.Volumes.Where(v => v.Minor is not null))
+                {
+                    var minor = volume.Minor!.Value.ToString(CultureInfo.InvariantCulture);
+                    if (device == $"/dev/drbd{minor}" || device == $"/dev/drbd/by-res/{resource.Name}/{volume.Volume}"
+                        || (resource.Volumes.Count == 1 && device == $"/dev/drbd/by-res/{resource.Name}"))
+                    {
+                        return [new StorageLayer(LayerKinds.Drbd, resource.Name, minor)];
+                    }
+                }
+            }
+
+            foreach (var map in status.Multipath ?? [])
+            {
+                if (IsDeviceOrPartition(device, $"/dev/mapper/{map.Name}") || device == $"/dev/{map.DmDevice}"
+                    || IsDeviceOrPartition(device, $"/dev/disk/by-id/dm-uuid-mpath-{map.Wwid}") || IsDeviceOrPartition(device, $"/dev/disk/by-id/dm-name-{map.Name}"))
+                {
+                    var paths = map.Paths.Select(p => p.Device).ToHashSet(StringComparer.Ordinal);
+                    return
+                    [
+                        new StorageLayer(LayerKinds.Multipath, map.Wwid, map.Name),
+                        .. (status.Iscsi?.Sessions ?? []).Where(s => s.Disks.Any(paths.Contains)).Select(s => new StorageLayer(LayerKinds.Iscsi, s.Target, s.Portal)).Distinct(),
+                    ];
+                }
+            }
+
+            var name = device["/dev/".Length..];
+            if (status.Iscsi?.Sessions.FirstOrDefault(s => s.Disks.Any(d => IsDeviceOrPartition(name, d))
+                || device.Contains($"-iscsi-{s.Target}-lun-", StringComparison.Ordinal) && device.Contains($"ip-{s.Portal}-", StringComparison.Ordinal)) is { } session)
+            {
+                return [new StorageLayer(LayerKinds.Iscsi, session.Target, session.Portal)];
+            }
+        }
+
+        return [];
+    }
+
+    /// <summary>Whether a device is <paramref name="whole"/> or a partition of it (<c>sdb1</c>, <c>mpatha1</c>, <c>mpatha-part1</c>, <c>mpathap1</c>).</summary>
+    private static bool IsDeviceOrPartition(string device, string whole) =>
+        device == whole || (device.StartsWith(whole, StringComparison.Ordinal) && PartitionSuffix().IsMatch(device[whole.Length..]));
+
+    [GeneratedRegex(@"^(?:-part|p)?\d+$")]
+    private static partial Regex PartitionSuffix();
 
     /// <summary>Why a disk's trace found nothing it's built on, with what the host answered, to fix it by.</summary>
     private static string Untraced(Dictionary<string, List<string>> sections, StorageMount? mount)

@@ -375,21 +375,43 @@ public sealed class MigrationPlanTests
         Assert.Equal(blocks, plan.Blockers.Any(b => b.Contains("may be a different disk", StringComparison.Ordinal)));
     }
 
+    /// <summary>A host with multipath map san1 (dm-3) over iSCSI disk sdb, and DRBD resources r0 (minor 0) and r1 (minor 1000).</summary>
+    private static readonly StorageStatus SharedStatus = new(
+        new IscsiStatus(null, [new IscsiSession("iqn.2003-01.org.example.san:disk1", "10.0.0.5:3260", "LOGGED_IN", ["sdb"]), new IscsiSession("iqn.2003-01.org.example.san:raw", "10.0.0.5:3260", "LOGGED_IN", ["sdc"])], []),
+        [new MultipathMap("san1", "36001405aaaa", "dm-3", null, null, [new MultipathPath("3:0:0:0", "sdb", "active", "ready", "running")])],
+        [new DrbdResource("r0", true, "Primary", [new DrbdVolume(0, 0, "UpToDate")], []), new DrbdResource("r1", true, "Primary", [new DrbdVolume(0, 1000, "UpToDate")], [])]);
+
     [Theory]
-    [InlineData("@@block|/dev/dm-3", "/dev/dm-3 isn't one")]
-    [InlineData("@@block|/dev/dm-3|@@tree|lsblk: dm-3: not a block device", "lsblk -s /dev/dm-3 answered “lsblk: dm-3: not a block device”")]
-    [InlineData("@@mount|{\"filesystems\":[{\"source\":\"rpool/vms\",\"target\":\"/srv/vms\",\"fstype\":\"zfs\"}]}", "its file system (zfs at /srv/vms) is on rpool/vms, which isn't a block device")]
-    [InlineData("@@mount", "findmnt found no file system holding it (answered nothing)")]
-    public void Trace_SaysWhyItCouldntTellWhatADiskIsOn(string answer, string why)
+    // lsblk gave no tree (or one NKeeper can't read): the storage tools say what it is.
+    [InlineData("/dev/mapper/san1", "@@block|/dev/dm-3", "block", "multipath 36001405aaaa san1, iscsi iqn.2003-01.org.example.san:disk1 10.0.0.5:3260")]
+    [InlineData("/dev/mapper/san1-part1", "@@block|/dev/dm-4|@@tree|lsblk: not a block device", "block", "multipath 36001405aaaa san1, iscsi iqn.2003-01.org.example.san:disk1 10.0.0.5:3260")]
+    [InlineData("/dev/drbd/by-res/r1/0", "@@block|/dev/drbd1000", "block", "drbd r1 1000")]
+    [InlineData("/dev/disk/by-path/ip-10.0.0.5:3260-iscsi-iqn.2003-01.org.example.san:raw-lun-0", "@@block|/dev/sdc", "block", "iscsi iqn.2003-01.org.example.san:raw 10.0.0.5:3260")]
+    [InlineData("/srv/vms/web.qcow2", "@@mount|{\"filesystems\":[{\"source\":\"/dev/drbd0\",\"target\":\"/srv/vms\",\"fstype\":\"ext4\"}]}", "filesystem", "drbd r0 0")]
+    // Nothing shared holds it: local.
+    [InlineData("/srv/vms/web.qcow2", "@@mount|{\"filesystems\":[{\"source\":\"rpool/vms\",\"target\":\"/srv/vms\",\"fstype\":\"zfs\"}]}", "local", "local rpool/vms ")]
+    [InlineData("/dev/mapper/vg-data", "@@block|/dev/dm-7", "local", "local /dev/dm-7 ")]
+    public void Trace_ThatLsblkCantFollow_GoesByWhatDrbdMultipathAndIscsiList(string path, string answer, string layout, string layers)
     {
         var output = string.Join('\n', ["@@disk", .. answer.Split('|')]);
 
-        var disk = Assert.Single(StorageTrace.Parse(output, [new DiskPath("vda", "/dev/mapper/san1")], new StorageStatus(null, null, null)).Disks);
-        var plan = MigrationPlanner.Plan(Input([disk]), new MigrationOptions());
+        var disk = Assert.Single(StorageTrace.Parse(output, [new DiskPath("vda", path)], SharedStatus).Disks);
 
-        Assert.Equal((DiskLayouts.Local, 0), (disk.Layout, disk.Layers.Count));
-        Assert.Contains(why, disk.Note, StringComparison.Ordinal);
-        Assert.Contains(plan.Blockers, b => b.StartsWith("NKeeper couldn't tell what disk vda (/dev/mapper/san1) is stored on (", StringComparison.Ordinal) && b.Contains(why, StringComparison.Ordinal));
+        Assert.Equal(layout, disk.Layout);
+        Assert.Equal(layers, string.Join(", ", disk.Layers.Select(l => $"{l.Kind} {l.Name} {l.Detail}")));
+        Assert.StartsWith("lsblk couldn't follow it (", disk.Note, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnImageFile_LsblkCantFollow_OnNoSharedStorage_IsCopied()
+    {
+        var output = string.Join('\n', "@@disk", "@@mount", """{"filesystems":[{"source":"rpool/images","target":"/var/lib/libvirt/images","fstype":"zfs"}]}""");
+        var disk = Assert.Single(StorageTrace.Parse(output, [new DiskPath("vda", LocalFile.Path)], SharedStatus).Disks);
+
+        var plan = MigrationPlanner.Plan(Input([disk], images: Image()), new MigrationOptions());
+
+        Assert.Empty(plan.Blockers);
+        Assert.Contains(plan.Steps, s => s.Kind is StepKinds.DiskCreate or StepKinds.DiskCopy);
     }
 
     [Fact]
