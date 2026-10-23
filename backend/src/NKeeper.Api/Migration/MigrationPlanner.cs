@@ -168,7 +168,8 @@ internal static partial class MigrationPlanner
                 // Only a file traced down to the old host's own disks is copied; one that might be on DRBD or iSCSI never is.
                 if (!disk.Layers.Any(l => l.Kind == LayerKinds.Local))
                 {
-                    blockers.Add($"NKeeper couldn't tell what disk {disk.Name} ({disk.Path}) is stored on, so it won't copy it: it may be on shared storage (DRBD, iSCSI) that moves instead.");
+                    var why = disk.Note?.IndexOf(": ", StringComparison.Ordinal) is > 0 and var at ? $" ({disk.Note![(at + 2)..].TrimEnd('.')})" : "";
+                    blockers.Add($"NKeeper couldn't tell what disk {disk.Name} ({disk.Path}) is stored on{why}, so it won't copy it: it may be on shared storage (DRBD, iSCSI) that moves instead.");
                 }
                 else if (!StorageTrace.IsLocalFile(disk))
                 {

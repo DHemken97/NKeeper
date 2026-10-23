@@ -375,6 +375,23 @@ public sealed class MigrationPlanTests
         Assert.Equal(blocks, plan.Blockers.Any(b => b.Contains("may be a different disk", StringComparison.Ordinal)));
     }
 
+    [Theory]
+    [InlineData("@@block|/dev/dm-3", "/dev/dm-3 isn't one")]
+    [InlineData("@@block|/dev/dm-3|@@tree|lsblk: dm-3: not a block device", "lsblk -s /dev/dm-3 answered “lsblk: dm-3: not a block device”")]
+    [InlineData("@@mount|{\"filesystems\":[{\"source\":\"rpool/vms\",\"target\":\"/srv/vms\",\"fstype\":\"zfs\"}]}", "its file system (zfs at /srv/vms) is on rpool/vms, which isn't a block device")]
+    [InlineData("@@mount", "findmnt found no file system holding it (answered nothing)")]
+    public void Trace_SaysWhyItCouldntTellWhatADiskIsOn(string answer, string why)
+    {
+        var output = string.Join('\n', ["@@disk", .. answer.Split('|')]);
+
+        var disk = Assert.Single(StorageTrace.Parse(output, [new DiskPath("vda", "/dev/mapper/san1")], new StorageStatus(null, null, null)).Disks);
+        var plan = MigrationPlanner.Plan(Input([disk]), new MigrationOptions());
+
+        Assert.Equal((DiskLayouts.Local, 0), (disk.Layout, disk.Layers.Count));
+        Assert.Contains(why, disk.Note, StringComparison.Ordinal);
+        Assert.Contains(plan.Blockers, b => b.StartsWith("NKeeper couldn't tell what disk vda (/dev/mapper/san1) is stored on (", StringComparison.Ordinal) && b.Contains(why, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Trace_RunsAsRoot_SoALoginWithSudoCanSeeImagesInDirectoriesOnlyRootEnters()
     {

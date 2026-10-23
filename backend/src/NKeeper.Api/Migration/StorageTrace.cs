@@ -239,13 +239,30 @@ internal static partial class StorageTrace
         }
 
         var shared = layers.Any(l => l.Kind is LayerKinds.Drbd or LayerKinds.Multipath or LayerKinds.Iscsi);
-        if (!sections.ContainsKey("tree"))
+        if (layers.Count == 0)
         {
-            return (new GuestDisk(disk.Name, disk.Path, DiskLayouts.Local, mount, [], disk.Storage, "NKeeper couldn't tell what this is stored on."), knames);
+            return (new GuestDisk(disk.Name, disk.Path, DiskLayouts.Local, mount, [], disk.Storage, $"NKeeper couldn't tell what this is stored on: {Untraced(sections, mount)}"), knames);
         }
 
         var layout = !shared ? DiskLayouts.Local : mount is null ? DiskLayouts.Block : DiskLayouts.Filesystem;
         return (new GuestDisk(disk.Name, disk.Path, layout, mount, layers, disk.Storage), knames);
+    }
+
+    /// <summary>Why a disk's trace found nothing it's built on, with what the host answered, to fix it by.</summary>
+    private static string Untraced(Dictionary<string, List<string>> sections, StorageMount? mount)
+    {
+        static string Answer(List<string> lines)
+        {
+            var text = string.Join(' ', lines.Select(l => l.Trim()).Where(l => l.Length > 0));
+            return text.Length == 0 ? "nothing" : text.Length > 300 ? $"“{text[..300]}…”" : $"“{text}”";
+        }
+
+        var device = sections.TryGetValue("block", out var block) ? block.FirstOrDefault(l => l.Length > 0)?.Trim() : mount?.Device;
+        return sections.TryGetValue("tree", out var tree) ? $"lsblk -s {device} answered {Answer(tree)}, with no disk NKeeper knows in it."
+            : block is not null ? $"it's a block device, but {(string.IsNullOrEmpty(device) ? "readlink -f found no device for it" : $"{device} isn't one")}."
+            : mount is not null ? $"its file system ({mount.FsType} at {mount.MountPoint}) is on {(mount.Device.Length > 0 ? mount.Device : "nothing findmnt named")}, which isn't a block device (e.g. ZFS or overlay)."
+            : sections.TryGetValue("mount", out var findmnt) ? $"findmnt found no file system holding it (answered {Answer(findmnt)}); does the path exist on the host?"
+            : "the host answered nothing for it.";
     }
 
     /// <summary>Walks <c>lsblk -s</c>'s tree (each device, then what it's built on), stopping at DRBD, whose backing disk is each host's own.</summary>
