@@ -100,7 +100,7 @@ internal static partial class StorageTrace
             "t() { if $p test -b \"$1\"; then echo '@@block'; d=$($p readlink -f \"$1\"); echo \"$d\"; "
             + "elif case \"$1\" in /dev/*) true;; *) false;; esac && l=$($p lvs --noheadings -o vg_name,lv_name \"$1\" 2>/dev/null) && [ -n \"$l\" ]; then "
             + "echo '@@lv'; echo $l; echo '@@tree'; $p lsblk -s -J -o NAME,KNAME,TYPE,TRAN $($p vgs --noheadings -o pv_name $(echo $l | cut -d' ' -f1) 2>/dev/null); d=''; "
-            + "else echo '@@mount'; $p findmnt -n -J -o SOURCE,TARGET,FSTYPE,UUID --target \"$1\"; d=$($p findmnt -n -o SOURCE --target \"$1\"); d=${d%%\\[*}; fi; "
+            + "else echo '@@mount'; $p findmnt -n -J -o SOURCE,TARGET,FSTYPE,UUID --target \"$1\"; d=$($p findmnt -n -o SOURCE --target \"$1\" | tail -n 1); d=${d%%\\[*}; fi; "
             + "if [ -n \"$d\" ] && $p test -b \"$d\"; then echo '@@devno'; $p stat -L -c '%t %T' \"$d\"; echo '@@tree'; $p lsblk -s -J -o NAME,KNAME,TYPE,TRAN \"$d\"; fi; }; ");
         foreach (var disk in disks)
         {
@@ -199,7 +199,9 @@ internal static partial class StorageTrace
         {
             using (fs)
             {
-                var f = list[0];
+                // Mounts stacked at one place are listed bottom first: the top one holds the files
+                // (e.g. an XFS on DRBD that autofs mounted over its trigger).
+                var f = list[list.GetArrayLength() - 1];
                 var source = Text(f, "source") ?? "";
                 var bracket = source.IndexOf('[', StringComparison.Ordinal);
                 mount = new StorageMount(bracket > 0 ? source[..bracket] : source, Text(f, "target") ?? "/", Text(f, "fstype") ?? "", Text(f, "uuid"));
@@ -250,7 +252,12 @@ internal static partial class StorageTrace
             note = found.Count > 0
                 ? $"lsblk couldn't follow it ({why}); it's on {string.Join(" / ", found.Select(l => l.Kind).Distinct())}, as {(found[0].Kind == LayerKinds.Drbd ? "DRBD" : found[0].Kind == LayerKinds.Multipath ? "multipath" : "iscsiadm")} lists it."
                 : $"lsblk couldn't follow it ({why}), and no DRBD, multipath or iSCSI device holds it, so it's taken to be on this host's own disks.";
-            if (found.Count == 0)
+            if (mount?.FsType == "autofs")
+            {
+                // Only autofs's trigger: what it mounts there (maybe shared storage) isn't mounted.
+                note = $"autofs hasn't mounted anything at {mount.MountPoint}, so NKeeper can't tell what it's on.";
+            }
+            else if (found.Count == 0)
             {
                 layers.Add(new StorageLayer(LayerKinds.Local, device is { Length: > 0 } ? device : "unknown"));
             }

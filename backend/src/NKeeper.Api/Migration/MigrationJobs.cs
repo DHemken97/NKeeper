@@ -267,8 +267,8 @@ internal sealed partial class MigrationJob(
             (StepKinds.LvmDeactivate, false) or (StepKinds.LvmActivate, true) => $"[ \"$($p lvs --noheadings -o lv_active '{Arg("lv")}' 2>/dev/null | tr -d ' ')\" = active ] || {{ echo same; exit 0; }}; "
                 + $"$p lvchange -an '{Arg("lv")}' && echo changed",
             (StepKinds.Mount, false) or (StepKinds.Unmount, true) => MountScript(a),
-            (StepKinds.Unmount, false) or (StepKinds.Mount, true) or (StepKinds.EnsureMounted, true) => $"mountpoint -q '{Path("mountpoint")}' || {{ echo same; exit 0; }}; $p umount '{Path("mountpoint")}' && echo changed",
-            (StepKinds.EnsureMounted, false) => $"mountpoint -q '{Path("mountpoint")}' && {{ echo same; exit 0; }}; $p mount '{Path("mountpoint")}' && echo changed",
+            (StepKinds.Unmount, false) or (StepKinds.Mount, true) or (StepKinds.EnsureMounted, true) => $"{Mounted(Path("mountpoint"))} || {{ echo same; exit 0; }}; $p umount '{Path("mountpoint")}' && echo changed",
+            (StepKinds.EnsureMounted, false) => $"{Mounted(Path("mountpoint"))} && {{ echo same; exit 0; }}; {ByAutofs(Path("mountpoint"))}$p mount '{Path("mountpoint")}' && echo changed",
             (StepKinds.CheckPaths, false) => CheckPaths(a["paths"]),
             (StepKinds.DiskCreate, false) => $"[ -e '{Path("path")}' ] && {{ echo '{Path("path")} already exists on this host' >&2; exit 1; }}; "
                 + $"$p mkdir -p \"$(dirname '{Path("path")}')\" && $p qemu-img create -q -f '{Arg("format")}' '{Path("path")}' {long.Parse(a["size"], CultureInfo.InvariantCulture)} && echo changed",
@@ -316,9 +316,21 @@ internal sealed partial class MigrationJob(
             : a.TryGetValue("wwid", out var wwid) ? $"d='/dev/disk/by-id/dm-uuid-mpath-{Safe(wwid)}'"
             : a.TryGetValue("uuid", out var uuid) ? $"d='UUID={Safe(uuid)}'"
             : $"d='{StorageTrace.Quoted(a["device"])}'";
-        return $"mountpoint -q '{mountpoint}' && {{ echo same; exit 0; }}; {device}; $p mkdir -p '{mountpoint}' && $p mount -t '{fstype}' \"$d\" '{mountpoint}' || exit 1; "
-            + $"mountpoint -q '{mountpoint}' && echo changed || {{ echo 'mount reported success, but {mountpoint} is not mounted' >&2; exit 1; }}";
+        return $"{Mounted(mountpoint)} && {{ echo same; exit 0; }}; {ByAutofs(mountpoint)}{device}; $p mkdir -p '{mountpoint}' && $p mount -t '{fstype}' \"$d\" '{mountpoint}' || exit 1; "
+            + $"{Mounted(mountpoint)} && echo changed || {{ echo 'mount reported success, but {mountpoint} is not mounted' >&2; exit 1; }}";
     }
+
+    /// <summary>Succeeds when a file system (not just autofs's trigger) is mounted at the mount point.</summary>
+    internal static string Mounted(string mountpoint) =>
+        $"$p findmnt -n -o FSTYPE -M '{mountpoint}' 2>/dev/null | grep -qvx autofs";
+
+    /// <summary>
+    /// Where autofs manages the mount point, lets it mount the file system (by looking inside), and
+    /// stops there when it did; mounting over its trigger by hand would fight it.
+    /// </summary>
+    private static string ByAutofs(string mountpoint) =>
+        $"if $p findmnt -n -o FSTYPE -M '{mountpoint}' 2>/dev/null | grep -qx autofs; then $p ls '{mountpoint}/' >/dev/null 2>&1; "
+        + $"{Mounted(mountpoint)} && {{ echo changed; exit 0; }}; echo 'autofs manages {mountpoint} but did not mount it' >&2; exit 1; fi; ";
 
     private static string CheckPaths(string paths)
     {

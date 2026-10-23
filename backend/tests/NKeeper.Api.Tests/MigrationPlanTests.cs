@@ -440,6 +440,39 @@ public sealed class MigrationPlanTests
     }
 
     [Fact]
+    public void AnImageOnAnAutofsMountedXfsOnDrbd_IsOnItsResource()
+    {
+        // findmnt lists both mounts at /vmimages/zproxy, bottom first: autofs's trigger, then the XFS it mounted.
+        var status = StorageHost.ParseStatus(string.Join('\n',
+            "@@drbd-resources", "zproxy", "@@drbd-text", "zproxy role:Primary suspended:no", "  disk:UpToDate", "@@drbd-devices", "zproxy /dev/drbd11"));
+        var output = string.Join('\n',
+            "@@disk", "@@mount",
+            """{"filesystems":[{"source":"/etc/auto.vmimages","target":"/vmimages/zproxy","fstype":"autofs","uuid":null},{"source":"/dev/drbd11","target":"/vmimages/zproxy","fstype":"xfs","uuid":"abcd"}]}""",
+            "@@devno", "93 b",
+            "@@tree", """{"blockdevices":[{"name":"drbd11","kname":"drbd11","type":"disk","tran":null}]}""");
+
+        var disk = Assert.Single(StorageTrace.Parse(output, [new DiskPath("vda", "/vmimages/zproxy/zproxy_os.img")], status).Disks);
+
+        Assert.Equal((DiskLayouts.Filesystem, "xfs", "/dev/drbd11"), (disk.Layout, disk.Mount!.FsType, disk.Mount.Device));
+        Assert.Equal([new StorageLayer(LayerKinds.Drbd, "zproxy", "11")], disk.Layers);
+        var plan = MigrationPlanner.Plan(Input([disk], target: Drbd(Resource("zproxy"))), new MigrationOptions());
+        Assert.Empty(plan.Blockers);
+        Assert.Contains(plan.Steps, s => s.Kind == StepKinds.Unmount && s.Args["mountpoint"] == "/vmimages/zproxy" && s.Args["drbd"] == "zproxy");
+    }
+
+    [Fact]
+    public void AnImageUnderAnAutofsTriggerAlone_IsNeverTakenToBeLocal()
+    {
+        var output = string.Join('\n', "@@disk", "@@mount", """{"filesystems":[{"source":"/etc/auto.vmimages","target":"/vmimages/zproxy","fstype":"autofs"}]}""");
+
+        var disk = Assert.Single(StorageTrace.Parse(output, [new DiskPath("vda", "/vmimages/zproxy/zproxy_os.img")], new StorageStatus(null, null, null)).Disks);
+
+        Assert.Empty(disk.Layers);
+        Assert.Contains("autofs hasn't mounted anything at /vmimages/zproxy", disk.Note, StringComparison.Ordinal);
+        Assert.Contains(MigrationPlanner.Plan(Input([disk], images: Image()), new MigrationOptions()).Blockers, b => b.Contains("couldn't tell what disk vda", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ADrbdDevice_TheStatusDoesntList_IsStillDrbd_NeverLocal()
     {
         var output = string.Join('\n', "@@disk", "@@block", "/dev/drbd/by-res/other/0");
