@@ -71,12 +71,20 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
     public Task<ActionResult<VirtualMachineResponse>> VirtualMachine(KvmRequest request, CancellationToken cancellationToken) =>
         WithVirtualMachineAsync(request, (_, machine) => Task.FromResult(machine), cancellationToken);
 
-    /// <summary>Starts, shuts down, reboots, pauses, hibernates, resumes, stops or resets a libvirt VM; answers with its state after.</summary>
+    /// <summary>
+    /// Starts, shuts down, reboots, pauses, hibernates, resumes, stops or resets a libvirt VM; answers
+    /// with its state after. One already as the action would leave it (e.g. started while running) is left as it is.
+    /// </summary>
     [HttpPost("api/kvm/power")]
     [ProducesResponseType<VirtualMachineResponse>(StatusCodes.Status200OK)]
     public Task<ActionResult<VirtualMachineResponse>> Power(KvmPowerRequest request, CancellationToken cancellationToken) =>
         WithVirtualMachineAsync(request, async (client, machine) =>
         {
+            if (KvmActions.Already(request.Action, machine.State))
+            {
+                return machine;
+            }
+
             await KvmHost.PowerAsync(client, Guid.Parse(machine.Id), request.Action, cancellationToken);
             await HttpContext.RequestServices.GetRequiredService<Auditing.AuditLog>()
                 .RecordAsync(new Auditing.AuditEntry("kvm.power", request.HostId, $"{request.Action} · VM {machine.Name}"));

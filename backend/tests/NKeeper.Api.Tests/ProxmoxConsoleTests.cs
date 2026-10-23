@@ -144,6 +144,50 @@ public sealed class ProxmoxConsoleTests(PostgresServerFixture postgres, ProxmoxA
     }
 
     [Theory]
+    [InlineData(105, "start", "was already running")]
+    [InlineData(101, "shutdown", "was already off")]
+    [InlineData(101, "stop", "was already off")]
+    public async Task PowerActions_ToTheStateTheGuestIsIn_AreDone_WithoutATask(int vm, string action, string already)
+    {
+        var host = await CreateTrustedHostAsync(("root", ProxmoxApiFixture.Password));
+        var tasks = pve.Tasks.Count;
+
+        var answer = await PostAsync("/api/proxmox/power", new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, vm, action });
+
+        Assert.Equal(already, answer.GetProperty("already").GetString());
+        Assert.Equal(JsonValueKind.Null, answer.GetProperty("upid").ValueKind);
+        Assert.Equal(tasks, pve.Tasks.Count);
+    }
+
+    [Fact]
+    public async Task AStartTask_ThatFoundTheVmRunning_EndsOk()
+    {
+        var host = await CreateTrustedHostAsync(("root", ProxmoxApiFixture.Password));
+        const string upid = "UPID:pve1:000ABCDE:00123456:6720F00D:qmstart:101:root@pam:";
+
+        await TaskStatusAsync(host, upid);
+
+        Assert.Equal(new ProxmoxTaskStatus(false, "OK", "was already running"), await TaskStatusAsync(host, upid));
+    }
+
+    [Theory]
+    [InlineData("start", "VM 101 already running", "was already running")]
+    [InlineData("start", "Proxmox refused the request (500: CT 300 already running).", "was already running")]
+    [InlineData("shutdown", "Proxmox refused the request (500: CT 300 not running).", "was already off")]
+    [InlineData("stop", "VM 101 not running", "was already off")]
+    [InlineData("start", "VM 101 not running", null)]
+    [InlineData("reboot", "VM 101 not running", null)]
+    [InlineData("start", "start failed: QEMU exited with code 1", null)]
+    public void ProxmoxComplaints_ThatTheGuestIsAlreadyThere_AreRecognised(string action, string message, string? already) =>
+        Assert.Equal(already, ProxmoxActions.AlreadyFromMessage(action, message));
+
+    [Theory]
+    [InlineData("UPID:pve1:000ABCDE:00123456:6720F00D:qmstart:101:root@pam:", "start")]
+    [InlineData("UPID:pve1:000ABCDE:00123456:6720F00D:vzshutdown:300:root@pam:", "shutdown")]
+    [InlineData("UPID:pve1:000ABCDE:00123456:6720F00D:qmigrate:101:root@pam:", null)]
+    public void TaskIds_NameTheirPowerAction(string upid, string? action) => Assert.Equal(action, ProxmoxApi.TaskAction(upid));
+
+    [Theory]
     [InlineData(300, "reset", "Containers can't be reset")]
     [InlineData(300, "hibernate", "Containers can't hibernate")]
     [InlineData(105, "explode", "Choose an action")]

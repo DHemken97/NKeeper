@@ -285,6 +285,7 @@ Add a **Proxmox** service (HTTPS, port 8006 by default) to a Proxmox VE node, wi
   - **Shut down** and **Reboot** ask its operating system (a VM needs ACPI or the guest agent). **Pause** freezes it in memory. **Hibernate** saves its memory to disk and stops it. **Stop** and **Reset** act at once, like the power and reset buttons, and lose anything unsaved.
   - **Resume** continues a paused one; **Start** starts a stopped or hibernated one.
   - The dialog shows its current state and asks first, then follows Proxmox's task until it ends. Closing the dialog doesn't stop the task. Containers can't hibernate or reset.
+  - Starting one that's already running, or shutting down or stopping one that's already off, isn't a failure: it's already as wanted, and the dialog says so (*was already running*, *was already off*). The same goes for KVM VMs.
   - Each action is recorded in the audit log. Users with *Use* access to the VM get these too: what the Proxmox login may do is up to Proxmox.
 - **Permissions:** the account needs **VM.Console** on the VM to open its console, **VM.PowerMgmt** for power actions, and **VM.Migrate** to migrate (and to see it). It doesn't need root, SSH or sudo.
 - **Certificate:** the node's certificate is trusted on first use, like any HTTPS service (it's shared with the node's web sessions).

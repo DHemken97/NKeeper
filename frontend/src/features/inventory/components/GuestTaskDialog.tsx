@@ -40,7 +40,9 @@ interface ProxmoxResponse {
   guest: Guest | null
   nodes: { name: string; online: boolean }[] | null
   upid: string | null
-  task: { running: boolean; exitStatus: string | null } | null
+  /** Set when there was nothing to do (e.g. "was already running"), or a task "failed" only for that. */
+  already: string | null
+  task: { running: boolean; exitStatus: string | null; already: string | null } | null
 }
 
 interface KvmResponse {
@@ -213,7 +215,7 @@ export function GuestTaskDialog({ vm, node, serviceIndex, via, credentialId, one
           const exit = response.task.exitStatus
           setPhase(
             exit === 'OK'
-              ? { kind: 'done', message: `“${running.guest.name}” ${DONE[task]}.` }
+              ? { kind: 'done', message: `“${running.guest.name}” ${response.task.already ?? DONE[task]}.` }
               : { kind: 'failed', message: `Proxmox says the task failed: ${exit ?? 'no reason given'}.` },
           )
         },
@@ -254,6 +256,16 @@ export function GuestTaskDialog({ vm, node, serviceIndex, via, credentialId, one
     if (prompt) {
       return prompt
     }
+    // Already as the action would leave it: NKeeper left it alone.
+    const already =
+      task === 'start' && guest.status === 'running'
+        ? 'was already running'
+        : (task === 'shutdown' || task === 'stop') && guest.status === 'shut off'
+          ? 'was already off'
+          : null
+    if (already) {
+      return { kind: 'done', message: `“${guest.name}” ${already}.` }
+    }
     if (task === 'shutdown') {
       return waitForShutOff(guest)
     }
@@ -269,7 +281,11 @@ export function GuestTaskDialog({ vm, node, serviceIndex, via, credentialId, one
         : api.post<ProxmoxResponse>('/api/proxmox/power', { body: { ...body(), action: task } }).then(
             (response) =>
               trustPhase(response) ??
-              (response.upid ? { kind: 'running', guest, upid: response.upid } : { kind: 'failed', message: 'Proxmox didn’t start the task.' }),
+              (response.already
+                ? { kind: 'done', message: `“${guest.name}” ${response.already}.` }
+                : response.upid
+                  ? { kind: 'running', guest, upid: response.upid }
+                  : { kind: 'failed', message: 'Proxmox didn’t start the task.' }),
           )
     request.then(
       (next) => {

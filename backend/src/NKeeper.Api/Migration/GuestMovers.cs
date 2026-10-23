@@ -173,16 +173,20 @@ internal sealed partial class ProxmoxMover(
 
     public override async Task<string> GetStateAsync(CancellationToken cancellationToken) => (await RefreshAsync(cancellationToken)).Status;
 
-    public override async Task ShutdownAsync(bool onTarget, CancellationToken cancellationToken)
-    {
-        var current = await RefreshAsync(cancellationToken);
-        await WaitAsync(await connection.Api.StartActionAsync(current, ProxmoxActions.Shutdown, cancellationToken), ShutdownTimeout, "Shutting it down", cancellationToken);
-    }
+    public override Task ShutdownAsync(bool onTarget, CancellationToken cancellationToken) =>
+        PowerAsync(ProxmoxActions.Shutdown, "Shutting it down", cancellationToken);
 
-    public override async Task StartAsync(bool onTarget, CancellationToken cancellationToken)
+    public override Task StartAsync(bool onTarget, CancellationToken cancellationToken) =>
+        PowerAsync(ProxmoxActions.Start, "Starting it", cancellationToken);
+
+    /// <summary>Runs a power action and waits for it; a guest that already is as it would leave it is fine.</summary>
+    private async Task PowerAsync(string action, string what, CancellationToken cancellationToken)
     {
         var current = await RefreshAsync(cancellationToken);
-        await WaitAsync(await connection.Api.StartActionAsync(current, ProxmoxActions.Start, cancellationToken), ShutdownTimeout, "Starting it", cancellationToken);
+        if ((await connection.Api.StartActionAsync(current, action, cancellationToken)).Upid is { } upid)
+        {
+            await WaitAsync(upid, ShutdownTimeout, what, cancellationToken);
+        }
     }
 
     public override async Task MoveAsync(bool live, bool back, bool withLocalDisks, bool copyStorage, CancellationToken cancellationToken)
@@ -455,15 +459,19 @@ internal sealed partial class LibvirtMover(Guid vm, string vmName, SshClient sou
 
     private string Id => vm.ToString("D");
 
-    public override async Task<string> GetStateAsync(CancellationToken cancellationToken) =>
-        (await Run(SourceShell!, $"{Virsh} domstate {Id}", "Reading the VM's state", cancellationToken)).Trim().Split('\n')[0].Trim();
+    public override Task<string> GetStateAsync(CancellationToken cancellationToken) => StateAsync(SourceShell!, cancellationToken);
 
     public override async Task ShutdownAsync(bool onTarget, CancellationToken cancellationToken)
     {
         var shell = onTarget ? TargetShell! : SourceShell!;
+        if (await StateAsync(shell, cancellationToken) == "shut off")
+        {
+            return;
+        }
+
         await Run(shell, $"{Virsh} shutdown {Id}", "Shutting it down", cancellationToken);
         var deadline = DateTimeOffset.UtcNow + ShutdownTimeout;
-        while ((await Run(shell, $"{Virsh} domstate {Id}", "Reading the VM's state", cancellationToken)).Trim() != "shut off")
+        while (await StateAsync(shell, cancellationToken) != "shut off")
         {
             if (DateTimeOffset.UtcNow > deadline)
             {
@@ -474,8 +482,17 @@ internal sealed partial class LibvirtMover(Guid vm, string vmName, SshClient sou
         }
     }
 
-    public override Task StartAsync(bool onTarget, CancellationToken cancellationToken) =>
-        Run(onTarget ? TargetShell! : SourceShell!, $"{Virsh} start {Id}", "Starting it", cancellationToken);
+    public override async Task StartAsync(bool onTarget, CancellationToken cancellationToken)
+    {
+        var shell = onTarget ? TargetShell! : SourceShell!;
+        if (await StateAsync(shell, cancellationToken) != "running")
+        {
+            await Run(shell, $"{Virsh} start {Id}", "Starting it", cancellationToken);
+        }
+    }
+
+    private async Task<string> StateAsync(SshClient shell, CancellationToken cancellationToken) =>
+        (await Run(shell, $"{Virsh} domstate {Id}", "Reading the VM's state", cancellationToken)).Trim().Split('\n')[0].Trim();
 
     public override async Task MoveAsync(bool live, bool back, bool withLocalDisks, bool copyStorage, CancellationToken cancellationToken)
     {

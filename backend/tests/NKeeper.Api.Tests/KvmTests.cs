@@ -150,7 +150,6 @@ public sealed class KvmTests(PostgresServerFixture postgres, SshServerFixture ss
     }
 
     [Theory]
-    [InlineData("start", "start")]
     [InlineData("shutdown", "shutdown")]
     [InlineData("reboot", "reboot")]
     [InlineData("pause", "suspend")]
@@ -169,7 +168,23 @@ public sealed class KvmTests(PostgresServerFixture postgres, SshServerFixture ss
     }
 
     [Theory]
-    [InlineData("stop", "domain is not running")]
+    [InlineData("start", "running")]
+    [InlineData("shutdown", "shut off")]
+    [InlineData("stop", "shut off")]
+    public async Task PowerActions_ToTheStateTheVmIsIn_LeaveItAlone(string action, string state)
+    {
+        var host = await CreateTrustedHostAsync();
+        var vm = state == "running" ? RunningVm : StoppedVm;
+        var before = (await ssh.VirshPowerLogAsync()).Length;
+
+        var answer = await PostAsync("/api/kvm/power", new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, vm, action });
+
+        Assert.Equal(state, answer.GetProperty("vm").GetProperty("state").GetString());
+        Assert.Equal(before, (await ssh.VirshPowerLogAsync()).Length);
+    }
+
+    [Theory]
+    [InlineData("reboot", "domain is not running")]
     [InlineData("explode", "Choose an action")]
     public async Task PowerActions_ThatFail_AreExplained(string action, string message)
     {

@@ -69,7 +69,9 @@ public sealed record ProxmoxGuestInfo(int VmId, string Type, string Node, string
 
 /// <summary>
 /// The answer to the task requests, or "trustRequired" with the node's certificate: a guest (with
-/// the cluster's nodes, for migrations), a started task's ID, or a task's status.
+/// the cluster's nodes, for migrations), a started task's ID, or a task's status. A power action
+/// with nothing to do (the guest already is as it would leave it) starts no task, and says so in
+/// <see cref="Already"/>, e.g. "was already running".
 /// </summary>
 public sealed record ProxmoxTaskResponse(
     string Status,
@@ -78,7 +80,8 @@ public sealed record ProxmoxTaskResponse(
     ProxmoxGuestInfo? Guest = null,
     IReadOnlyList<ProxmoxNode>? Nodes = null,
     string? Upid = null,
-    ProxmoxTaskStatus? Task = null);
+    ProxmoxTaskStatus? Task = null,
+    string? Already = null);
 
 /// <summary>
 /// Proxmox VE VMs and containers through the Proxmox API, with a Proxmox login: their consoles,
@@ -143,16 +146,19 @@ public sealed class ProxmoxController(ConsoleSessionStore consoles) : Controller
             return new ProxmoxTaskResponse("ready", display, null, Info(guest), nodes);
         }, cancellationToken);
 
-    /// <summary>Starts a power action (start, shut down, reboot, pause, hibernate, resume, stop or reset); answers with its task's ID.</summary>
+    /// <summary>
+    /// Starts a power action (start, shut down, reboot, pause, hibernate, resume, stop or reset);
+    /// answers with its task's ID, or, when the guest already is as it would leave it, with that.
+    /// </summary>
     [HttpPost("api/proxmox/power")]
     [ProducesResponseType<ProxmoxTaskResponse>(StatusCodes.Status200OK)]
     public Task<ActionResult<ProxmoxTaskResponse>> Power(ProxmoxActionRequest request, CancellationToken cancellationToken) =>
         WithApiAsync(request, async (connection, display) =>
         {
             var guest = await FindGuestAsync(connection, request.Vm, cancellationToken);
-            var upid = await connection.Api.StartActionAsync(guest, request.Action, cancellationToken);
-            await Audit.RecordAsync(new Auditing.AuditEntry("proxmox.power", connection.Target.HostId, $"{request.Action} · {GuestDisplay(guest)}"));
-            return new ProxmoxTaskResponse("ready", display, null, Info(guest), Upid: upid);
+            var (upid, already) = await connection.Api.StartActionAsync(guest, request.Action, cancellationToken);
+            await Audit.RecordAsync(new Auditing.AuditEntry("proxmox.power", connection.Target.HostId, $"{request.Action} · {GuestDisplay(guest)}{(already is null ? "" : $" · {already}")}"));
+            return new ProxmoxTaskResponse("ready", display, null, Info(guest), Upid: upid, Already: already);
         }, cancellationToken);
 
     /// <summary>Starts moving a VM or container to another node; answers with the migration task's ID.</summary>

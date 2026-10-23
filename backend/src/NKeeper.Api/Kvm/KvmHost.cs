@@ -51,6 +51,13 @@ public static class KvmActions
         Stop => "destroy",
         _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Unknown action."),
     };
+
+    /// <summary>Whether a VM in this state (virsh's) already is as the action would leave it: started and running, or shut down or stopped and off.</summary>
+    internal static bool Already(string action, string state) => (action, state) switch
+    {
+        (Start, "running") or (Shutdown or Stop, "shut off") => true,
+        _ => false,
+    };
 }
 
 /// <summary>Where a VM's console (SPICE or VNC) listens on the hypervisor, and its password if it has one.</summary>
