@@ -138,8 +138,8 @@ public sealed class VirtualMachineTests(PostgresServerFixture postgres, SshServe
         var pve2 = Host("pve2", hostname: "pve2.lab.example");
         var app = Host("app01", isVm: true, hypervisor: pve2.Id, vmId: "proxmox:lab/101");
         var dns = Host("resolver", mac: "BC:24:11:00:00:03");
-        var web = Host("web01.lab.example", isVm: true, hypervisor: pve2.Id);
-        var db = Host("db01", isVm: true, hypervisor: pve2.Id);
+        var web = Host("web01.lab.example", isVm: true);
+        var db = Host("db01", isVm: true, hypervisor: pve2.Id, vmId: "libvirt:2");
         var locked = Host("ro01", canManage: false);
         GuestMatcher.Candidate[] hosts = [pve1, pve2, app, dns, web, db, locked];
 
@@ -164,7 +164,50 @@ public sealed class VirtualMachineTests(PostgresServerFixture postgres, SshServe
         Assert.Equal(((Guid?)null, false), (matched[5].GuestHostId, matched[5].LinkProposed));
         // Not in NKeeper: it can be added, named like the VM, its name serving as the hostname.
         Assert.Equal(new ProposedHost("ghost", "ghost", null, null, "Added from a scan of pve1 (Proxmox VM proxmox:lab/400)."), matched[5].NewHost);
-        Assert.Contains("“pve9” isn't in NKeeper", matched[6].Note, StringComparison.Ordinal);
+        // app01 is another VM (proxmox:lab/101) with the same name.
+        Assert.Null(matched[6].GuestHostId);
+        Assert.Contains("“pve9” isn't either", matched[6].Note, StringComparison.Ordinal);
+        Assert.Contains("different VM identity", matched[6].Namesake, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Guests_WithARepeatedName_AreOnlyMatchedToHostsThatCouldBeThem()
+    {
+        // Every site has a "zproxy": the scanned one is a different VM unless something more than its name says so.
+        var siteA = Host("hv-a");
+        var siteB = Host("hv-b");
+        var siteC = Host("hv-c");
+        var zproxyA = Host("zproxy", isVm: true, hypervisor: siteA.Id, mac: "52:54:00:00:00:0a", vmId: "libvirt:a");
+        var zproxyC = Host("zproxy.c.example", isVm: true, hypervisor: siteC.Id);
+        var unlinked = Host("zproxy", isVm: true);
+        GuestMatcher.Candidate[] hosts = [siteA, siteB, siteC, zproxyA, zproxyC];
+
+        var zproxyB = Guest("libvirt", "libvirt:b", "zproxy", null, true, mac: "52:54:00:00:00:0b", state: "running", ip: "10.2.0.5");
+        var found = GuestMatcher.Match(siteB.Id, [zproxyB], hosts).Single();
+
+        // Neither host is moved to hv-b: it can be added as a new one instead.
+        Assert.Equal(((Guid?)null, false, "zproxy"), (found.GuestHostId, found.LinkProposed, found.NewHost?.Name));
+        Assert.Contains("2 hosts in NKeeper have its name", found.Namesake, StringComparison.Ordinal);
+
+        // With only the one at site C, the note says where it was left.
+        var onlyC = GuestMatcher.Match(siteB.Id, [zproxyB], [siteA, siteB, siteC, zproxyC]).Single();
+        Assert.Null(onlyC.GuestHostId);
+        Assert.Contains("runs on “hv-c”", onlyC.Namesake, StringComparison.Ordinal);
+        Assert.StartsWith("Not in NKeeper yet. “zproxy.c.example”", onlyC.Note, StringComparison.Ordinal);
+
+        // A host with its name that isn't linked anywhere yet is it, even beside the other sites' ones.
+        var linked = GuestMatcher.Match(siteB.Id, [zproxyB], [.. hosts, unlinked]).Single();
+        Assert.Equal(((Guid?)unlinked.Id, "name", true, (string?)null), (linked.GuestHostId, linked.MatchedBy, linked.LinkProposed, linked.Namesake));
+
+        // Its MAC address or VM identity still finds a VM that really moved.
+        var moved = GuestMatcher.Match(siteB.Id, [zproxyB with { MacAddresses = ["52:54:00:00:00:0a"], VirtualMachineId = "libvirt:a" }], hosts).Single();
+        Assert.Equal(((Guid?)zproxyA.Id, "id", true), (moved.GuestHostId, moved.MatchedBy, moved.LinkProposed));
+        Assert.Contains("Moved from “hv-a”", moved.Note, StringComparison.Ordinal);
+
+        // But a copy that kept the MAC address, under another identity, isn't taken off hv-a.
+        var copy = GuestMatcher.Match(siteB.Id, [zproxyB with { MacAddresses = ["52:54:00:00:00:0a"] }], [siteA, siteB, zproxyA]).Single();
+        Assert.Null(copy.GuestHostId);
+        Assert.Contains("different VM identity", copy.Namesake, StringComparison.Ordinal);
     }
 
     [Fact]

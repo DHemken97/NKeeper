@@ -43,6 +43,10 @@ public sealed record ScannedUser(string Username, int Uid, string? FullName, str
 /// <param name="NewHost">For a guest that isn't in NKeeper: the host that could be added for it, when there's an address to give it.</param>
 /// <param name="CpuCores">The vCPUs the hypervisor gives it, when known.</param>
 /// <param name="MemoryMiB">The memory the hypervisor gives it, in MiB, when known.</param>
+/// <param name="Namesake">
+/// When NKeeper has a host with its name that the scan took to be a different VM (its MAC address or
+/// VM identity differs, or it runs elsewhere and nothing confirms it moved): why it wasn't matched.
+/// </param>
 public sealed record ScannedGuest(
     string Platform,
     string VirtualMachineId,
@@ -61,7 +65,8 @@ public sealed record ScannedGuest(
     string? Note = null,
     ProposedHost? NewHost = null,
     int? CpuCores = null,
-    int? MemoryMiB = null);
+    int? MemoryMiB = null,
+    string? Namesake = null);
 
 /// <summary>A host a scan could add for a guest NKeeper doesn't have yet.</summary>
 public sealed record ProposedHost(string Name, string? Hostname, string? IpAddress, string? MacAddress, string Description);

@@ -24,6 +24,8 @@ internal static class GuestMatcher
     /// <summary>
     /// A guest is the host with its stored VM identity, else the one with one of its MAC addresses,
     /// else the one with its name (or hostname's first label); each only when exactly one host fits.
+    /// Names repeat across sites (every site's "zproxy"), so a name alone never moves a host off
+    /// another hypervisor, nor matches one whose MAC address or VM identity says it's another VM.
     /// Its node is the scanned host, or for Proxmox, the host named after the node.
     /// </summary>
     public static List<ScannedGuest> Match(Guid scannedHostId, IReadOnlyList<ScannedGuest> guests, IReadOnlyList<Candidate> hosts)
@@ -35,7 +37,8 @@ internal static class GuestMatcher
             var node = guest.OnScannedHost ? byId.GetValueOrDefault(scannedHostId) : Single(hosts.Where(h => HasName(h, guest.Node)));
             var others = hosts.Where(h => h.Id != scannedHostId && h.Id != node?.Id).ToList();
 
-            var (host, matchedBy, ambiguous) = Find(others, guest);
+            var (host, matchedBy, ambiguous, namesakes) = Find(others, guest, node);
+            var namesake = host is null && !ambiguous ? Namesake(namesakes, guest, byId) : null;
             var result = guest with
             {
                 GuestHostId = host?.Id,
@@ -43,6 +46,7 @@ internal static class GuestMatcher
                 MatchedBy = matchedBy,
                 HypervisorHostId = node?.Id,
                 HypervisorHostName = node?.Name,
+                Namesake = namesake,
             };
 
             if (host is null && ambiguous)
@@ -52,13 +56,10 @@ internal static class GuestMatcher
             else if (host is null)
             {
                 var proposal = node is null ? null : Propose(guest, node);
-                matched.Add(result with
-                {
-                    NewHost = proposal,
-                    Note = proposal is not null ? "Not in NKeeper yet."
-                        : node is null ? $"Not in NKeeper, and its node “{guest.Node}” isn't either."
-                        : "Not in NKeeper, and the scan found no address for it (no IP address, and its name isn't a hostname), so it can't be added from here.",
-                });
+                var note = proposal is not null ? "Not in NKeeper yet."
+                    : node is null ? $"Not in NKeeper, and its node “{guest.Node}” isn't either."
+                    : "Not in NKeeper, and the scan found no address for it (no IP address, and its name isn't a hostname), so it can't be added from here.";
+                matched.Add(result with { NewHost = proposal, Note = namesake is null ? note : $"{note} {namesake}" });
             }
             else if (!host.CanManage)
             {
@@ -110,26 +111,65 @@ internal static class GuestMatcher
         return new ProposedHost(name, hostname, ip, guest.MacAddresses.Count > 0 ? guest.MacAddresses[0] : null, $"Added from a scan of {node.Name} ({kind} {guest.VirtualMachineId}).");
     }
 
-    private static (Candidate? Host, string? MatchedBy, bool Ambiguous) Find(List<Candidate> hosts, ScannedGuest guest)
+    /// <summary>
+    /// The host the guest is, by VM identity, MAC address or name. A name match skips hosts that are
+    /// some other VM (see <see cref="MayBe"/>), returned as namesakes; among several left, the one
+    /// already on the node wins.
+    /// </summary>
+    private static (Candidate? Host, string? MatchedBy, bool Ambiguous, List<Candidate> Namesakes) Find(List<Candidate> hosts, ScannedGuest guest, Candidate? node)
     {
         var ambiguous = false;
+        var named = hosts.Where(h => HasName(h, guest.Name)).ToList();
+        var plausible = named.Where(h => MayBe(h, guest, node)).ToList();
         foreach (var (by, matches) in new (string, IEnumerable<Candidate>)[]
         {
             ("id", hosts.Where(h => string.Equals(h.VirtualMachineId, guest.VirtualMachineId, StringComparison.OrdinalIgnoreCase))),
-            ("mac", hosts.Where(h => h.MacAddress is { } mac && guest.MacAddresses.Contains(mac, StringComparer.OrdinalIgnoreCase))),
-            ("name", hosts.Where(h => HasName(h, guest.Name))),
+            // A copied VM keeps its MAC address: don't take a host off another hypervisor where it has another identity.
+            ("mac", hosts.Where(h => h.MacAddress is { } mac && guest.MacAddresses.Contains(mac, StringComparer.OrdinalIgnoreCase)
+                && !(RunsElsewhere(h, node) && HasOtherIdentity(h, guest)))),
+            ("name", plausible),
+            ("name", plausible.Where(h => node is not null && h.HypervisorId == node.Id)),
         })
         {
             var list = matches.Take(2).ToList();
             if (list.Count == 1)
             {
-                return (list[0], by, false);
+                return (list[0], by, false, []);
             }
 
             ambiguous |= list.Count > 1;
         }
 
-        return (null, null, ambiguous);
+        return (null, null, ambiguous, [.. named.Except(plausible)]);
+    }
+
+    /// <summary>
+    /// Whether a host with the guest's name may be it: not when its recorded MAC address or VM identity
+    /// differs, nor when it runs on another hypervisor (nothing but the name would say it moved).
+    /// </summary>
+    private static bool MayBe(Candidate host, ScannedGuest guest, Candidate? node) =>
+        !HasOtherMac(host, guest) && !HasOtherIdentity(host, guest) && !RunsElsewhere(host, node);
+
+    private static bool HasOtherMac(Candidate host, ScannedGuest guest) =>
+        host.MacAddress is { } mac && guest.MacAddresses.Count > 0 && !guest.MacAddresses.Contains(mac, StringComparer.OrdinalIgnoreCase);
+
+    private static bool HasOtherIdentity(Candidate host, ScannedGuest guest) =>
+        host.VirtualMachineId is { } id && !id.Equals(guest.VirtualMachineId, StringComparison.OrdinalIgnoreCase);
+
+    private static bool RunsElsewhere(Candidate host, Candidate? node) => host.HypervisorId is { } current && current != node?.Id;
+
+    /// <summary>Why the hosts with the guest's name weren't taken to be it; null when there are none.</summary>
+    private static string? Namesake(List<Candidate> namesakes, ScannedGuest guest, Dictionary<Guid, Candidate> hosts)
+    {
+        if (namesakes.Count > 1)
+        {
+            return $"{namesakes.Count} hosts in NKeeper have its name, but their MAC addresses, VM identities or hypervisors show they're other VMs.";
+        }
+
+        return namesakes.SingleOrDefault() is not { } host ? null
+            : HasOtherMac(host, guest) ? $"“{host.Name}” has its name but a different MAC address, so it's taken to be another VM."
+            : HasOtherIdentity(host, guest) ? $"“{host.Name}” has its name but a different VM identity, so it's taken to be another VM."
+            : $"“{host.Name}” has its name but runs on {NameOf(hosts, host.HypervisorId!.Value)}, and neither a MAC address nor a VM identity confirms it's this VM, so it's left there. Edit it if it really moved.";
     }
 
     private static Candidate? Single(IEnumerable<Candidate> hosts)
