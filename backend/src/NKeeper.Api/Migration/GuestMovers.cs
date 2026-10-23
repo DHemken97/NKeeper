@@ -86,7 +86,88 @@ internal abstract partial class GuestMover(SshClient? sourceShell, SshClient? ta
         var peer = await PeerSshAsync(back: false, cancellationToken);
         var reverse = Via == "kvm" ? await PeerSshAsync(back: true, cancellationToken) : null;
         var images = await LocalImagesAsync(disks, cancellationToken);
-        return new PlanInput(Via, GuestName, IsContainer, state, SourceName, TargetName, disks, trace.IscsiInUse, source, target, peer, reverse, blockers, notes, images);
+        var unavailable = await IscsiUnavailableAsync(disks, target, cancellationToken);
+        return new PlanInput(Via, GuestName, IsContainer, state, SourceName, TargetName, disks, trace.IscsiInUse, source, target, peer, reverse, blockers, notes, images, unavailable);
+    }
+
+    /// <summary>
+    /// The iSCSI targets the VM's disks are on that the new host isn't logged in to, and can't see at
+    /// their portal, with why. It asks each portal what it offers (sendtargets discovery, without
+    /// logging in or saving node records), so a SAN that doesn't let the new host in, or a portal it
+    /// can't reach, is found before anything stops.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<(string Target, string Portal), string>> IscsiUnavailableAsync(IReadOnlyList<GuestDisk> disks, StorageStatus target, CancellationToken cancellationToken)
+    {
+        var wanted = disks.Where(d => d.Layout is DiskLayouts.Filesystem or DiskLayouts.Block or DiskLayouts.Managed or DiskLayouts.Shared)
+            .SelectMany(d => d.Layers)
+            .Where(l => l.Kind == LayerKinds.Iscsi && l.Detail is not null && SafePortal().IsMatch(l.Detail))
+            .Select(l => (Target: l.Name, Portal: l.Detail!))
+            .Distinct()
+            .Where(t => target.Iscsi?.Sessions.Any(s => s.Target == t.Target && s.Portal == t.Portal) != true)
+            .ToList();
+        if (wanted.Count == 0 || target.Iscsi is null)
+        {
+            return new Dictionary<(string, string), string>();
+        }
+
+        var script = new StringBuilder("w=''; command -v timeout >/dev/null && w='timeout 25'; ");
+        foreach (var portal in wanted.Select(t => t.Portal).Distinct())
+        {
+            script.Append(CultureInfo.InvariantCulture, $"echo '@@portal {portal}'; $p $w iscsiadm -m discovery -t sendtargets -p '{portal}' -o nonpersistent 2>&1; echo \"@@exit $?\"; ");
+        }
+
+        var output = await StorageHost.RunAsRootAsync(TargetShell!, script + "exit 0", TimeSpan.FromSeconds(30 * wanted.Count + 30), $"Checking {TargetName} sees the iSCSI targets", cancellationToken);
+        return IscsiUnavailable(output, wanted, TargetName);
+    }
+
+    /// <summary>
+    /// From each portal's discovery answer (<c>@@portal P</c>, its lines, then <c>@@exit N</c>): the
+    /// wanted targets a portal didn't offer, or whose portal couldn't be asked, with why.
+    /// </summary>
+    internal static Dictionary<(string Target, string Portal), string> IscsiUnavailable(string output, IEnumerable<(string Target, string Portal)> wanted, string host)
+    {
+        var answers = new Dictionary<string, (List<string> Lines, string? Exit)>(StringComparer.Ordinal);
+        string? portal = null;
+        foreach (var line in output.Split('\n').Select(l => l.TrimEnd('\r')))
+        {
+            if (line.StartsWith("@@portal ", StringComparison.Ordinal))
+            {
+                portal = line["@@portal ".Length..].Trim();
+                answers[portal] = ([], null);
+            }
+            else if (portal is not null && line.StartsWith("@@exit ", StringComparison.Ordinal))
+            {
+                answers[portal] = (answers[portal].Lines, line["@@exit ".Length..].Trim());
+            }
+            else if (portal is not null && line.Trim().Length > 0)
+            {
+                answers[portal].Lines.Add(line.Trim());
+            }
+        }
+
+        var unavailable = new Dictionary<(string, string), string>();
+        foreach (var (target, at) in wanted)
+        {
+            if (!answers.TryGetValue(at, out var answer) || answer.Exit is null)
+            {
+                unavailable[(target, at)] = $"{host} didn't answer for portal {at}";
+            }
+            else if (answer.Exit == "124")
+            {
+                unavailable[(target, at)] = $"{host} couldn't reach portal {at} (no answer in 25 seconds)";
+            }
+            else if (answer.Exit != "0")
+            {
+                var why = answer.Lines.FirstOrDefault(l => l.StartsWith("iscsiadm:", StringComparison.Ordinal)) ?? answer.Lines.FirstOrDefault() ?? $"iscsiadm exit code {answer.Exit}";
+                unavailable[(target, at)] = $"discovery at portal {at} failed on {host}: {why}";
+            }
+            else if (!answer.Lines.Any(l => l.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [_, var name, ..] && name == target))
+            {
+                unavailable[(target, at)] = $"portal {at} doesn't offer it to {host}";
+            }
+        }
+
+        return unavailable;
     }
 
     /// <summary>Checks both hosts are what they should be (e.g. the logins reach the right nodes).</summary>
@@ -142,6 +223,10 @@ internal abstract partial class GuestMover(SshClient? sourceShell, SshClient? ta
 
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$")]
     private static partial Regex AddressFormat();
+
+    /// <summary>An iSCSI portal (<c>10.0.0.5:3260</c>, <c>[fd00::5]:3260</c>), safe in single quotes.</summary>
+    [GeneratedRegex(@"^[A-Za-z0-9\[][A-Za-z0-9.:\[\]-]{0,252}$")]
+    private static partial Regex SafePortal();
 }
 
 /// <summary>A Proxmox VM or container, moved by its cluster through the API; its nodes' storage over SSH, when there are logins to them.</summary>

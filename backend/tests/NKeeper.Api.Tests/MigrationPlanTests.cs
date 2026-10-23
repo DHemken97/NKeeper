@@ -415,6 +415,33 @@ public sealed class MigrationPlanTests
     }
 
     [Fact]
+    public void IscsiTargets_TheNewHostCantSeeAtTheirPortal_AreFoundAtDetection()
+    {
+        const string disk1 = "iqn.2003-01.org.example.san:disk1", disk2 = "iqn.2003-01.org.example.san:disk2";
+        var output = string.Join('\n',
+            "@@portal 10.0.0.5:3260", "10.0.0.5:3260,1 iqn.2003-01.org.example.san:disk1", "10.0.1.5:3260,1 iqn.2003-01.org.example.san:disk1", "@@exit 0",
+            "@@portal 10.0.1.5:3260", "10.0.1.5:3260,1 iqn.2003-01.org.example.san:other", "@@exit 0",
+            "@@portal 10.0.2.5:3260", "iscsiadm: cannot make connection to 10.0.2.5: Connection refused", "iscsiadm: Could not perform SendTargets discovery: iSCSI PDU timed out", "@@exit 4",
+            "@@portal 10.0.3.5:3260", "@@exit 124");
+
+        var unavailable = GuestMover.IscsiUnavailable(output, [(disk1, "10.0.0.5:3260"), (disk1, "10.0.1.5:3260"), (disk2, "10.0.2.5:3260"), (disk2, "10.0.3.5:3260"), (disk2, "10.0.4.5:3260")], "kvm-b");
+
+        Assert.False(unavailable.ContainsKey((disk1, "10.0.0.5:3260")));
+        Assert.Equal("portal 10.0.1.5:3260 doesn't offer it to kvm-b", unavailable[(disk1, "10.0.1.5:3260")]);
+        Assert.Equal("discovery at portal 10.0.2.5:3260 failed on kvm-b: iscsiadm: cannot make connection to 10.0.2.5: Connection refused", unavailable[(disk2, "10.0.2.5:3260")]);
+        Assert.Equal("kvm-b couldn't reach portal 10.0.3.5:3260 (no answer in 25 seconds)", unavailable[(disk2, "10.0.3.5:3260")]);
+        Assert.Equal("kvm-b didn't answer for portal 10.0.4.5:3260", unavailable[(disk2, "10.0.4.5:3260")]);
+
+        var target = new StorageStatus(new IscsiStatus("iqn.1993-08.org.debian:01:kvm-b", [], []), [], null);
+        var plan = MigrationPlanner.Plan(
+            Input([LvmOnIscsi], target: target) with { IscsiUnavailable = new Dictionary<(string, string), string> { [(disk1, "10.0.1.5:3260")] = unavailable[(disk1, "10.0.1.5:3260")] } },
+            new MigrationOptions());
+        Assert.Contains(
+            "kvm-b can't see iSCSI target iqn.2003-01.org.example.san:disk1 at 10.0.1.5:3260: portal 10.0.1.5:3260 doesn't offer it to kvm-b. Check that the SAN lets kvm-b (initiator iqn.1993-08.org.debian:01:kvm-b) access it, and that kvm-b reaches 10.0.1.5:3260.",
+            plan.Blockers);
+    }
+
+    [Fact]
     public void Trace_RunsAsRoot_SoALoginWithSudoCanSeeImagesInDirectoriesOnlyRootEnters()
     {
         // Without it, findmnt finds nothing for /var/lib/libvirt/images/… when that is 0700, and every disk is "couldn't tell".

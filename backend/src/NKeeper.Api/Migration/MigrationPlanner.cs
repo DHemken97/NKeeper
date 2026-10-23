@@ -112,6 +112,7 @@ public static class StepKinds
 /// <param name="ReversePeerSsh">The same, from the new host back to the old one (for rolling back a live move).</param>
 /// <param name="Blockers">Problems the hypervisor found (e.g. the VM is already defined on the new host).</param>
 /// <param name="LocalImages">libvirt: the image files on the old host's own storage, by path.</param>
+/// <param name="IscsiUnavailable">iSCSI targets (and portals) the VM needs that the new host can't see at their portal, with why.</param>
 internal sealed record PlanInput(
     string Via,
     string GuestName,
@@ -127,7 +128,8 @@ internal sealed record PlanInput(
     (bool Ok, string? Error)? ReversePeerSsh,
     IReadOnlyList<string> Blockers,
     IReadOnlyList<string> Notes,
-    IReadOnlyDictionary<string, LocalImage>? LocalImages = null);
+    IReadOnlyDictionary<string, LocalImage>? LocalImages = null,
+    IReadOnlyDictionary<(string Target, string Portal), string>? IscsiUnavailable = null);
 
 /// <summary>
 /// Plans how a VM's storage moves with it. Offline: make the storage reachable on the new host,
@@ -242,6 +244,13 @@ internal static partial class MigrationPlanner
         if (iscsi.Count > 0 && input.Target is { Iscsi: null })
         {
             blockers.Add($"The VM's disks are on iSCSI, but {target} has no iSCSI initiator (iscsiadm) installed.");
+        }
+
+        // Asked at detection (discovery, without logging in): the SAN must let the new host in.
+        foreach (var ((name, portal), why) in input.IscsiUnavailable ?? new Dictionary<(string, string), string>())
+        {
+            var initiator = input.Target?.Iscsi?.InitiatorName is { } iqn ? $" (initiator {iqn})" : "";
+            blockers.Add($"{target} can't see iSCSI target {name} at {portal}: {why}. Check that the SAN lets {target}{initiator} access it, and that {target} reaches {portal}.");
         }
 
         if (wwids.Count > 0 && input.Target is { Multipath: null })
