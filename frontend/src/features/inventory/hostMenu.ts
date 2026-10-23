@@ -22,8 +22,8 @@ export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https', 'Proxmox
 /** What an iDRAC service opens: its HTML5 virtual console, the server's status and power, or RACADM (its SSH command line). */
 export type IdracMode = 'console' | 'overview' | 'racadm'
 
-/** What a connection opens: an iDRAC's console, status or RACADM, or an SSH service's files (SFTP). */
-export type ConnectMode = IdracMode | 'files'
+/** What a connection opens: an iDRAC's console, status or RACADM, or an SSH service's files (SFTP) or storage (iSCSI, multipath, DRBD). */
+export type ConnectMode = IdracMode | 'files' | 'storage'
 
 /** Session types that can't be tunnelled through a jump host yet (guacd and RPC dial hosts themselves). */
 const NOT_THROUGH_JUMP = new Set<ServiceProtocol>(['Rdp', 'Vnc', 'Rpc'])
@@ -55,24 +55,27 @@ export interface HostMenuActions {
   copyText: (text: string) => void
   /** Send a Wake-on-LAN packet (hosts with a MAC address). */
   wake?: (host: Host) => void
-  /** A Proxmox VM's console, opened through its node's Proxmox service (the Proxmox API) with the node's login. */
-  proxmoxConsole?: ProxmoxConsoleActions
+  /** A VM host's console and tasks, through the hypervisor it runs on (its Proxmox or KVM service and login). */
+  guests?: GuestActions
 }
 
-export interface ProxmoxConsoleActions {
+/** How a VM host's console and tasks are reached: its Proxmox node's API, or its libvirt host over SSH. */
+export type GuestVia = 'proxmox' | 'kvm'
+
+export interface GuestActions {
   /** The host a VM runs on, when the user can see it. */
   hypervisorOf: (vm: Host) => Host | undefined
-  connect: (vm: Host, hypervisor: Host, serviceIndex: number, credential: HostCredential) => void
-  connectWithPrompt: (vm: Host, hypervisor: Host, serviceIndex: number, account?: HostCredential) => void
-  /** Tasks ▸ Proxmox: a power action or migration, with a saved login, or asking for one (`ask`). */
-  runTask: (vm: Host, hypervisor: Host, serviceIndex: number, task: ProxmoxTask, credential: HostCredential | undefined, ask: boolean) => void
+  /** Connect ▸ console, with a saved login, or asking for one (`ask`). */
+  openConsole: (vm: Host, hypervisor: Host, serviceIndex: number, via: GuestVia, credential: HostCredential | undefined, ask: boolean) => void
+  /** Tasks ▸ Proxmox / KVM: a power action or migration, with a saved login, or asking for one (`ask`). */
+  runTask: (vm: Host, hypervisor: Host, serviceIndex: number, via: GuestVia, task: GuestTask, credential: HostCredential | undefined, ask: boolean) => void
 }
 
-/** What Tasks ▸ Proxmox can do to a VM or container. */
-export type ProxmoxTask = 'migrate' | 'shutdown' | 'reboot' | 'pause' | 'hibernate' | 'stop' | 'reset' | 'resume' | 'start'
+/** What Tasks ▸ Proxmox (or KVM) can do to a VM or container. */
+export type GuestTask = 'migrate' | 'shutdown' | 'reboot' | 'pause' | 'hibernate' | 'stop' | 'reset' | 'resume' | 'start'
 
 /** Each task's menu label, and whether it loses unsaved work (it asks with a red button). */
-export const PROXMOX_TASKS: Record<ProxmoxTask, { label: string; danger?: boolean }> = {
+export const GUEST_TASKS: Record<GuestTask, { label: string; danger?: boolean }> = {
   migrate: { label: 'Migrate' },
   shutdown: { label: 'Shut down' },
   reboot: { label: 'Reboot' },
@@ -84,36 +87,56 @@ export const PROXMOX_TASKS: Record<ProxmoxTask, { label: string; danger?: boolea
   start: { label: 'Start' },
 }
 
-/** The Proxmox node of a VM or container a scan found on one, with its Proxmox service; null otherwise. */
-function proxmoxNodeOf(host: Host, actions: Pick<HostMenuActions, 'proxmoxConsole'>): { node: Host; index: number; console: ProxmoxConsoleActions } | null {
-  const console = actions.proxmoxConsole
-  const node = console && proxmoxVmId(host) ? console.hypervisorOf(host) : undefined
-  const index = node ? node.services.findIndex((s) => s.protocol === 'Proxmox') : -1
-  return console && node && index !== -1 ? { node, index, console } : null
+/**
+ * A VM host's identity on its hypervisor, from what a scan recorded: the Proxmox VM ID
+ * ("proxmox:<cluster>/<vmid>") or the libvirt UUID ("libvirt:<uuid>"); null for other hosts.
+ */
+export function guestId(host: Host): { via: GuestVia; id: string } | null {
+  if (!host.isVirtualMachine) {
+    return null
+  }
+  const proxmox = /^proxmox:[^/]*\/(\d+)$/.exec(host.virtualMachineId ?? '')
+  if (proxmox) {
+    return { via: 'proxmox', id: proxmox[1] }
+  }
+  const libvirt = /^libvirt:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(host.virtualMachineId ?? '')
+  return libvirt ? { via: 'kvm', id: libvirt[1] } : null
 }
 
-/** Tasks ▸ Proxmox ▸ action ▸ the node's Proxmox logins; none without a Proxmox node. */
-function proxmoxTaskEntries(host: Host, actions: Pick<HostMenuActions, 'proxmoxConsole'>): MenuEntry[] {
-  const proxmox = proxmoxNodeOf(host, actions)
-  if (!proxmox) {
+/**
+ * The hypervisor a VM host runs on, with the service its console and tasks go through (Proxmox for a
+ * Proxmox VM, KVM for a libvirt one); null when there's none to use.
+ */
+function guestHypervisorOf(host: Host, actions: Pick<HostMenuActions, 'guests'>): { node: Host; index: number; via: GuestVia; guests: GuestActions } | null {
+  const guests = actions.guests
+  const guest = guestId(host)
+  const node = guests && guest ? guests.hypervisorOf(host) : undefined
+  const index = node && guest ? node.services.findIndex((s) => s.protocol === (guest.via === 'proxmox' ? 'Proxmox' : 'Kvm')) : -1
+  return guests && guest && node && index !== -1 ? { node, index, via: guest.via, guests } : null
+}
+
+/** Tasks ▸ Proxmox (or KVM) ▸ action ▸ the hypervisor's logins; none without one. */
+function guestTaskEntries(host: Host, actions: Pick<HostMenuActions, 'guests'>): MenuEntry[] {
+  const hypervisor = guestHypervisorOf(host, actions)
+  if (!hypervisor) {
     return []
   }
-  const { node, index, console } = proxmox
-  const logins = (task: ProxmoxTask) =>
+  const { node, index, via, guests } = hypervisor
+  const logins = (task: GuestTask) =>
     loginEntries(node, index, {
-      connect: (_h, _i, credential) => console.runTask(host, node, index, task, credential, false),
-      connectWithPrompt: (_h, _i, account) => console.runTask(host, node, index, task, account, true),
+      connect: (_h, _i, credential) => guests.runTask(host, node, index, via, task, credential, false),
+      connectWithPrompt: (_h, _i, account) => guests.runTask(host, node, index, via, task, account, true),
       connectWithoutLogin: () => {},
     })
-  const entry = (task: ProxmoxTask): MenuEntry => ({
+  const entry = (task: GuestTask): MenuEntry => ({
     kind: 'item',
-    label: task === 'migrate' ? 'Migrate…' : PROXMOX_TASKS[task].label,
+    label: task === 'migrate' ? 'Migrate…' : GUEST_TASKS[task].label,
     submenu: logins(task),
   })
   return [
     {
       kind: 'item',
-      label: 'Proxmox',
+      label: via === 'proxmox' ? 'Proxmox' : 'KVM',
       detail: node.name,
       submenu: [
         entry('migrate'),
@@ -127,47 +150,45 @@ function proxmoxTaskEntries(host: Host, actions: Pick<HostMenuActions, 'proxmoxC
   ]
 }
 
-/** The Proxmox VM ID of a VM host, from the identity a scan recorded ("proxmox:<cluster>/<vmid>"); null for other hosts. */
-export function proxmoxVmId(host: Host): string | null {
-  return (host.isVirtualMachine && /^proxmox:[^/]*\/(\d+)$/.exec(host.virtualMachineId ?? '')?.[1]) || null
-}
-
 /**
- * Proxmox console ▸ the node's Proxmox logins, for a VM or container a scan found on a Proxmox
- * node that has a Proxmox service; none otherwise.
+ * Proxmox console (or KVM console) ▸ the hypervisor's logins, for a VM a scan found on a hypervisor
+ * that has the service for it; none otherwise.
  */
-function proxmoxConsoleEntries(host: Host, actions: Pick<HostMenuActions, 'proxmoxConsole'>): MenuEntry[] {
-  const proxmox = proxmoxNodeOf(host, actions)
-  if (!proxmox) {
+function guestConsoleEntries(host: Host, actions: Pick<HostMenuActions, 'guests'>): MenuEntry[] {
+  const hypervisor = guestHypervisorOf(host, actions)
+  if (!hypervisor) {
     return []
   }
-  const { node, index, console } = proxmox
-  // Logins are the node's: "connect" and "ask" open this VM's console through it.
+  const { node, index, via, guests } = hypervisor
+  // Logins are the hypervisor's: "connect" and "ask" open this VM's console through it.
   const logins = loginEntries(node, index, {
-    connect: (_h, i, credential) => console.connect(host, node, i, credential),
-    connectWithPrompt: (_h, i, account) => console.connectWithPrompt(host, node, i, account),
+    connect: (_h, i, credential) => guests.openConsole(host, node, i, via, credential, false),
+    connectWithPrompt: (_h, i, account) => guests.openConsole(host, node, i, via, account, true),
     connectWithoutLogin: () => {},
   })
-  return [{ kind: 'item', label: 'Proxmox console', detail: `VNC · ${node.name}`, submenu: logins }]
+  return [
+    via === 'proxmox'
+      ? { kind: 'item', label: 'Proxmox console', detail: `VNC · ${node.name}`, submenu: logins }
+      : { kind: 'item', label: 'KVM console', detail: node.name, submenu: logins },
+  ]
 }
 
-/** Files (SFTP) ▸ login, or ▸ SSH service ▸ login when there are several; none without an SSH service. */
-function filesMenuEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
+/** Files (SFTP) and Storage (iSCSI, multipath, DRBD) ▸ login, or ▸ SSH service ▸ login when there are several; none without an SSH service. */
+function sshToolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
   const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh')
   if (ssh.length === 0) {
     return []
   }
-  return [
-    {
-      kind: 'item',
-      label: 'Files',
-      detail: 'SFTP',
-      submenu:
-        ssh.length === 1
-          ? loginEntries(host, ssh[0].index, actions, 'files')
-          : ssh.map(({ service, index }) => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions, 'files') })),
-    },
-  ]
+  const entry = (mode: 'files' | 'storage', label: string, detail: string): MenuEntry => ({
+    kind: 'item',
+    label,
+    detail,
+    submenu:
+      ssh.length === 1
+        ? loginEntries(host, ssh[0].index, actions, mode)
+        : ssh.map(({ service, index }) => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions, mode) })),
+  })
+  return [entry('files', 'Files', 'SFTP'), entry('storage', 'Storage', 'iSCSI · multipath · DRBD')]
 }
 
 export function serviceLabel(service: HostService): string {
@@ -206,7 +227,7 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
     { kind: 'item', label: 'Connect', submenu: connectMenuEntries(host, actions) },
     { kind: 'separator' },
     ...(host.canManage ? [{ kind: 'item', label: 'Edit', onSelect: () => actions.edit(host) } as const] : []),
-    ...(host.canManage || (host.macAddress && actions.wake) || proxmoxNodeOf(host, actions)
+    ...(host.canManage || (host.macAddress && actions.wake) || guestHypervisorOf(host, actions)
       ? [{ kind: 'item', label: 'Tasks', submenu: taskMenuEntries(host, actions) } as const]
       : []),
     {
@@ -249,7 +270,7 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
 /** One entry per connectable service, each opening its credentials (also used by the Connect button). */
 export function connectMenuEntries(
   host: Host,
-  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin' | 'connectWeb' | 'openDirect' | 'signIn' | 'proxmoxConsole'>,
+  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin' | 'connectWeb' | 'openDirect' | 'signIn' | 'guests'>,
 ): MenuEntry[] {
   const services: MenuEntry[] = host.services.flatMap((service, index): MenuEntry | MenuEntry[] => {
     if (!CONNECTABLE.has(service.protocol)) {
@@ -290,12 +311,12 @@ export function connectMenuEntries(
     return { kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions) }
   })
 
-  const console = proxmoxConsoleEntries(host, actions)
+  const console = guestConsoleEntries(host, actions)
   const entries =
     services.length > 0 || console.length > 0
       ? services
       : [{ kind: 'item', label: host.services.length > 0 ? 'No services to connect with' : 'No services', detail: 'Edit the host to add one', disabled: true } as const]
-  return [...entries, ...console, ...filesMenuEntries(host, actions)]
+  return [...entries, ...console, ...sshToolEntries(host, actions)]
 }
 
 /**
@@ -341,7 +362,7 @@ function credentialEntry(credential: HostCredential, detail?: string): Extract<M
 }
 
 /** Tasks ▸ Scan ▸ Internal (SSH or RPC service ▸ credential) or External. */
-export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scanInternal' | 'scanExternal' | 'wake' | 'proxmoxConsole'>): MenuEntry[] {
+export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scanInternal' | 'scanExternal' | 'wake' | 'guests'>): MenuEntry[] {
   const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh' || service.protocol === 'Rpc')
   const logins = (index: number): MenuEntry[] => [
     ...host.credentials
@@ -375,7 +396,7 @@ export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scan
     ...(host.macAddress && actions.wake
       ? [{ kind: 'item', label: 'Wake', detail: 'Wake-on-LAN', onSelect: () => actions.wake!(host) } as const]
       : []),
-    ...proxmoxTaskEntries(host, actions),
+    ...guestTaskEntries(host, actions),
   ]
 }
 

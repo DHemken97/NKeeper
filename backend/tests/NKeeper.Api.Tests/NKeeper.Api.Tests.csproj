@@ -20,6 +20,8 @@
 
   <ItemGroup>
     <None Include="Kvm/fake-*.sh" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Storage/fake-*.sh" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Migration/fake-*.sh" CopyToOutputDirectory="PreserveNewest" />
     <!-- A real mRemoteNG export (test hosts and test passwords, default master password). -->
     <None Include="Import/mremoteng-export.xml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

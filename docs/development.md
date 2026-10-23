@@ -119,8 +119,8 @@ All sessions start from a **target**: a host, one of its services, and a saved c
 - **Web** (`/api/web/sessions`):
   - creates a session with its own origin and a one-time launch link;
   - `WebProxyMiddleware` then forwards requests for `nkw-<id>.<domain>` hosts with YARP, rewriting cookies and framing headers.
-- **KVM** (`/api/kvm/vms`, `/api/spice/sessions`, `/api/vnc/consoles`):
-  - lists VMs by running `virsh` over SSH;
+- **KVM** (`/api/kvm/vms`, `/api/kvm/vm`, `/api/kvm/power`, `/api/spice/sessions`, `/api/vnc/consoles`):
+  - lists VMs by running `virsh` over SSH, and runs their power actions with it (`start`, `shutdown`, `reboot`, `suspend`, `managedsave`, `resume`, `destroy`, `reset`);
   - a console opens an SSH local port forward to the VM's SPICE or VNC port (virsh reports VNC as a display number, port 5900 + N);
   - spice-html5 then opens one WebSocket per SPICE channel on `/api/spice/channel/{id}`, and noVNC one on `/api/vnc/channel/{id}`, each relayed raw to that forward. VNC consoles live under `/api/vnc/` so proxies already treat them as WebSockets;
   - a Proxmox node (one with `/etc/pve/nodes`) is detected by the same listing script. Its VMs come from `pvesh get /cluster/resources`, and each VNC channel runs `qm vncproxy <vmid>` over SSH, with its stdin and stdout relayed instead of a port forward. The one-time VNC password goes in as the first line of input (`LC_PVE_TICKET`), never on a command line. A VM on another node is reached with `ssh root@<node>` from the connected node, as Proxmox does.
@@ -129,6 +129,16 @@ All sessions start from a **target**: a host, one of its services, and a saved c
   - `ProxmoxApi` signs in to the node's API (`/access/ticket`, or an API token header), finds the guest in `/cluster/resources`, and asks its node for `vncproxy` with `websocket=1`;
   - power actions (`/api/proxmox/power`: `status/{start,shutdown,reboot,suspend,resume,stop,reset}`, hibernate is `suspend` with `todisk=1`) and migrations (`/api/proxmox/migrate`) answer with Proxmox's task ID (UPID); `/api/proxmox/task` reads its status from the node named in it, and `/api/proxmox/guest` describes a guest and lists the nodes;
   - the console is a VNC console session whose endpoint connects to `vncwebsocket` (with the ticket cookie, through the jump host when there is one) and relays it like the other channels, on `/api/vnc/channel/{id}`. The proxy's ticket is the VNC password, as in Proxmox's own console.
+- **Migrations** (`/api/migrations/plan`, `/api/migrations`, `/api/migrations/{id}`):
+  - a `GuestMover` (`ProxmoxMover` through the API, `LibvirtMover` with virsh over SSH) holds the logins to both hosts and gives the planner the VM's disks (`virsh domblklist`, or the Proxmox configuration, `storage.cfg` and `pvesm path`), both hosts' storage (`StorageHost`) and SSH tests between the hosts;
+  - `StorageTrace` follows each disk down with `findmnt`, `lsblk -s` and `lvs` into layers (LVM, DRBD, multipath, iSCSI, local) and a layout (filesystem, block, shared, network, managed by Proxmox, local), and finds which iSCSI LUNs something else uses;
+  - `MigrationPlanner` is pure: from that and the options it makes the blockers, notes and `PlannedStep`s (offline or live), each titled with exactly what it does where. Starting plans again first, and only starts if the steps are exactly the ones the user confirmed (`confirmedSteps`);
+  - `MigrationJobs` runs a plan on the server: each step is a script (or a mover call) that says whether it changed anything, and a failed critical step undoes the changed ones, newest first. Jobs belong to the user who started them and are kept for two hours;
+  - tests: `MigrationPlanTests` (planner and parsers) and `VmMigrationTests`, which move a VM between two SSH containers with fake virsh, DRBD and mount tools (`tests/NKeeper.Api.Tests/Migration/`) that refuse steps in the wrong order.
+- **Storage** (`/api/storage/status`, `/api/storage/action`):
+  - `StorageHost` runs one script over SSH (as root, or with `sudo -n`) that prints an `@@section` for each installed tool: `iscsiadm -m session -P 3` and `-m node`, `multipath -ll`, and `drbdadm sh-resources` with `drbdsetup status --json` (or its text output, for older utilities). A tool that isn't installed is null in the answer;
+  - an action re-reads the state first and acts only on what the host reported (a known target and portal, an existing map, a configured resource); discovery's portal must be an address. Values are also checked against strict formats and single-quoted in the command line. It then answers with the state afterwards, and records `storage.action` in the audit log;
+  - tests run the real SSH path against fake `iscsiadm`, `multipath`, `drbdadm` and `drbdsetup` scripts (`tests/NKeeper.Api.Tests/Storage/`), which keep their state in files.
 - **iDRAC** (`/api/idrac/overview`, `/api/idrac/power`, `/api/idrac/console`):
   - an iDRAC service has its own address (`HostService.Address`), which `SessionTargetResolver` connects to instead of the host's;
   - status and power are Redfish over HTTPS (`RedfishClient`, HTTP Basic, the certificate pinned as for web sessions), finding the system and manager from the service root;

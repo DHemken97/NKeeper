@@ -49,6 +49,7 @@ const vnc = vi.hoisted(() => {
     background = ''
     disconnected = false
     sendCtrlAltDel = vi.fn()
+    sendKey = vi.fn()
     focus = vi.fn()
     target: HTMLElement
     url: string
@@ -326,28 +327,146 @@ describe('KVM hosts', () => {
       expect(await within(dialog).findByText('“app01” was shut down.', {}, { timeout: 5000 })).toBeInTheDocument()
       expect(bodies).toEqual([{ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: 105, action: 'shutdown' }])
     })
+  })
 
-    it('migrates to a chosen online node, and reports a task that fails', async () => {
-      let body: Record<string, unknown> | undefined
+  describe('libvirt VMs, from their own menu', () => {
+    const web01: Host = {
+      ...hypervisor,
+      id: 'h-web',
+      name: 'web01',
+      isVirtualMachine: true,
+      hypervisorId: 'h-kvm',
+      virtualMachineId: 'libvirt:9f0c6b5e-1111-4a2b-9c3d-000000000001',
+      services: [],
+      credentials: [],
+      canManage: false,
+    }
+    const machine = { id: '9f0c6b5e-1111-4a2b-9c3d-000000000001', name: 'web01', state: 'running', display: 'vnc', node: null }
+
+    it('opens the console through the hypervisor’s KVM service, as SPICE or VNC', async () => {
+      let consoleBody: unknown
       const { user } = renderWorkspace({
-        'GET /api/hosts': () => jsonResponse(200, [node, app01]),
-        'POST /api/proxmox/guest': () => ready({ guest, nodes }),
-        'POST /api/proxmox/migrate': (_url, init) => {
-          body = JSON.parse(String(init.body))
-          return ready({ guest, upid: 'UPID:pve2:1:2:3:qmigrate:105:root@pam:' })
+        'GET /api/hosts': () => jsonResponse(200, [hypervisor, web01]),
+        'POST /api/kvm/vm': () => jsonResponse(200, { status: 'ready', vm: machine, hostKey: null }),
+        'POST /api/vnc/consoles': (_url, init) => {
+          consoleBody = JSON.parse(String(init.body))
+          return jsonResponse(200, consoleReady('v1'))
         },
-        'POST /api/proxmox/task': () => ready({ task: { running: false, exitStatus: 'migration aborted' } }),
       })
 
-      const dialog = await openTask(user, /^Migrate/)
-      const target = await within(dialog).findByLabelText('Move to')
-      expect(within(target).getAllByRole('option').map((o) => o.textContent)).toEqual(['pve1', 'pve3 (offline)'])
-      expect(within(target).getByRole('option', { name: 'pve3 (offline)' })).toBeDisabled()
-      expect(within(dialog).getByRole('checkbox', { name: /live migration/ })).toBeChecked()
-      await user.click(within(dialog).getByRole('button', { name: 'Migrate' }))
+      fireEvent.contextMenu(await screen.findByRole('button', { name: /web01/ }))
+      await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
+      expect(screen.queryByRole('menuitem', { name: /Proxmox console/ })).not.toBeInTheDocument()
+      await user.hover(screen.getByRole('menuitem', { name: /^KVM console.*kvm01/ }))
+      await user.click(screen.getByRole('menuitem', { name: /^virt/ }))
 
-      expect(await within(dialog).findByText(/migration aborted/, {}, { timeout: 5000 })).toBeInTheDocument()
-      expect(body).toEqual({ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: 105, target: 'pve1', online: true, withLocalDisks: false })
+      await waitFor(() => expect(vnc.FakeRfb.instances).toHaveLength(1))
+      expect(consoleBody).toEqual({ hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', vm: '9f0c6b5e-1111-4a2b-9c3d-000000000001' })
+      expect(screen.getByRole('tab', { name: /web01.*KVM console · kvm01 · virt/, selected: true })).toBeInTheDocument()
+    })
+
+    it('explains a VM that isn’t running instead of opening its console', async () => {
+      const { user } = renderWorkspace({
+        'GET /api/hosts': () => jsonResponse(200, [hypervisor, web01]),
+        'POST /api/kvm/vm': () => jsonResponse(200, { status: 'ready', vm: { ...machine, state: 'shut off' }, hostKey: null }),
+      })
+
+      fireEvent.contextMenu(await screen.findByRole('button', { name: /web01/ }))
+      await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
+      await user.hover(screen.getByRole('menuitem', { name: /^KVM console/ }))
+      await user.click(screen.getByRole('menuitem', { name: /^virt/ }))
+
+      expect(await screen.findByText(/“web01” is not running \(shut off\)/)).toBeInTheDocument()
+      expect(vnc.FakeRfb.instances).toHaveLength(0)
+    })
+
+    it('shuts it down from Tasks ▸ KVM, trusting the host key first, and waits until it’s off', async () => {
+      let lookups = 0
+      const powered: unknown[] = []
+      const { user } = renderWorkspace({
+        'GET /api/hosts': () => jsonResponse(200, [hypervisor, web01]),
+        'POST /api/kvm/vm': () => {
+          lookups++
+          return lookups === 1
+            ? jsonResponse(200, { status: 'trustRequired', vm: null, hostKey: { algorithm: 'ssh-ed25519', fingerprint: 'abc123' } })
+            : jsonResponse(200, { status: 'ready', vm: lookups === 2 ? machine : { ...machine, state: 'shut off' }, hostKey: null })
+        },
+        'POST /api/kvm/power': (_url, init) => {
+          powered.push(JSON.parse(String(init.body)))
+          return jsonResponse(200, { status: 'ready', vm: machine, hostKey: null })
+        },
+      })
+
+      fireEvent.contextMenu(await screen.findByRole('button', { name: /web01/ }))
+      await user.hover(screen.getByRole('menuitem', { name: 'Tasks' }))
+      await user.hover(screen.getByRole('menuitem', { name: /^KVM.*kvm01/ }))
+      // libvirt VMs can be migrated too (MigrateDialog, tested in Migrate.test.tsx).
+      expect(screen.getByRole('menuitem', { name: /Migrate/ })).toBeInTheDocument()
+      await user.hover(screen.getByRole('menuitem', { name: /^Shut down/ }))
+      await user.click(screen.getByRole('menuitem', { name: /^virt/ }))
+
+      const dialog = await screen.findByRole('dialog')
+      expect(await within(dialog).findByText('ssh-ed25519 SHA256:abc123')).toBeInTheDocument()
+      await user.click(within(dialog).getByRole('button', { name: 'Trust and continue' }))
+      expect(await within(dialog).findByText(/is a VM on kvm01, currently/)).toBeInTheDocument()
+      await user.click(within(dialog).getByRole('button', { name: 'Shut down' }))
+
+      expect(await within(dialog).findByText('“web01” was shut down.', {}, { timeout: 5000 })).toBeInTheDocument()
+      expect(powered).toEqual([
+        { hostId: 'h-kvm', serviceIndex: 0, credentialId: 'c1', trustFingerprint: 'abc123', vm: '9f0c6b5e-1111-4a2b-9c3d-000000000001', action: 'shutdown' },
+      ])
+    })
+  })
+
+  describe('Type clipboard', () => {
+    afterEach(() => vi.restoreAllMocks())
+
+    async function openVncConsole(user: ReturnType<typeof userEvent.setup>) {
+      await openHost(user)
+      await openConsoleOf(user, 'legacy')
+      await waitFor(() => expect(vnc.FakeRfb.instances).toHaveLength(1))
+      act(() => vnc.FakeRfb.instances[0].emit('connect'))
+      return vnc.FakeRfb.instances[0]
+    }
+
+    it('types the clipboard’s text into a VNC console, key by key', async () => {
+      const { user } = renderWorkspace({
+        'POST /api/kvm/vms': () => jsonResponse(200, { status: 'ready', vms, hostKey: null }),
+        'POST /api/vnc/consoles': () => jsonResponse(200, consoleReady('v1')),
+      })
+      const rfb = await openVncConsole(user)
+      vi.spyOn(navigator.clipboard, 'readText').mockResolvedValue('Hi!\r\n')
+
+      await user.click(await screen.findByRole('button', { name: 'Type clipboard' }))
+
+      await waitFor(() => expect(rfb.sendKey).toHaveBeenCalledTimes(8))
+      expect(rfb.sendKey.mock.calls).toEqual([
+        [0x48, null, true],
+        [0x48, null, false],
+        [0x69, null, true],
+        [0x69, null, false],
+        [0x21, null, true],
+        [0x21, null, false],
+        [0xff0d, null, true],
+        [0xff0d, null, false],
+      ])
+    })
+
+    it('asks for the text when the browser won’t share the clipboard', async () => {
+      const { user } = renderWorkspace({
+        'POST /api/kvm/vms': () => jsonResponse(200, { status: 'ready', vms, hostKey: null }),
+        'POST /api/vnc/consoles': () => jsonResponse(200, consoleReady('v1')),
+      })
+      const rfb = await openVncConsole(user)
+      vi.spyOn(navigator.clipboard, 'readText').mockRejectedValue(new DOMException('Denied', 'NotAllowedError'))
+
+      await user.click(await screen.findByRole('button', { name: 'Type clipboard' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Type text' })
+      await user.type(within(dialog).getByLabelText('Text to type'), 'ok')
+      await user.click(within(dialog).getByRole('button', { name: 'Type' }))
+
+      await waitFor(() => expect(rfb.sendKey).toHaveBeenCalledTimes(4))
+      expect(rfb.sendKey.mock.calls.filter(([, , down]) => down).map(([keysym]) => keysym)).toEqual([0x6f, 0x6b])
     })
   })
 

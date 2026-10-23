@@ -111,6 +111,22 @@ internal static partial class ProxmoxHost
             return $"{AsRoot}exec $p sh -c '{VncProxy}{vm.Id}'";
         }
 
+        return await NodeSshCommandAsync(client, node, $"{VncProxy}{vm.Id}", "where this VM runs", cancellationToken);
+    }
+
+    /// <summary>
+    /// The command that runs <paramref name="remote"/> (a fixed command of ours, in single quotes) on
+    /// another node of the cluster, over SSH as root from this node with the cluster's own host keys,
+    /// as Proxmox does.
+    /// </summary>
+    /// <param name="why">Why the node is needed, for errors, e.g. "where this VM runs".</param>
+    public static async Task<string> NodeSshCommandAsync(SshClient client, string node, string remote, string why, CancellationToken cancellationToken)
+    {
+        if (!NodeName().IsMatch(node))
+        {
+            throw new SessionException(SessionErrorCodes.ConnectionFailed, $"“{node}” isn't a Proxmox node name.");
+        }
+
         var output = await KvmHost.RunAsync(client, AsRoot + "$p pvesh get /cluster/status --output-format json", cancellationToken, proxmox: true);
         List<ClusterMember>? members;
         try
@@ -125,18 +141,18 @@ internal static partial class ProxmoxHost
         var member = members?.FirstOrDefault(m => m.Type == "node" && string.Equals(m.Name, node, StringComparison.OrdinalIgnoreCase));
         if (member?.Ip is not { } ip || !IPAddress.TryParse(ip, out var address))
         {
-            throw new SessionException(SessionErrorCodes.ConnectionFailed, $"Couldn't find the address of node “{node}”, where this VM runs. Add that node to NKeeper and open the console from it.");
+            throw new SessionException(SessionErrorCodes.ConnectionFailed, $"Couldn't find the address of node “{node}”, {why}. Add that node to NKeeper and use it directly.");
         }
 
         if (member.Online is 0)
         {
-            throw new SessionException(SessionErrorCodes.ConnectionFailed, $"Node “{node}”, where this VM runs, is offline.");
+            throw new SessionException(SessionErrorCodes.ConnectionFailed, $"Node “{node}”, {why}, is offline.");
         }
 
         // Newer Proxmox versions keep each node's host keys in its own file; older ones in the cluster-wide known_hosts.
         return AsRoot
             + $"k=/etc/pve/nodes/{node}/ssh_known_hosts; o=''; [ -f \"$k\" ] && o=\"-o UserKnownHostsFile=$k -o GlobalKnownHostsFile=none\"; "
-            + $"exec $p ssh -e none -T -o BatchMode=yes -o HostKeyAlias={node} $o root@{address} '{VncProxy}{vm.Id}'";
+            + $"exec $p ssh -e none -T -o BatchMode=yes -o HostKeyAlias={node} $o -o ConnectTimeout=10 root@{address} '{remote}'";
     }
 
     /// <summary>Why Proxmox refused, with what NKeeper needs.</summary>

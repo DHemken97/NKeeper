@@ -20,6 +20,8 @@ export class SpiceMainConn {
   /** Asks the guest agent (spice-vdagent) to resize the display. */
   resize_window(flags: number, width: number, height: number, depth: number, x: number, y: number): void
   state: string
+  /** The inputs channel (keyboard and mouse), once connected. */
+  inputs?: { state: string; send_msg(message: unknown): void }
 }
 
 export function sendCtrlAltDel(connection: SpiceMainConn): void

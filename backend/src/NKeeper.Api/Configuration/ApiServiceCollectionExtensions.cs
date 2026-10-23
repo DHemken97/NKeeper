@@ -79,6 +79,7 @@ internal static class ApiServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddSingleton<NKeeper.Api.Auditing.AuditLog>();
+        services.AddSingleton<NKeeper.Api.Migration.MigrationJobs>();
         services.AddHostedService<NKeeper.Api.Auditing.AuditRetention>();
         services.AddOptions<NKeeper.Api.Health.HealthSettings>()
             .Bind(configuration.GetSection(NKeeper.Api.Health.HealthSettings.SectionName))
@@ -89,6 +90,8 @@ internal static class ApiServiceCollectionExtensions
         services.AddHostedService<NKeeper.Api.Health.HealthMonitor>();
         services.AddOptions<WebProxySettings>()
             .Bind(configuration.GetSection(WebProxySettings.SectionName))
+            // Installers write the setting even when it's blank: blank means the default (web.<host>).
+            .PostConfigure(web => web.BaseDomain = string.IsNullOrWhiteSpace(web.BaseDomain) ? null : web.BaseDomain.Trim().TrimEnd('.').ToLowerInvariant())
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddHttpForwarder();

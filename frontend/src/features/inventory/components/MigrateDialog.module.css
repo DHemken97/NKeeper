@@ -1,0 +1,107 @@
+.options {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.options legend {
+  padding: 0 var(--space-1);
+  font-weight: 600;
+}
+
+.plan {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.disks {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.disks th,
+.disks td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.disks th {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.notes {
+  margin: 0;
+  padding-left: var(--space-5, 1.25rem);
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.steps {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.steps li {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.icon {
+  width: 1.25rem;
+  flex-shrink: 0;
+  text-align: center;
+  font-weight: 700;
+}
+
+.pending {
+  color: var(--color-text-muted);
+}
+
+.running .icon {
+  color: #f5b84b;
+}
+
+.done .icon {
+  color: #22a35a;
+}
+
+.warning .icon,
+.undoing .icon,
+.undone .icon {
+  color: #d58a16;
+}
+
+.failed .icon,
+.undoFailed .icon {
+  color: #e5484d;
+}
+
+.path {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.8125rem;
+}
+
+.review {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: 1.5rem;
+  font-size: 0.875rem;
+}
+
+.review li::marker {
+  font-weight: 600;
+}

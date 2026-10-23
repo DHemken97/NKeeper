@@ -17,7 +17,7 @@ using Renci.SshNet.Common;
 namespace NKeeper.Api.Controllers;
 
 /// <summary>A KVM host request: which host/service/credential, and optionally a VM and a host key to trust.</summary>
-public sealed record KvmRequest : SessionStartMessage
+public record KvmRequest : SessionStartMessage
 {
     /// <summary>The SSH host key fingerprint the user chose to trust after a "trustRequired" answer.</summary>
     [StringLength(128)]
@@ -28,7 +28,21 @@ public sealed record KvmRequest : SessionStartMessage
     public string? Vm { get; init; }
 }
 
+/// <summary>A power action on a libvirt VM.</summary>
+public sealed record KvmPowerRequest : KvmRequest
+{
+    /// <summary>One of <see cref="KvmActions"/>.</summary>
+    [Required(ErrorMessage = "Choose an action.")]
+    [AllowedValues(
+        KvmActions.Start, KvmActions.Shutdown, KvmActions.Reboot, KvmActions.Pause, KvmActions.Hibernate,
+        KvmActions.Resume, KvmActions.Stop, KvmActions.Reset, ErrorMessage = "Choose an action.")]
+    public string Action { get; init; } = string.Empty;
+}
+
 public sealed record HostKeyPromptResponse(string Algorithm, string Fingerprint);
+
+/// <summary>One VM as libvirt reports it (after a power action: its state then), or the SSH host key to trust first.</summary>
+public sealed record VirtualMachineResponse(string Status, VirtualMachine? Vm, HostKeyPromptResponse? HostKey);
 
 public sealed record VirtualMachinesResponse(string Status, IReadOnlyList<VirtualMachine>? Vms, HostKeyPromptResponse? HostKey);
 
@@ -50,6 +64,66 @@ public sealed record ConsoleSessionResponse(string Status, string? SessionId, st
 public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSettings> cors, TimeProvider timeProvider, ILogger<KvmController> logger) : ControllerBase
 {
     private const int DefaultSshPort = 22;
+
+    /// <summary>One libvirt VM: its state and console type (to open its console, or follow a power action).</summary>
+    [HttpPost("api/kvm/vm")]
+    [ProducesResponseType<VirtualMachineResponse>(StatusCodes.Status200OK)]
+    public Task<ActionResult<VirtualMachineResponse>> VirtualMachine(KvmRequest request, CancellationToken cancellationToken) =>
+        WithVirtualMachineAsync(request, (_, machine) => Task.FromResult(machine), cancellationToken);
+
+    /// <summary>
+    /// Starts, shuts down, reboots, pauses, hibernates, resumes, stops or resets a libvirt VM; answers
+    /// with its state after. One already as the action would leave it (e.g. started while running) is left as it is.
+    /// </summary>
+    [HttpPost("api/kvm/power")]
+    [ProducesResponseType<VirtualMachineResponse>(StatusCodes.Status200OK)]
+    public Task<ActionResult<VirtualMachineResponse>> Power(KvmPowerRequest request, CancellationToken cancellationToken) =>
+        WithVirtualMachineAsync(request, async (client, machine) =>
+        {
+            if (KvmActions.Already(request.Action, machine.State))
+            {
+                return machine;
+            }
+
+            await KvmHost.PowerAsync(client, Guid.Parse(machine.Id), request.Action, cancellationToken);
+            await HttpContext.RequestServices.GetRequiredService<Auditing.AuditLog>()
+                .RecordAsync(new Auditing.AuditEntry("kvm.power", request.HostId, $"{request.Action} · VM {machine.Name}"));
+            var after = (await KvmHost.ListAsync(client, cancellationToken)).Vms.FirstOrDefault(v => v.Id == machine.Id);
+            return after ?? machine;
+        }, cancellationToken);
+
+    /// <summary>Connects, finds the libvirt VM the request names, and runs <paramref name="action"/> on it.</summary>
+    private async Task<ActionResult<VirtualMachineResponse>> WithVirtualMachineAsync(
+        KvmRequest request, Func<SshClient, VirtualMachine, Task<VirtualMachine>> action, CancellationToken cancellationToken)
+    {
+        if (request.Vm is not { Length: > 0 } vm)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, detail: "Choose a virtual machine.");
+        }
+
+        try
+        {
+            using var client = await ConnectAsync(request, cancellationToken);
+            var listing = await KvmHost.ListAsync(client, cancellationToken);
+            if (listing.ProxmoxNode is not null)
+            {
+                throw new SessionException(
+                    SessionErrorCodes.BadRequest, "This host is a Proxmox node: add a Proxmox service to it, and use Tasks ▸ Proxmox on its VMs.");
+            }
+
+            var machine = listing.Vms.FirstOrDefault(v => string.Equals(v.Id, vm, StringComparison.OrdinalIgnoreCase))
+                ?? throw new SessionException(SessionErrorCodes.HostNotFound, "This virtual machine isn't on this host (any more). Scan the hypervisors to update where it runs.");
+            return new VirtualMachineResponse("ready", await action(client, machine), null);
+        }
+        catch (HostKeyTrustRequiredException trust)
+        {
+            return new VirtualMachineResponse("trustRequired", null, new HostKeyPromptResponse(trust.Algorithm, trust.Fingerprint));
+        }
+        catch (SessionException ex)
+        {
+            return Failure(ex);
+        }
+    }
 
     [HttpPost("api/kvm/vms")]
     [ProducesResponseType<VirtualMachinesResponse>(StatusCodes.Status200OK)]

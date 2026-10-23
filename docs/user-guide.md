@@ -8,6 +8,7 @@
 - [SSH](#ssh)
 - [Telnet](#telnet)
 - [Files (SFTP)](#files-sftp)
+- [Storage (iSCSI, multipath, DRBD)](#storage-iscsi-multipath-drbd)
 - [Jump hosts](#jump-hosts)
 - [RDP](#rdp)
 - [VNC](#vnc)
@@ -15,6 +16,7 @@
 - [Windows RPC](#windows-rpc)
 - [KVM and Proxmox virtual machines (SPICE and VNC consoles)](#kvm-and-proxmox-virtual-machines-spice-and-vnc-consoles)
 - [Proxmox consoles (through the Proxmox API)](#proxmox-consoles-through-the-proxmox-api)
+- [Migrating VMs with their storage](#migrating-vms-with-their-storage)
 - [Dell iDRAC (virtual console, status and power, RACADM)](#dell-idrac-virtual-console-status-and-power-racadm)
 - [Trusting servers](#trusting-servers)
 - [Health and Wake-on-LAN](#health-and-wake-on-lan)
@@ -184,6 +186,16 @@ Any host with an SSH service has **Connect ▸ Files ▸ credential** (or **File
 - **Logins and trust** are the same as SSH: the same credentials, host key check and trusted keys. The SSH server must have its SFTP subsystem enabled (OpenSSH does by default).
 - **Audit:** every upload, download, rename, delete and new folder is in the audit log, with its path and size.
 
+## Storage (iSCSI, multipath, DRBD)
+
+Any Linux host with an SSH service has **Connect ▸ Storage ▸ credential** (or **Storage ▸ SSH service ▸ credential** when it has several). NKeeper runs the host's own tools over SSH and shows what it finds in a tab, one section for each tool that's installed:
+- **iSCSI** (`iscsiadm`, from open-iscsi or iscsi-initiator-utils): the initiator's name, and every target it knows with its portal, session state and attached disks. **Discover** asks a portal (e.g. `10.0.0.5` or `10.0.0.5:3260`) for its targets (SendTargets). **Log in** and **Log out** each target, and **Rescan sessions** to see new LUNs. A SAN that redirects logins to its data addresses (Nimble, Dell EqualLogic…) is shown under the portal you logged in through, e.g. its discovery address, with the address it *connected via* beneath.
+- **Multipath** (`multipath`, from multipath-tools or device-mapper-multipath): each map with its WWID, device, vendor and size, and every path's device-mapper, checker and kernel state. A map is green when all its paths are ready. **Reload maps** after changing the configuration, and **Flush** a map that's no longer used.
+- **DRBD** (`drbdadm` and `drbdsetup`): every configured resource, including those that are down, with this node's role, its disks' states and each peer's connection, role, replication and sync progress. Bring a resource **Up** or **Down**, make it **Primary** or **Secondary**, **Connect** or **Disconnect** its peers, or **Adjust** it to its configuration.
+- **Asks first:** logging out, flushing, taking a resource down, changing its role and disconnecting it say what will happen and wait for you to confirm. The tools still refuse what would break something in use (a mounted map or a primary in use), and the tab shows their answer.
+- **Root:** the tools need root. Sign in as root, or as a user who may use `sudo` without a password.
+- **Logins and trust** are the same as SSH. Each change is recorded in the audit log (category *Storage*), with what it acted on.
+
 ## Jump hosts
 
 A **jump host** (or bastion) is an SSH server that NKeeper signs in to first, then tunnels a host's connections through. Use it for sites, VLANs and customer networks that the NKeeper server can't reach directly.
@@ -242,7 +254,9 @@ An **RPC** service (port 135, the endpoint mapper) is mainly for [scanning Windo
 Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH credential. The same service works for libvirt hosts and Proxmox VE nodes: NKeeper finds out which one it is. Then **Connect ▸ KVM ▸ credential**:
 
 - **The VM list:** like virt-manager, NKeeper connects over SSH, asks libvirt (`qemu:///system`) for the virtual machines, and lists each one's name, state and console type. **Refresh** updates the list.
-- **The console:** **Open console** on a running VM with a SPICE or VNC display opens it in its own tab, with **Ctrl+Alt+Del** and **Fullscreen**.
+- **The console:** **Open console** on a running VM with a SPICE or VNC display opens it in its own tab, with **Ctrl+Alt+Del**, **Type clipboard** and **Fullscreen**.
+- **Type clipboard:** VM consoles share no clipboard, so this types the clipboard's text into the VM, key by key (up to 10,000 characters; **Stop typing** stops it). If the browser won't let NKeeper read the clipboard, it asks you to paste the text instead. VNC consoles type any character the VM's keyboard layout has. SPICE consoles press the keys of a US keyboard, so other characters are skipped (and you're told how many), and a VM with another layout gets that layout's characters for those keys.
+- **From the VM itself:** a VM host that a scan linked to its libvirt host (see *Which VMs run where*) has **Connect ▸ KVM console ▸ login**, which opens its SPICE or VNC console in the VM's own tab. It also has **Tasks ▸ KVM ▸ action ▸ login**: Shut down, Reboot, Pause, Hibernate (a managed save: memory to disk, then off), Stop, Reset, Resume and Start, each confirmed first. A shutdown waits until the VM is off. The logins are the libvirt host's, for its KVM service, which it needs. **Migrate…** moves it to another KVM host with its storage (see [Migrating VMs with their storage](#migrating-vms-with-their-storage)). Actions are recorded in the audit log.
 - **Network path:** the console is tunnelled through NKeeper's SSH connection to the hypervisor, so the VM's console port can stay on the hypervisor's loopback.
 - **Passwords:** the VM's console password, if set, is read from libvirt and used automatically. libvirt reveals it only to accounts with full (read-write) access to `qemu:///system`.
 - **Resolution:** a SPICE display is shown at the VM's resolution, and scrolls if it's bigger than the tab. With the SPICE guest agent (`spice-vdagent`) installed in the VM, the resolution follows the tab's size. A VNC display is scaled to fit the tab.
@@ -263,19 +277,63 @@ Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH cre
 Add a **Proxmox** service (HTTPS, port 8006 by default) to a Proxmox VE node, with a Proxmox login. Scans add one for an open port 8006.
 
 - **The node itself:** **Connect ▸ Proxmox** opens the node's web interface, through NKeeper or directly in a new browser tab, like any HTTPS service.
-- **A VM or container:** a host that a scan linked to its Proxmox node (see *Which VMs run where*) has **Connect ▸ Proxmox console ▸ login**. The logins are the node's, for its Proxmox service. The console opens in the VM's own tab, with **Ctrl+Alt+Del** and **Fullscreen**.
+- **A VM or container:** a host that a scan linked to its Proxmox node (see *Which VMs run where*) has **Connect ▸ Proxmox console ▸ login**. The logins are the node's, for its Proxmox service. The console opens in the VM's own tab, with **Ctrl+Alt+Del**, **Type clipboard** and **Fullscreen**.
 - **How it connects:** the way Proxmox's own console does. NKeeper's server signs in to the node's API, asks it for a VNC proxy (`vncproxy`), and relays the proxy's WebSocket to the tab. Any node of the cluster serves every VM, so it doesn't matter which node a VM moved to. Containers get their terminal console the same way.
 - **Logins:** a Proxmox user, e.g. `root`, `root@pam` or `admin@pve`. Without a realm, the credential's **domain** is used as the realm, else `pam`. An **API token** works too: `user@realm!tokenid` as the username and the token's secret as the password. Accounts with two-factor sign-in can't be used; give NKeeper an API token instead.
 - **Tasks ▸ Proxmox ▸ action ▸ login** runs a power action or migration on the VM or container:
-  - **Migrate…** moves it to another node you choose. A running VM can move live; a running container is restarted on the new node. Disks on the node's local storage can be copied along.
+  - **Migrate…** moves it to another node you choose, with its storage (see [Migrating VMs with their storage](#migrating-vms-with-their-storage)). A running VM can move live; a running container is restarted on the new node. Disks on the node's local storage can be copied along.
   - **Shut down** and **Reboot** ask its operating system (a VM needs ACPI or the guest agent). **Pause** freezes it in memory. **Hibernate** saves its memory to disk and stops it. **Stop** and **Reset** act at once, like the power and reset buttons, and lose anything unsaved.
   - **Resume** continues a paused one; **Start** starts a stopped or hibernated one.
   - The dialog shows its current state and asks first, then follows Proxmox's task until it ends. Closing the dialog doesn't stop the task. Containers can't hibernate or reset.
+  - Starting one that's already running, or shutting down or stopping one that's already off, isn't a failure: it's already as wanted, and the dialog says so (*was already running*, *was already off*). The same goes for KVM VMs.
   - Each action is recorded in the audit log. Users with *Use* access to the VM get these too: what the Proxmox login may do is up to Proxmox.
 - **Permissions:** the account needs **VM.Console** on the VM to open its console, **VM.PowerMgmt** for power actions, and **VM.Migrate** to migrate (and to see it). It doesn't need root, SSH or sudo.
 - **Certificate:** the node's certificate is trusted on first use, like any HTTPS service (it's shared with the node's web sessions).
 - **Reconnecting:** each console is good for one connection. **Reconnect** opens a new one.
 - **The node** must be an NKeeper host you can see, with a Proxmox service. Otherwise there's no Proxmox console or Proxmox task entry.
+
+## Migrating VMs with their storage
+
+**Tasks ▸ Proxmox ▸ Migrate…** or **Tasks ▸ KVM ▸ Migrate…** moves a VM to another host and takes its storage along: whatever has to happen on each host for the VM's disks to be there, NKeeper does, in order, and puts back if something fails.
+
+1. **Choose** where it goes. A KVM VM moves to another NKeeper host with a KVM service and a saved login. A Proxmox VM moves to another node of its cluster. For storage, NKeeper also needs SSH to the two nodes: it uses the NKeeper hosts named like the nodes (by name or host name) that have an SSH or KVM service and a saved login. Without them, Proxmox moves the VM on its own, as before, and NKeeper doesn't check the storage.
+2. **Detect storage.** NKeeper logs in to both hosts and shows:
+   - **what each disk is**, in words, traced down from its image file or device through the file system, LVM, DRBD, multipath and iSCSI: e.g. *an image file on the host's own disk*, *an image file on network storage (nfs4 at /mnt/nas)*, *an image file on a file system (ext4 at /srv/vms) on DRBD resource r0*, or *DRBD resource r1, used directly as the disk*. When nothing has to be handed over, it says so;
+   - **only the options that apply** (see *Options*): no iSCSI choice without iSCSI, no DRBD choice without DRBD, no live choice for a VM that isn't running (or a reason instead, when it can't move live);
+   - **what blocks the move**, e.g. a DRBD resource that isn't configured on the new host or isn't UpToDate there, tools that aren't installed there, a disk on the old host's own storage, a VM already defined on the new host;
+   - **SSH between the hosts**, tested first wherever the move needs it: Proxmox moves VMs over its nodes' own SSH, and a live libvirt move runs `virsh migrate` over SSH from the old host to the new one (and back, to roll back). A failed test blocks the migration, or turns a live move into an offline one, and says why;
+   - Changing an option checks again. **Change** goes back to choosing where it goes.
+3. **Review steps.** Before anything happens, NKeeper lists every step it will take, in order, each naming exactly what and where: e.g. *Unmount /srv/vms (ext4 on /dev/drbd0) on kvm01*, *Log in to iSCSI target iqn… at 10.0.0.5:3260 on kvm02*, *Copy web's libvirt definition from kvm01 to kvm02 (virsh dumpxml, then virsh define), then remove it from kvm01 (virsh undefine)*. It marks the optional tidying-up steps, says from which step until which the VM is off, and what happens if a step fails. Only then can you start it. When you do, NKeeper plans again; if the steps would now be different (something changed on the hosts), it doesn't start, and asks you to review again.
+4. **Migrate.** The migration runs on the NKeeper server, step by step, and goes on if you close the dialog. **If a critical step fails, every step already done is undone, newest first**: the storage goes back to the old host and the VM is started there again if it was running. If putting it back fails too, NKeeper says what's left to fix by hand. Afterwards, the VM's host in NKeeper is updated to the new one (if you may change it).
+
+**What it does with the storage:**
+- **iSCSI:** when it detects the storage, NKeeper asks each portal from the new host which targets it offers (`iscsiadm -m discovery -t sendtargets -o nonpersistent`: no login, no node records saved). A target the portal doesn't offer to the new host (e.g. the SAN's access list doesn't include its initiator), or a portal it can't reach, blocks the migration before anything stops. During the migration it logs the new host in to each target the VM's disks are on, discovering it at the portal first if the new host doesn't know it. Then it waits for the multipath maps (found by WWID, so their names may differ).
+- **DRBD:** brings the resource up on the new host if it's down, and waits until it's connected and UpToDate there. A DRBD device is recognised by its device number (DRBD's major, 147), and its resource by its configured devices (`drbdadm sh-dev`), so DRBD 8.4, whose status lists no minors, works too.
+- **A file system on shared storage** (e.g. ext4 or XFS on DRBD, or on an iSCSI LUN) can be mounted on only one host at a time, so **the VM is shut down**. On the old host the file system is unmounted, its LVM volume deactivated and the DRBD resource made Secondary. On the new host the resource is made Primary, the volume activated and the file system mounted at the same place. Then the VM moves and starts. Anything else on the old host using that file system must stop first, or unmounting fails and the migration is put back. A file system that **autofs** mounts (e.g. `/vmimages/<vm>` from an autofs map) is recognised under autofs's trigger; on the new host autofs mounts it once the resource is Primary there.
+- **A shared block device used directly** (a DRBD device, LVM volume or multipath device per disk) can move **live**. For DRBD, the resource may be Primary on both hosts only for the move (`allow-two-primaries`, which needs protocol C), then it's Secondary on the old host again.
+- **An image file on the old host's own disk** (e.g. `/var/lib/libvirt/images/vm.qcow2`, KVM) is **copied** to the same path on the new host. Only a file on the old host's own disks is copied: one on a file system on DRBD or iSCSI moves with that storage (above), never as a copy. NKeeper traces each disk with `lsblk`; when that can't follow it (e.g. ZFS), it goes by what the storage tools list instead: a multipath map (taken to be iSCSI), a DRBD device, or a disk an iSCSI session attached is shared storage, and anything else is the host's own. The disk's description says when it went by that. NKeeper first reads its format and size (`qemu-img info`), and refuses if it's an overlay of a backing file, if the file already exists on the new host (it never overwrites), or if there isn't room there.
+  - **Offline**, after the VM is shut down: straight from the old host to the new one over their SSH (`rsync`, or `dd` over `ssh`) when they reach each other; otherwise NKeeper relays it over its own two SSH connections, in 64 MiB pieces (slower, but needs nothing between the hosts). Then it checks the copy's size.
+  - **Live**, when the hosts reach each other over SSH and the new host has `qemu-img`: an empty image of the same format and size is created there, and `virsh migrate --live --copy-storage-all` copies the disk while the VM runs.
+  - If the migration is put back, the copy on the new host is deleted. The old copy stays unless you choose to delete it.
+- **Cluster and network storage** (GFS2, OCFS2, NFS, Ceph…) is reached by every host. NKeeper only makes sure a cluster file system is mounted on the new host.
+- **Proxmox storage:** Proxmox activates its own iSCSI, shared LVM, Ceph, NFS and DRBD (LINSTOR) storage on the new node. NKeeper still makes sure the new node is logged in to the iSCSI targets. Proxmox copies the disks on storage that isn't marked shared and leaves the rest where they are, so NKeeper traces directory, LVM and LVM-thin storage and blocks the migration when Proxmox would get it wrong:
+  - a **directory storage** on a file system NKeeper moves (e.g. on DRBD), or an **LVM storage** on DRBD or iSCSI, must be marked **shared**, so Proxmox doesn't copy its disks. **LVM-thin** on DRBD or iSCSI can't be shared, so its disks must move to other storage first;
+  - **shared LVM on DRBD** needs the resource Primary on the new node too (dual-primary, `allow-two-primaries`), since Proxmox activates the disk there while the old node goes on using the volume group;
+  - a storage **marked shared that is on the old node's own disk** would leave the VM without its disk on the new node.
+- **Shared disks by kernel name:** a VM that uses a disk on iSCSI or multipath as `/dev/sdb`, `/dev/dm-3` or `/dev/mapper/mpatha` can't move: the same name may be another disk on the new host. Use a `/dev/disk/by-id/…` name.
+- A **stopped VM's LVM volume** (not active, so without a device) is traced through its volume group's physical volumes.
+
+**Options** (each shown only when it applies):
+- **Live:** move a running VM while it runs, when its storage and the hosts allow; otherwise it's shut down for the move, and the check says why.
+- **Start it on the new host** after an offline move, if it was running.
+- **iSCSI on the old host afterwards:** stay logged in, or log out of the targets this VM used. NKeeper only logs out of targets nothing else on the old host uses (another volume, a mount, an open device), and removes their multipath maps first. The default is to log out on KVM hosts (often one host per volume) and to stay logged in on Proxmox nodes (usually all logged in to all; Proxmox logs its nodes in to its own iSCSI storage again anyway).
+- **DRBD on the old host afterwards:** stay Secondary (it keeps replicating), or take the resource down.
+- **Copy local disks:** KVM copies image files on the old host's own disk (see above), on unless you turn it off; Proxmox copies disks on the node's local storage itself, when you turn it on.
+- **Delete the old copies afterwards** (KVM, when copying): an optional tidying-up step once the VM runs on the new host. Off by default.
+
+Tidying up the old host (logging out, taking DRBD down, deleting old copies) never puts the migration back: if it fails, the migration is done with a warning, and the step says why.
+
+**What the hosts need:** root, or sudo without a password, on both, and the tools for their storage (`iscsiadm`, `multipath`, `drbdadm`, `lvm`). libvirt moves a VM offline by defining it on the new host (`virsh dumpxml` / `define`) and removing it from the old one, so the hosts don't need SSH between them for that. The migration's start and end are in the audit log.
 
 ## Dell iDRAC (virtual console, status and power, RACADM)
 

@@ -22,10 +22,11 @@ internal sealed record VncProxyTicket(string Port, string Ticket);
 public sealed record ProxmoxNode(string Name, bool Online);
 
 /// <summary>A Proxmox task (e.g. a shutdown or a migration): still running, or its exit status ("OK", or what went wrong).</summary>
-public sealed record ProxmoxTaskStatus(bool Running, string? ExitStatus);
+/// <param name="Already">Set when the task "failed" only because the guest already was as it would leave it (e.g. "was already running"); <see cref="ExitStatus"/> is then "OK".</param>
+public sealed record ProxmoxTaskStatus(bool Running, string? ExitStatus, string? Already = null);
 
 /// <summary>The power actions NKeeper offers, and the guest status call each one is.</summary>
-public static class ProxmoxActions
+public static partial class ProxmoxActions
 {
     public const string Start = "start";
     public const string Shutdown = "shutdown";
@@ -46,6 +47,38 @@ public static class ProxmoxActions
         (Reset, "qemu") => ("reset", []),
         _ => null,
     };
+
+    /// <summary>
+    /// What to say when a guest with this status already is as the action would leave it (started:
+    /// running; shut down or stopped: off), so there's nothing to do; null otherwise.
+    /// </summary>
+    internal static string? Already(string action, string status) => (action, status) switch
+    {
+        (Start, "running") => "was already running",
+        (Shutdown or Stop, "stopped") => "was already off",
+        _ => null,
+    };
+
+    /// <summary>
+    /// The same, from Proxmox's complaint, e.g. "VM 101 already running" to a start or "CT 300 not
+    /// running" to a shutdown: the state wanted, which Proxmox reports as a failure.
+    /// </summary>
+    internal static string? AlreadyFromMessage(string action, string? message) =>
+        message is not null && AlreadyMessage().Match(message) is { Success: true } match
+            ? Already(action, match.Groups["state"].Value == "already running" ? "running" : "stopped")
+            : null;
+
+    /// <summary>The action a task type is (<c>qmstart</c>, <c>vzshutdown</c>…), if it's start, shutdown or stop.</summary>
+    internal static string? FromTaskType(string type) => (type.StartsWith("qm", StringComparison.Ordinal) || type.StartsWith("vz", StringComparison.Ordinal) ? type[2..] : type) switch
+    {
+        Start => Start,
+        Shutdown => Shutdown,
+        Stop => Stop,
+        _ => null,
+    };
+
+    [GeneratedRegex(@"\b(?:VM|CT) \d+ (?<state>already running|not running)\b")]
+    private static partial Regex AlreadyMessage();
 }
 
 /// <summary>
@@ -198,12 +231,28 @@ internal sealed partial class ProxmoxApi : IDisposable
                 .OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase)];
     }
 
-    /// <summary>Starts a power action (one of <see cref="ProxmoxActions"/>) on the guest; returns its task's ID (UPID).</summary>
-    public async Task<string> StartActionAsync(ProxmoxGuest guest, string action, CancellationToken cancellationToken)
+    /// <summary>
+    /// Starts a power action (one of <see cref="ProxmoxActions"/>) on the guest; returns its task's ID
+    /// (UPID), or no task and what to say when the guest already is as the action would leave it.
+    /// </summary>
+    public async Task<(string? Upid, string? Already)> StartActionAsync(ProxmoxGuest guest, string action, CancellationToken cancellationToken)
     {
         var (call, parameters) = ProxmoxActions.For(action, guest.Type)
             ?? throw new SessionException(SessionErrorCodes.BadRequest, $"Containers can't {(action == ProxmoxActions.Hibernate ? "hibernate" : "be reset")}. Stop or reboot it instead.");
-        return await StartTaskAsync($"{GuestPath(guest)}/status/{call}", parameters, cancellationToken);
+        if (ProxmoxActions.Already(action, guest.Status) is { } already)
+        {
+            return (null, already);
+        }
+
+        try
+        {
+            return (await StartTaskAsync($"{GuestPath(guest)}/status/{call}", parameters, cancellationToken), null);
+        }
+        catch (SessionException ex) when (ProxmoxActions.AlreadyFromMessage(action, ex.Message) is { } said)
+        {
+            // It changed since it was listed. (Proxmox refuses containers at once; VMs in the task, see GetTaskStatusAsync.)
+            return (null, said);
+        }
     }
 
     /// <summary>
@@ -232,8 +281,16 @@ internal sealed partial class ProxmoxApi : IDisposable
         var node = TaskNode(upid) ?? throw new SessionException(SessionErrorCodes.BadRequest, "That isn't a Proxmox task.");
         var data = await SendAsync(
             new HttpRequestMessage(HttpMethod.Get, $"api2/json/nodes/{Uri.EscapeDataString(node)}/tasks/{Uri.EscapeDataString(upid)}/status"), cancellationToken);
-        return new ProxmoxTaskStatus(String(data, "status") != "stopped", String(data, "exitstatus"));
+        var running = String(data, "status") != "stopped";
+        var exit = String(data, "exitstatus");
+        return !running && exit != "OK" && TaskAction(upid) is { } action && ProxmoxActions.AlreadyFromMessage(action, exit) is { } already
+            ? new ProxmoxTaskStatus(false, "OK", already)
+            : new ProxmoxTaskStatus(running, exit);
     }
+
+    /// <summary>The power action a task is (its ID's type, e.g. <c>UPID:pve1:…:qmstart:101:root@pam:</c>), if it's start, shutdown or stop.</summary>
+    internal static string? TaskAction(string upid) =>
+        upid.Split(':') is ["UPID", _, _, _, _, var type, ..] ? ProxmoxActions.FromTaskType(type) : null;
 
     /// <summary>The node in a task ID, e.g. <c>UPID:pve1:0000ABCD:…</c>; null when it isn't one.</summary>
     internal static string? TaskNode(string upid) =>

@@ -27,6 +27,39 @@ public static class ConsoleProtocols
     public static string DisplayName(string protocol) => protocol.ToUpperInvariant();
 }
 
+/// <summary>The power actions NKeeper offers for libvirt VMs, and the virsh command each one is.</summary>
+public static class KvmActions
+{
+    public const string Start = "start";
+    public const string Shutdown = "shutdown";
+    public const string Reboot = "reboot";
+    public const string Pause = "pause";
+    public const string Hibernate = "hibernate";
+    public const string Resume = "resume";
+    public const string Stop = "stop";
+    public const string Reset = "reset";
+
+    /// <summary>
+    /// The virsh command for an action. Hibernating is a managed save (memory to disk, then off);
+    /// starting a VM with one resumes it. Stopping is <c>destroy</c>: off at once, nothing deleted.
+    /// </summary>
+    internal static string Command(string action) => action switch
+    {
+        Start or Shutdown or Reboot or Resume or Reset => action,
+        Pause => "suspend",
+        Hibernate => "managedsave",
+        Stop => "destroy",
+        _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Unknown action."),
+    };
+
+    /// <summary>Whether a VM in this state (virsh's) already is as the action would leave it: started and running, or shut down or stopped and off.</summary>
+    internal static bool Already(string action, string state) => (action, state) switch
+    {
+        (Start, "running") or (Shutdown or Stop, "shut off") => true,
+        _ => false,
+    };
+}
+
 /// <summary>Where a VM's console (SPICE or VNC) listens on the hypervisor, and its password if it has one.</summary>
 public sealed record ConsoleDisplay(string Protocol, string Host, int Port, string? Password);
 
@@ -91,6 +124,11 @@ internal static partial class KvmHost
                 SessionErrorCodes.ConnectionFailed, $"This VM has no {ConsoleProtocols.DisplayName(protocol)} display, or it isn't running.");
     }
 
+    /// <summary>Runs a power action (one of <see cref="KvmActions"/>) on a VM. Saving its memory (hibernate) can take minutes.</summary>
+    public static Task PowerAsync(SshClient client, Guid vm, string action, CancellationToken cancellationToken) =>
+        // The UUID is formatted by us and the command is one of ours, so both are safe in the command line.
+        RunAsync(client, $"{Virsh} {KvmActions.Command(action)} {vm:D}", cancellationToken, timeout: TimeSpan.FromMinutes(10));
+
     /// <summary>
     /// Parses libvirt's display URI, e.g. <c>spice://127.0.0.1:5900</c>,
     /// <c>spice://127.0.0.1:5900/?password=secret</c> or <c>vnc://127.0.0.1:0</c>. For VNC, virsh
@@ -142,10 +180,10 @@ internal static partial class KvmHost
         query.TrimStart('?').Split('&').Select(p => p.Split('=', 2)).FirstOrDefault(p => p[0] == name && p.Length == 2)?[1];
 
     /// <summary>Runs a script and returns its output, or explains why libvirt (or Proxmox) refused.</summary>
-    internal static async Task<string> RunAsync(SshClient client, string script, CancellationToken cancellationToken, bool proxmox = false)
+    internal static async Task<string> RunAsync(SshClient client, string script, CancellationToken cancellationToken, bool proxmox = false, TimeSpan? timeout = null)
     {
         using var command = client.CreateCommand(script);
-        command.CommandTimeout = CommandTimeout;
+        command.CommandTimeout = timeout ?? CommandTimeout;
         try
         {
             await command.ExecuteAsync(cancellationToken);

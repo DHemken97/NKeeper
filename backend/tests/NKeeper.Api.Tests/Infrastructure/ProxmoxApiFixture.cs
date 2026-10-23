@@ -114,7 +114,14 @@ public sealed class ProxmoxApiFixture : IAsyncLifetime
             {
                 data = _polled.TryAdd(upid, true)
                     ? new { status = "running", exitstatus = (string?)null }
-                    : new { status = "stopped", exitstatus = (string?)(upid.Contains("migrate", StringComparison.Ordinal) ? "migration aborted" : "OK") },
+                    : new
+                    {
+                        status = "stopped",
+                        exitstatus = (string?)(upid.Contains("migrate", StringComparison.Ordinal) ? "migration aborted"
+                            // Like Proxmox's own start task (qmstart) for a VM that started meanwhile.
+                            : upid.Contains(":qmstart:", StringComparison.Ordinal) ? $"VM {upid.Split(':')[6]} already running"
+                            : "OK"),
+                    },
             }));
         _app.MapPost("/api2/json/nodes/{node}/{type}/{vmid}/vncproxy", async (HttpRequest request, string node, string type, int vmid) =>
         {

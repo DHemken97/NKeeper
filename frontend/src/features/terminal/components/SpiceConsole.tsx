@@ -6,6 +6,7 @@ import { hostKeyPrompt, kvmRequestBody, type HostKeyPrompt } from '../kvm'
 import type { RemoteSession, SessionPhase } from '../types'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
 import styles from './Session.module.css'
+import { TypeClipboardButton } from './TypeClipboardButton'
 
 interface SpiceConsoleProps {
   session: RemoteSession
@@ -204,6 +205,17 @@ export function SpiceConsole({ session, active, onShowHost }: SpiceConsoleProps)
             <Button variant="ghost" size="sm" onClick={ctrlAltDel}>
               Ctrl+Alt+Del
             </Button>
+            <TypeClipboardButton
+              type={async (text, signal) => {
+                const { typeIntoSpice } = await import('../spiceTyping')
+                if (!connectionRef.current) {
+                  throw new Error('The console is closed.')
+                }
+                return typeIntoSpice(connectionRef.current, text, signal)
+              }}
+              onDone={focusDisplay}
+              usKeyboardOnly
+            />
             <Button variant="ghost" size="sm" onClick={() => void toggleFullscreen()}>
               Fullscreen
             </Button>
