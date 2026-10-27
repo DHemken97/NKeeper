@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using NKeeper.Api.Contracts.Inventory;
 using NKeeper.Api.Tests.Infrastructure;
+using NKeeper.Infrastructure.Inventory;
 
 namespace NKeeper.Api.Tests;
 
@@ -72,6 +73,51 @@ public sealed class BulkUpdateTests(PostgresServerFixture postgres) : IAsyncLife
     }
 
     [Fact]
+    public async Task Services_AreAddedAfterEachHostsOwn_UnlessItHasThemAlready()
+    {
+        var web1 = await CreateAsync("web1");
+        var web2 = await CreateAsync("web2");
+        var ssh = await _client.SendJsonAsync(HttpMethod.Put, $"/api/hosts/{web2.Id}", new
+        {
+            name = "web2",
+            hostname = "web2.example.com",
+            services = new object[] { new { protocol = "Ssh", label = "Shell" }, new { protocol = "Https" } },
+            version = web2.Version,
+        }, Ct);
+        ssh.EnsureSuccessStatusCode();
+        web2 = (await ssh.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!;
+
+        var updated = await BulkAsync(new
+        {
+            hostIds = new[] { web1.Id, web2.Id },
+            addServices = new object[] { new { protocol = "Ssh" }, new { protocol = "Rdp", port = 3390, rdpSecurity = "Tls" } },
+        });
+
+        Assert.Equal(["Ssh", "Rdp:3390"], Services(updated[0]));
+        Assert.Equal(RdpSecurityMode.Tls, updated[0].Services[1].RdpSecurity);
+        // web2's own SSH service keeps its label; the new one follows its services.
+        Assert.Equal(["Ssh", "Https", "Rdp:3390"], Services(updated[1]));
+        Assert.Equal("Shell", updated[1].Services[0].Label);
+
+        // Nothing new: the hosts aren't touched.
+        var again = await BulkAsync(new { hostIds = new[] { web1.Id, web2.Id }, addServices = new object[] { new { protocol = "Ssh" } } });
+        Assert.Equal(updated.Select(h => h.UpdatedAtUtc), again.Select(h => h.UpdatedAtUtc));
+    }
+
+    [Fact]
+    public async Task BulkServices_CantBeIdrac_OrPassTwentyPerHost()
+    {
+        var host = await CreateAsync("web1");
+        var idrac = await PostAsync(new { hostIds = new[] { host.Id }, addServices = new object[] { new { protocol = "Idrac", address = "10.0.0.5" } } });
+        Assert.Equal(HttpStatusCode.BadRequest, idrac.StatusCode);
+
+        var services = Enumerable.Range(1, 20).Select(port => new { protocol = "Ssh", port = 2200 + port }).ToArray();
+        Assert.Single(await BulkAsync(new { hostIds = new[] { host.Id }, addServices = services }));
+        var tooMany = await PostAsync(new { hostIds = new[] { host.Id }, addServices = new object[] { new { protocol = "Rdp" } } });
+        Assert.Equal(HttpStatusCode.BadRequest, tooMany.StatusCode);
+    }
+
+    [Fact]
     public async Task BulkChanges_NeedAChange_AndManageAccessToEveryHost()
     {
         var host = await CreateAsync("web1");
@@ -84,6 +130,8 @@ public sealed class BulkUpdateTests(PostgresServerFixture postgres) : IAsyncLife
         var denied = await bob.SendJsonAsync(HttpMethod.Post, "/api/hosts/bulk", new { hostIds = new[] { host.Id }, addTags = new[] { new { name = "x" } } }, Ct);
         Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
     }
+
+    private static List<string> Services(HostResponse host) => [.. host.Services.Select(s => s.Port is null ? $"{s.Protocol}" : $"{s.Protocol}:{s.Port}")];
 
     private static List<string> Tags(HostResponse host) => [.. host.Tags.Select(t => t.Value is null ? t.Name : $"{t.Name}: {t.Value}")];
 

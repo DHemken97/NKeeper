@@ -256,15 +256,16 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
     }
 
     /// <summary>
-    /// Applies the same tag and hypervisor changes to many hosts in one transaction. Hosts the
-    /// changes don't affect are left untouched (their update time doesn't move).
+    /// Applies the same tag, hypervisor and new-service changes to many hosts in one transaction.
+    /// Hosts the changes don't affect are left untouched (their update time doesn't move).
     /// </summary>
     /// <returns>Every selected host, as it is now.</returns>
     /// <exception cref="HostAccessDeniedException">A host is missing or the user can't manage it.</exception>
     public async Task<List<HostResponse>> BulkUpdateAsync(BulkHostUpdateRequest request, RequestUser user, CancellationToken cancellationToken)
     {
         var ids = request.HostIds.Distinct().ToHashSet();
-        var hosts = await access.Manageable(user).Where(h => ids.Contains(h.Id)).Include(h => h.Tags).ToListAsync(cancellationToken);
+        var hosts = await access.Manageable(user).Where(h => ids.Contains(h.Id))
+            .Include(h => h.Tags).Include(h => h.Services).AsSplitQuery().ToListAsync(cancellationToken);
         if (hosts.Count != ids.Count)
         {
             throw new HostAccessDeniedException();
@@ -328,6 +329,29 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
                     host.HypervisorSeenAtUtc = null;
                     changed = true;
                 }
+            }
+
+            foreach (var service in request.AddServices)
+            {
+                if (host.Services.Any(s => s.Protocol == service.Protocol && s.Port == service.Port))
+                {
+                    continue; // Already has it; its label and settings are kept.
+                }
+
+                host.Services.Add(new HostService
+                {
+                    Protocol = service.Protocol!.Value,
+                    Port = service.Port,
+                    Label = InventoryText.TrimToNull(service.Label),
+                    Position = host.Services.Count == 0 ? 0 : host.Services.Max(s => s.Position) + 1,
+                    RdpSecurity = service.Protocol == ServiceProtocol.Rdp && service.RdpSecurity is not RdpSecurityMode.Auto ? service.RdpSecurity : null,
+                });
+                changed = true;
+            }
+
+            if (host.Services.Count > 20)
+            {
+                throw new InventoryValidationException("addServices", $"“{host.Name}” would have more than 20 services.");
             }
 
             if (changed)

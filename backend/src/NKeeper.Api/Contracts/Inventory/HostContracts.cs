@@ -305,8 +305,8 @@ public sealed record BulkHypervisorChange
 
 /// <summary>
 /// The same changes to many hosts at once, applied in this order: <see cref="RemoveTags"/>,
-/// <see cref="SetTags"/> (which replace every value of their names), <see cref="AddTags"/>, then
-/// <see cref="Hypervisor"/>. Other details are left as they are.
+/// <see cref="SetTags"/> (which replace every value of their names), <see cref="AddTags"/>,
+/// <see cref="Hypervisor"/>, then <see cref="AddServices"/>. Other details are left as they are.
 /// </summary>
 public sealed record BulkHostUpdateRequest : IValidatableObject
 {
@@ -327,11 +327,33 @@ public sealed record BulkHostUpdateRequest : IValidatableObject
     /// <summary>Set: the hosts become virtual machines running on it. Null leaves them unchanged.</summary>
     public BulkHypervisorChange? Hypervisor { get; init; }
 
+    /// <summary>Services each host gets, after its own; a host that already has one (same type and port) keeps it as it is.</summary>
+    [MaxLength(20)]
+    public HostServiceRequest[] AddServices { get; init; } = [];
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        if (AddTags.Length + SetTags.Length + RemoveTags.Length == 0 && Hypervisor is null)
+        if (AddTags.Length + SetTags.Length + RemoveTags.Length + AddServices.Length == 0 && Hypervisor is null)
         {
             yield return new ValidationResult("Choose a change to make.", ["addTags"]);
+        }
+
+        for (var index = 0; index < AddServices.Length; index++)
+        {
+            if (AddServices[index].Protocol is not { } protocol)
+            {
+                continue;
+            }
+
+            if (!SupportedServices.IsSupported(protocol))
+            {
+                yield return new ValidationResult($"NKeeper can't connect with {protocol} services, so they can't be added.", [$"addServices[{index}].protocol"]);
+            }
+            else if (protocol == ServiceProtocol.Idrac)
+            {
+                // Each iDRAC has its own address, so one can't be given to many hosts.
+                yield return new ValidationResult("Add iDRAC services one host at a time: each has its own address.", [$"addServices[{index}].protocol"]);
+            }
         }
     }
 }

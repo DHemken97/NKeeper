@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { errorFor } from '../../../lib/formErrors'
 import { newServiceDraft, type ServiceDraft } from '../drafts'
@@ -11,12 +12,30 @@ interface ServicesEditorProps {
   errors: Record<string, string>
   /** Services of types NKeeper can't connect with, left out of the draft: saving removes them. */
   dropped?: HostService[]
+  /** The service types offered; every supported one by default. */
+  protocols?: readonly ServiceProtocol[]
+  hint?: ReactNode
+  emptyText?: string
+  /** Whether services can be put in order (the first one is the host's default). */
+  reorderable?: boolean
+  /** A note under a service, e.g. how many hosts it would change. */
+  note?: (service: ServiceDraft) => string | null
 }
 
 const MAX_SERVICES = 20
 
 /** Ordered list of the ways to connect to a host (the first one is the default). */
-export function ServicesEditor({ value, onChange, errors, dropped = [] }: ServicesEditorProps) {
+export function ServicesEditor({
+  value,
+  onChange,
+  errors,
+  dropped = [],
+  protocols = SUPPORTED_PROTOCOLS,
+  hint = 'How you connect to this host. Leave the port empty to use the default. An iDRAC has its own address; its port is the HTTPS (Redfish) port.',
+  emptyText = 'No services yet.',
+  reorderable = true,
+  note,
+}: ServicesEditorProps) {
   function update(key: number, patch: Partial<ServiceDraft>) {
     onChange(value.map((s) => (s.key === key ? { ...s, ...patch } : s)))
   }
@@ -30,16 +49,14 @@ export function ServicesEditor({ value, onChange, errors, dropped = [] }: Servic
 
   function addService() {
     // Suggest the first protocol not already on the host.
-    const unused = SUPPORTED_PROTOCOLS.find((p) => !value.some((s) => s.protocol === p)) ?? 'Ssh'
+    const unused = protocols.find((p) => !value.some((s) => s.protocol === p)) ?? protocols[0]
     onChange([...value, newServiceDraft(unused)])
   }
 
   return (
     <fieldset className={styles.fieldset}>
       <legend className={styles.legend}>Services</legend>
-      <p className={styles.hint}>
-        How you connect to this host. Leave the port empty to use the default. An iDRAC has its own address; its port is the HTTPS (Redfish) port.
-      </p>
+      <p className={styles.hint}>{hint}</p>
 
       {dropped.length > 0 ? (
         <p className={styles.error} role="note">
@@ -49,7 +66,7 @@ export function ServicesEditor({ value, onChange, errors, dropped = [] }: Servic
         </p>
       ) : null}
 
-      {value.length === 0 ? <p className={styles.empty}>No services yet.</p> : null}
+      {value.length === 0 ? <p className={styles.empty}>{emptyText}</p> : null}
 
       <ol className={styles.list}>
         {value.map((service, index) => {
@@ -57,6 +74,7 @@ export function ServicesEditor({ value, onChange, errors, dropped = [] }: Servic
           const portError = errors[`services[${index}].port`]
           const rowError = errorFor(errors, `services[${index}]`)
           const position = `service ${index + 1}`
+          const serviceNote = note?.(service)
           return (
             <li key={service.key} className={styles.row}>
               <select
@@ -65,7 +83,7 @@ export function ServicesEditor({ value, onChange, errors, dropped = [] }: Servic
                 onChange={(event) => update(service.key, { protocol: event.target.value as ServiceProtocol })}
                 aria-label={`Type for ${position}`}
               >
-                {SUPPORTED_PROTOCOLS.map((protocol) => (
+                {protocols.map((protocol) => (
                   <option key={protocol} value={protocol}>
                     {PROTOCOL_INFO[protocol].name}
                   </option>
@@ -89,24 +107,28 @@ export function ServicesEditor({ value, onChange, errors, dropped = [] }: Servic
                 aria-label={`Label for ${position}`}
               />
               <div className={styles.actions}>
-                <button
-                  type="button"
-                  className={styles.iconButton}
-                  onClick={() => move(index, -1)}
-                  disabled={index === 0}
-                  aria-label={`Move ${position} up`}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  className={styles.iconButton}
-                  onClick={() => move(index, 1)}
-                  disabled={index === value.length - 1}
-                  aria-label={`Move ${position} down`}
-                >
-                  ↓
-                </button>
+                {reorderable ? (
+                  <>
+                    <button
+                      type="button"
+                      className={styles.iconButton}
+                      onClick={() => move(index, -1)}
+                      disabled={index === 0}
+                      aria-label={`Move ${position} up`}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.iconButton}
+                      onClick={() => move(index, 1)}
+                      disabled={index === value.length - 1}
+                      aria-label={`Move ${position} down`}
+                    >
+                      ↓
+                    </button>
+                  </>
+                ) : null}
                 <button
                   type="button"
                   className={styles.iconButton}
@@ -149,6 +171,7 @@ export function ServicesEditor({ value, onChange, errors, dropped = [] }: Servic
                   />
                 </label>
               ) : null}
+              {serviceNote ? <p className={`${styles.hint} ${styles.rowNote}`}>{serviceNote}</p> : null}
               {rowError ? <p className={styles.error}>{rowError}</p> : null}
             </li>
           )
