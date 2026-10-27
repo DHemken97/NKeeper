@@ -17,7 +17,7 @@ namespace NKeeper.Api.Web;
 /// </summary>
 public sealed partial class WebProxyMiddleware(RequestDelegate next, WebSessionStore sessions, IHttpForwarder forwarder, TimeProvider timeProvider)
 {
-    public const string LaunchPath = "/.nkeeper/launch";
+    public const string LaunchPath = "/nkeeper/launch";
     public const string CookieName = "__nkw_session";
     private const string HostPrefix = "nkw-";
     private const long MaxRequestBodyBytes = 1L << 30;
