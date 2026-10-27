@@ -164,12 +164,26 @@ describe('workspace', () => {
     const search = await screen.findByRole('searchbox', { name: 'Search hosts' })
 
     await user.type(search, 'site:dc')
-    expect(hostNamesInTree()).toEqual(['sql01', 'web01'])
+    await waitFor(() => expect(hostNamesInTree()).toEqual(['sql01', 'web01']), { timeout: 2000 })
 
     await user.clear(search)
     await user.type(search, '10.9')
-    expect(hostNamesInTree()).toEqual(['fw01'])
+    await waitFor(() => expect(hostNamesInTree()).toEqual(['fw01']), { timeout: 2000 })
     expect(screen.getByText('1 of 4')).toBeInTheDocument()
+  })
+
+  it('searches once typing pauses, keeping every character typed', async () => {
+    const { user, router } = renderAt('/')
+    const search = await screen.findByRole('searchbox', { name: 'Search hosts' })
+
+    await user.type(search, 'site:dc')
+
+    expect(search).toHaveValue('site:dc')
+    expect(router.state.location.search).toBe('')
+    expect(hostNamesInTree()).toHaveLength(4)
+    await waitFor(() => expect(router.state.location.search).toBe('?q=site%3Adc'), { timeout: 2000 })
+    expect(hostNamesInTree()).toEqual(['sql01', 'web01'])
+    expect(search).toHaveValue('site:dc')
   })
 
   it('filters the tree to a tag when its chip is clicked', async () => {
