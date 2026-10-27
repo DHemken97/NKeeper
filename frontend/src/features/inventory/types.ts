@@ -318,6 +318,22 @@ export interface ProposedHost {
   description: string
 }
 
+/**
+ * A machine seen in the scanned host's neighbour (ARP/NDP) table, matched to an NKeeper host.
+ * Learned passively — nothing was probed — so it fills in the network without a loud scan.
+ */
+export interface ScannedNeighbor {
+  ipAddress: string
+  macAddress: string | null
+  /** The NKeeper host it already is, when one matched. */
+  hostId: string | null
+  hostName: string | null
+  matchedBy: 'mac' | 'ip' | null
+  /** For a neighbour that isn't in NKeeper: the host that could be added for it. */
+  newHost: ProposedHost | null
+  note: string | null
+}
+
 /** A host to add from a scan, linked to the host it runs on. */
 export interface ScannedHostInput extends ProposedHost {
   hypervisorId: string
@@ -342,6 +358,8 @@ export interface ScanFindings {
   virtualization: string | null
   /** Internal scans of hypervisors: their VMs and containers. */
   guests: ScannedGuest[]
+  /** Internal scans: machines in the host's neighbour (ARP/NDP) table. */
+  neighbors: ScannedNeighbor[]
   /** Internal scans: logical processors. */
   cpuCores: number | null
   /** Internal scans: memory in MiB. */

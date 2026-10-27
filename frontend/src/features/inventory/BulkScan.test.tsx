@@ -70,6 +70,7 @@ const findings = (mac: string): ScanFindings => ({
   notes: [],
   virtualization: null,
   guests: [],
+  neighbors: [],
 })
 
 function renderWorkspace(scan: (hostId: string, body: Record<string, unknown>) => Response, hosts: Host[] = [noLogin, web1, web2]) {

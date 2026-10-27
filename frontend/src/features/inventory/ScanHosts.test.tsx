@@ -58,6 +58,7 @@ const findings: ScanFindings = {
   notes: ['libvirt was not found.'],
   virtualization: null,
   guests: [],
+  neighbors: [],
 }
 
 function renderWorkspace(routesOverride: Parameters<typeof mockFetch>[0], hosts: Host[] = [web01]) {
@@ -158,6 +159,44 @@ describe('Tasks ▸ Scan', () => {
     })
     // The new login has no password: using it asks for one.
     expect((saved!.credentials as unknown[]).slice(1)).toEqual([{ label: null, username: 'dana', domain: null, notes: null }])
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('adds a neighbour from the ARP table as a new host', async () => {
+    let created: Record<string, unknown> | undefined
+    const neighbors = [
+      { ipAddress: '10.0.0.1', macAddress: 'AA:BB:CC:00:00:01', hostId: 'h-gw', hostName: 'gateway', matchedBy: 'ip' as const, newHost: null, note: null },
+      {
+        ipAddress: '10.0.0.42',
+        macAddress: 'DE:AD:BE:EF:00:42',
+        hostId: null,
+        hostName: null,
+        matchedBy: null,
+        newHost: { name: '10.0.0.42', hostname: null, ipAddress: '10.0.0.42', macAddress: 'DE:AD:BE:EF:00:42', description: 'Seen in web01’s neighbour table.' },
+        note: null,
+      },
+    ]
+    const { user } = renderWorkspace({
+      'POST /api/hosts/h-web01/scan/internal': () =>
+        jsonResponse(200, { status: 'ready', findings: { ...findings, users: [], ports: [], macAddress: null, hostname: null, operatingSystem: null, neighbors }, hostKey: null }),
+      'POST /api/hosts': (_url, init) => {
+        created = JSON.parse(String(init.body)) as Record<string, unknown>
+        return jsonResponse(201, { ...web01, id: 'h-new', name: '10.0.0.42', ipAddress: '10.0.0.42' })
+      },
+    })
+
+    await openMenu(user, 'Tasks', 'Scan', 'Internal', 'ops')
+    const results = await screen.findByRole('dialog', { name: 'Internal scan of web01' })
+    // The known neighbour is summarised, not offered; the unknown one is addable, unchecked.
+    expect(within(results).getByText(/gateway \(10\.0\.0\.1\)/)).toBeInTheDocument()
+    const add = within(results).getByRole('checkbox', { name: 'Add 10.0.0.42' })
+    expect(add).not.toBeChecked()
+
+    await user.click(add)
+    await user.click(within(results).getByRole('button', { name: 'Apply 1 change' }))
+
+    await waitFor(() => expect(created).toBeDefined())
+    expect(created).toMatchObject({ name: '10.0.0.42', ipAddress: '10.0.0.42', macAddress: 'DE:AD:BE:EF:00:42', isVirtualMachine: false, hypervisorId: null })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
