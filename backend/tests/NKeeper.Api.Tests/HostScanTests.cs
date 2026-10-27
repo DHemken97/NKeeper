@@ -68,6 +68,15 @@ public sealed class HostScanTests(PostgresServerFixture postgres, SshServerFixtu
         backup-bot:x:1001:1001::/home/backup-bot:/usr/sbin/nologin
         nobody:x:65534:65534:nobody:/nonexistent:/bin/sh
         @@libvirt
+        @@neighbors
+        10.0.0.1 dev ens18 lladdr aa:bb:cc:00:00:01 REACHABLE
+        10.0.0.42 dev ens18 lladdr de:ad:be:ef:00:42 STALE
+        10.0.0.9 dev ens18 lladdr 11:22:33:44:55:66 REACHABLE
+        10.0.0.30 dev ens18 lladdr bc:24:11:aa:bb:cc REACHABLE
+        10.0.0.77 dev ens18  FAILED
+        224.0.0.251 dev ens18 lladdr 01:00:5e:00:00:fb PERMANENT
+        fe80::1 dev ens18 lladdr aa:bb:cc:00:00:01 router REACHABLE
+        10.0.0.1 dev docker0 lladdr aa:bb:cc:00:00:01 STALE
         @@end
         """;
 
@@ -83,6 +92,56 @@ public sealed class HostScanTests(PostgresServerFixture postgres, SshServerFixtu
         Assert.Equal(["root", "dana"], findings.Users.Select(u => u.Username));
         Assert.Equal("Dana Admin", findings.Users[1].FullName);
         Assert.False(findings.IsKvmHost);
+        // Neighbours: the host's own addresses (10.0.0.30), NKeeper's (10.0.0.9), the incomplete
+        // entry, the multicast and link-local ones, and the duplicate 10.0.0.1 are all left out.
+        Assert.Equal([("10.0.0.1", "AA:BB:CC:00:00:01"), ("10.0.0.42", "DE:AD:BE:EF:00:42")], findings.Neighbors.Select(n => (n.IpAddress, n.MacAddress)));
+    }
+
+    [Theory]
+    // ip neigh show
+    [InlineData("10.0.0.5 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE", "10.0.0.5", "AA:BB:CC:DD:EE:FF")]
+    [InlineData("10.0.0.6 dev eth0 FAILED", null, null)]
+    [InlineData("fe80::1 dev eth0 lladdr aa:bb:cc:dd:ee:ff router REACHABLE", null, null)]
+    // arp -an
+    [InlineData("? (192.168.1.1) at a0:b1:c2:d3:e4:f5 [ether] on eth0", "192.168.1.1", "A0:B1:C2:D3:E4:F5")]
+    [InlineData("? (192.168.1.9) at <incomplete> on eth0", null, null)]
+    public void NeighborLines_FromEitherTool_AreParsed(string line, string? ip, string? mac)
+    {
+        var parsed = InternalScan.ParseNeighborLine(line);
+        Assert.Equal((ip, mac), (parsed.Ip, parsed.Mac));
+    }
+
+    [Fact]
+    public void Neighbors_AreMatchedByMac_ThenIp_ElseProposed()
+    {
+        GuestMatcher.Candidate Host(string name, string? ip, string? mac) =>
+            new(Guid.NewGuid(), name, null, mac, false, null, null, true, IpAddress: ip);
+        var router = Host("router", "10.0.0.1", "AA:BB:CC:00:00:01");
+        var db = Host("db", "10.0.0.50", null);
+        ScannedNeighbor Seen(string ip, string mac) => new(ip, mac);
+
+        var matched = NeighborMatcher.Match("web01", [Seen("10.0.0.1", "11:11:11:11:11:11"), Seen("10.0.0.50", "DE:AD:BE:EF:00:50"), Seen("10.0.0.99", "DE:AD:BE:EF:00:99")], [router, db]);
+
+        // MAC wins over IP: the router matches on its IP only when the MAC doesn't, so here it's by IP.
+        Assert.Equal(router.Id, matched[0].HostId);
+        Assert.Equal("ip", matched[0].MatchedBy);
+        Assert.Equal(db.Id, matched[1].HostId);
+        Assert.Equal("ip", matched[1].MatchedBy);
+        Assert.Null(matched[2].HostId);
+        Assert.NotNull(matched[2].NewHost);
+        Assert.Equal(("10.0.0.99", "10.0.0.99", "DE:AD:BE:EF:00:99"), (matched[2].NewHost!.Name, matched[2].NewHost!.IpAddress, matched[2].NewHost!.MacAddress));
+    }
+
+    [Fact]
+    public void Neighbors_MatchByMac_BeforeIp()
+    {
+        var host = new GuestMatcher.Candidate(Guid.NewGuid(), "moved", null, "AA:BB:CC:00:00:01", false, null, null, true, IpAddress: "10.0.0.2");
+
+        // The neighbour's MAC is this host's, but at a different IP: MAC still wins.
+        var matched = NeighborMatcher.Match("web01", [new ScannedNeighbor("10.0.0.9", "AA:BB:CC:00:00:01")], [host]);
+
+        Assert.Equal(host.Id, matched[0].HostId);
+        Assert.Equal("mac", matched[0].MatchedBy);
     }
 
     [Fact]
