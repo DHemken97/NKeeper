@@ -256,7 +256,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
     }
 
     /// <summary>
-    /// Applies the same tag, hypervisor and new-service changes to many hosts in one transaction.
+    /// Applies the same tag, hypervisor and service changes to many hosts in one transaction.
     /// Hosts the changes don't affect are left untouched (their update time doesn't move).
     /// </summary>
     /// <returns>Every selected host, as it is now.</returns>
@@ -265,7 +265,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
     {
         var ids = request.HostIds.Distinct().ToHashSet();
         var hosts = await access.Manageable(user).Where(h => ids.Contains(h.Id))
-            .Include(h => h.Tags).Include(h => h.Services).AsSplitQuery().ToListAsync(cancellationToken);
+            .Include(h => h.Tags).Include(h => h.Services).Include(h => h.Credentials).AsSplitQuery().ToListAsync(cancellationToken);
         if (hosts.Count != ids.Count)
         {
             throw new HostAccessDeniedException();
@@ -281,10 +281,13 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         var sets = request.SetTags.Select(t => (Name: Norm(t.Name), Value: Norm(t.Value))).ToList();
         var additions = request.AddTags.Select(t => (Name: Norm(t.Name), Value: Norm(t.Value))).ToList();
         var now = timeProvider.GetUtcNow();
+        var idracChanged = new List<Guid>();
+        var lostSsh = new List<Guid>();
 
         foreach (var host in hosts)
         {
             var changed = false;
+            var previousIdracAddresses = IdracAddresses(host);
             bool Is(HostTag tag, string name, string? value) =>
                 tag.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && (value is null || tag.Value.Equals(value, StringComparison.OrdinalIgnoreCase));
 
@@ -331,6 +334,12 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
                 }
             }
 
+            var hadSsh = host.Services.Any(s => s.Protocol == ServiceProtocol.Ssh);
+            foreach (var removal in request.RemoveServices)
+            {
+                changed |= host.Services.RemoveAll(s => s.Protocol == removal.Protocol && (removal.Port is null || s.Port == removal.Port)) > 0;
+            }
+
             foreach (var service in request.AddServices)
             {
                 if (host.Services.Any(s => s.Protocol == service.Protocol && s.Port == service.Port))
@@ -354,6 +363,18 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
                 throw new InventoryValidationException("addServices", $"“{host.Name}” would have more than 20 services.");
             }
 
+            changed |= ApplyBulkCredentials(host, request);
+
+            if (hadSsh && !host.Services.Any(s => s.Protocol == ServiceProtocol.Ssh))
+            {
+                lostSsh.Add(host.Id);
+            }
+
+            if (!IdracAddresses(host).SetEquals(previousIdracAddresses))
+            {
+                idracChanged.Add(host.Id);
+            }
+
             if (changed)
             {
                 host.UpdatedAtUtc = now;
@@ -361,11 +382,107 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             }
         }
 
+        // Hosts others are reached through must keep an SSH service.
+        if (lostSsh.Count > 0)
+        {
+            var jumpHostId = await db.Hosts.AsNoTracking().Where(h => h.JumpHostId != null && lostSsh.Contains(h.JumpHostId.Value))
+                .Select(h => h.JumpHostId).FirstOrDefaultAsync(cancellationToken);
+            if (jumpHostId is { } id)
+            {
+                var name = hosts.First(h => h.Id == id).Name;
+                throw new InventoryValidationException("removeServices", $"Other hosts are reached through “{name}”, so it needs its SSH service.");
+            }
+        }
+
         await db.SaveChangesAsync(cancellationToken);
+        if (idracChanged.Count > 0)
+        {
+            // Certificates trusted for an iDRAC belong to its address.
+            await db.HostTrustedKeys.Where(k => idracChanged.Contains(k.HostId) && k.Protocol == ServiceProtocol.Idrac).ExecuteDeleteAsync(cancellationToken);
+        }
+
         var updated = await access.Visible(user).AsNoTracking().Where(h => ids.Contains(h.Id))
             .OrderBy(h => h.Name.ToUpper()).ThenBy(h => h.Id)
             .Select(Projection).AsSplitQuery().ToListAsync(cancellationToken);
         return [.. updated.Select(h => h with { CanManage = true })];
+    }
+
+    /// <summary>
+    /// Removes, then updates the secrets of, the matching credentials, then adds new ones after the
+    /// host's own (skipping accounts, or labels, it already has).
+    /// </summary>
+    /// <returns>Whether anything changed.</returns>
+    private bool ApplyBulkCredentials(Host host, BulkHostUpdateRequest request)
+    {
+        static bool Same(string? a, string? b) => string.Equals(a?.Trim() ?? string.Empty, b?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        static bool Matches(HostCredential credential, BulkCredentialMatch match) =>
+            (string.IsNullOrWhiteSpace(match.Username) || Same(credential.Username, match.Username))
+            && (string.IsNullOrWhiteSpace(match.Domain) || Same(credential.Domain, match.Domain))
+            && (string.IsNullOrWhiteSpace(match.Label) || Same(credential.Label, match.Label));
+
+        var changed = false;
+        foreach (var removal in request.RemoveCredentials)
+        {
+            // Hosts reached through this one fall back to its first usable credential (the reference is cleared).
+            changed |= host.Credentials.RemoveAll(c => Matches(c, removal)) > 0;
+        }
+
+        foreach (var update in request.UpdateCredentials)
+        {
+            foreach (var credential in host.Credentials.Where(c => Matches(c, update)))
+            {
+                // Secrets are stored exactly as entered (no trimming): whitespace can be significant.
+                if (!string.IsNullOrEmpty(update.Password))
+                {
+                    credential.ProtectedPassword = protector.Protect(update.Password);
+                }
+                else if (update.ClearPassword)
+                {
+                    credential.ProtectedPassword = null;
+                }
+
+                if (!string.IsNullOrEmpty(update.PrivateKey))
+                {
+                    credential.ProtectedPrivateKey = protector.Protect(update.PrivateKey);
+                }
+                else if (update.ClearPrivateKey)
+                {
+                    credential.ProtectedPrivateKey = null;
+                }
+
+                changed = true;
+            }
+        }
+
+        foreach (var addition in request.AddCredentials)
+        {
+            var exists = string.IsNullOrWhiteSpace(addition.Username)
+                ? host.Credentials.Any(c => string.IsNullOrWhiteSpace(c.Username) && Same(c.Label, addition.Label))
+                : host.Credentials.Any(c => Same(c.Username, addition.Username) && Same(c.Domain, addition.Domain));
+            if (exists)
+            {
+                continue;
+            }
+
+            host.Credentials.Add(new HostCredential
+            {
+                Label = InventoryText.TrimToNull(addition.Label),
+                Username = InventoryText.TrimToNull(addition.Username),
+                Domain = InventoryText.TrimToNull(addition.Domain),
+                Notes = InventoryText.TrimToNull(addition.Notes),
+                Position = host.Credentials.Count == 0 ? 0 : host.Credentials.Max(c => c.Position) + 1,
+                ProtectedPassword = string.IsNullOrEmpty(addition.Password) ? null : protector.Protect(addition.Password),
+                ProtectedPrivateKey = string.IsNullOrEmpty(addition.PrivateKey) ? null : protector.Protect(addition.PrivateKey),
+            });
+            changed = true;
+        }
+
+        if (host.Credentials.Count > 20)
+        {
+            throw new InventoryValidationException("addCredentials", $"“{host.Name}” would have more than 20 credentials.");
+        }
+
+        return changed;
     }
 
     /// <summary>The hypervisor must be visible, not one of the hosts, and not run (eventually) on one of them.</summary>

@@ -378,7 +378,7 @@ export interface InternalScanLogin {
 
 /**
  * The same changes to many hosts: tags are removed, then set (replacing every value of the name), then added;
- * then the host they run on, then new services (a host that already has one, same type and port, keeps its own).
+ * then the host they run on, services (a host that already has one, same type and port, keeps its own), and credentials.
  */
 export interface BulkHostUpdateInput {
   hostIds: string[]
@@ -388,5 +388,27 @@ export interface BulkHostUpdateInput {
   removeTags: HostTag[]
   /** Set or (with a null id) clear the host the VMs run on; omit to leave it. */
   hypervisor?: { hypervisorId: string | null }
+  /** Without a port, every service of the type. Removed before services are added. */
+  removeServices?: { protocol: ServiceProtocol; port: number | null }[]
   addServices?: HostService[]
+  /** Credentials are removed, then changed, then added. */
+  removeCredentials?: BulkCredentialMatch[]
+  updateCredentials?: BulkCredentialUpdate[]
+  /** A host that already has the account keeps its own. */
+  addCredentials?: HostCredentialInput[]
+}
+
+/** Credentials of a host by username (and domain; any when null) and/or label, ignoring case. */
+export interface BulkCredentialMatch {
+  username?: string | null
+  domain?: string | null
+  label?: string | null
+}
+
+/** New secrets for the matching credentials. */
+export interface BulkCredentialUpdate extends BulkCredentialMatch {
+  password?: string
+  clearPassword?: boolean
+  privateKey?: string
+  clearPrivateKey?: boolean
 }
