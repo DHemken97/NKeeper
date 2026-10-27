@@ -1,10 +1,10 @@
 import type RFB from '@novnc/novnc'
 
-/** The most text typed at once: typing is slow (a few hundred characters a second at most). */
+/** The most text typed at once: typing is slow (about 20 characters a second). */
 export const MAX_TYPED_LENGTH = 10_000
 
-/** A pause after each key, so the guest doesn't drop keys typed faster than a person could. */
-export const KEY_DELAY_MS = 8
+/** A pause after each key, so the guest doesn't drop keys typed faster than it reads them. */
+export const KEY_DELAY_MS = 50
 
 export interface TypeResult {
   typed: number
