@@ -92,7 +92,7 @@ export function InventoryReport() {
               <tr>
                 {keys.map((key, index) => (
                   <th key={encodeGroupKey(key)} scope="col" className={index === 0 ? styles.corner : undefined}>
-                    {groupKeyLabel(key)}
+                    <div className={styles.resizable}>{groupKeyLabel(key)}</div>
                   </th>
                 ))}
                 <th scope="col" className={styles.count}>

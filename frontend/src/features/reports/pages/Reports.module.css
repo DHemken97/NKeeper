@@ -345,3 +345,16 @@
   height: 100%;
   background: var(--color-accent);
 }
+
+/* Inventory columns can be widened (drag a header's corner) to show long values in full. */
+.inventory th,
+.inventory td {
+  max-width: none;
+}
+
+.resizable {
+  min-width: 4rem;
+  overflow: hidden;
+  resize: horizontal;
+  text-overflow: ellipsis;
+}
