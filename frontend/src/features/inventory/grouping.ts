@@ -1,24 +1,47 @@
-import { PROTOCOL_INFO, primaryAddress, type Host } from './types'
+import { OS_TAG } from './scanProposals'
+import { formatAccount, PROTOCOL_INFO, primaryAddress, type Host } from './types'
 
-/** What the tree can be grouped by: a tag name, the services hosts offer, or the host VMs run on. */
-export type GroupKey = { kind: 'tag'; name: string } | { kind: 'service' } | { kind: 'hypervisor' }
+/**
+ * What hosts can be grouped by: a tag name, the operating system (the `os` tag scans record), the
+ * services hosts offer, the usernames of their credentials, the host VMs run on, or whether they
+ * are physical or virtual.
+ */
+export type GroupKey =
+  | { kind: 'tag'; name: string }
+  | { kind: 'os' }
+  | { kind: 'service' }
+  | { kind: 'username' }
+  | { kind: 'hypervisor' }
+  | { kind: 'machine' }
 
 export type HostSort = 'name' | 'address' | 'updated'
 
-const SERVICE_KEY = '@service'
-const HYPERVISOR_KEY = '@runs-on'
+/** The fields other than tags, with their URL form ("@service"), label and the label of hosts without one. */
+const FIELDS = {
+  os: { code: '@os', label: 'Operating system', missing: 'No operating system' },
+  service: { code: '@service', label: 'Service', missing: 'No services' },
+  username: { code: '@username', label: 'Username', missing: 'No username' },
+  hypervisor: { code: '@runs-on', label: 'Runs on', missing: 'Not on a known host' },
+  machine: { code: '@machine', label: 'Physical or VM', missing: '' },
+} as const
 
-/** URL form: a tag name, "@service" or "@runs-on". */
+type FieldKind = keyof typeof FIELDS
+
+/** Every field other than tags, in the order pickers offer them. */
+export const FIELD_KEYS: GroupKey[] = (Object.keys(FIELDS) as FieldKind[]).map((kind) => ({ kind }) as GroupKey)
+
+/** URL form: a tag name, or a field's code such as "@service" or "@runs-on". */
 export function encodeGroupKey(key: GroupKey): string {
-  return key.kind === 'service' ? SERVICE_KEY : key.kind === 'hypervisor' ? HYPERVISOR_KEY : key.name
+  return key.kind === 'tag' ? key.name : FIELDS[key.kind].code
 }
 
 export function decodeGroupKey(value: string): GroupKey {
-  return value === SERVICE_KEY ? { kind: 'service' } : value === HYPERVISOR_KEY ? { kind: 'hypervisor' } : { kind: 'tag', name: value }
+  const kind = (Object.keys(FIELDS) as FieldKind[]).find((k) => FIELDS[k].code === value)
+  return kind ? ({ kind } as GroupKey) : { kind: 'tag', name: value }
 }
 
 export function groupKeyLabel(key: GroupKey): string {
-  return key.kind === 'service' ? 'Service' : key.kind === 'hypervisor' ? 'Runs on' : key.name
+  return key.kind === 'tag' ? key.name : FIELDS[key.kind].label
 }
 
 export interface TreeGroup {
@@ -75,20 +98,32 @@ function valuesFor(host: Host, key: GroupKey, { names, hypervisors }: Context): 
   if (key.kind === 'service') {
     return [...new Set(host.services.map((s) => PROTOCOL_INFO[s.protocol].label))].map((label) => ({ key: label.toLowerCase(), label }))
   }
+  if (key.kind === 'username') {
+    const accounts = new Map<string, string>()
+    for (const account of host.credentials.map(formatAccount)) {
+      if (account && !accounts.has(account.toLowerCase())) {
+        accounts.set(account.toLowerCase(), account)
+      }
+    }
+    return [...accounts].map(([key, label]) => ({ key, label }))
+  }
+  if (key.kind === 'machine') {
+    return [host.isVirtualMachine ? { key: 'vm', label: 'Virtual machine' } : { key: 'physical', label: 'Physical' }]
+  }
   if (key.kind === 'hypervisor') {
     return [
       ...(hypervisors.has(host.id) ? [{ key: host.id, label: host.name }] : []),
       ...(host.hypervisorId ? [{ key: host.hypervisorId, label: names.get(host.hypervisorId) ?? 'A host you can’t see' }] : []),
     ]
   }
-  const name = key.name.toLowerCase()
+  const name = (key.kind === 'os' ? OS_TAG : key.name).toLowerCase()
   return host.tags
     .filter((t) => t.name.toLowerCase() === name)
     .map((t) => ({ key: (t.value ?? '').toLowerCase(), label: t.value || '(no value)' }))
 }
 
 function missingLabel(key: GroupKey): string {
-  return key.kind === 'service' ? 'No services' : key.kind === 'hypervisor' ? 'Not on a known host' : `No ${key.name}`
+  return key.kind === 'tag' ? `No ${key.name}` : FIELDS[key.kind].missing
 }
 
 /**
