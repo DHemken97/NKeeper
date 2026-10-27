@@ -376,7 +376,10 @@ export interface InternalScanLogin {
   domain?: string
 }
 
-/** The same changes to many hosts: tags are removed, then set (replacing every value of the name), then added. */
+/**
+ * The same changes to many hosts: tags are removed, then set (replacing every value of the name), then added;
+ * then the host they run on, then new services (a host that already has one, same type and port, keeps its own).
+ */
 export interface BulkHostUpdateInput {
   hostIds: string[]
   addTags: HostTag[]
@@ -385,4 +388,5 @@ export interface BulkHostUpdateInput {
   removeTags: HostTag[]
   /** Set or (with a null id) clear the host the VMs run on; omit to leave it. */
   hypervisor?: { hypervisorId: string | null }
+  addServices?: HostService[]
 }

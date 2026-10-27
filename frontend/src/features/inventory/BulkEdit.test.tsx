@@ -41,7 +41,7 @@ function makeHost(name: string, overrides: Partial<Host> = {}): Host {
 const hosts = [
   makeHost('app1', { tags: [{ name: 'site', value: 'DC-A' }, { name: 'env', value: 'test' }] }),
   makeHost('app2', { tags: [{ name: 'site', value: 'DC-A' }] }),
-  makeHost('app3', { tags: [{ name: 'site', value: 'DC-B' }] }),
+  makeHost('app3', { tags: [{ name: 'site', value: 'DC-B' }], services: [{ protocol: 'Ssh', port: null, label: 'Shell' }] }),
   makeHost('node1', { services: [{ protocol: 'Kvm', port: null, label: null, rdpSecurity: null }] }),
   makeHost('locked', { tags: [{ name: 'site', value: 'DC-A' }], canManage: false }),
 ]
@@ -107,6 +107,43 @@ describe('bulk changes', () => {
 
     await user.click(within(panel).getByRole('button', { name: 'Clear selection' }))
     expect(screen.queryByRole('form', { name: /hosts selected/ })).not.toBeInTheDocument()
+  })
+
+  it('adds services to every selected host, saying which already have them', async () => {
+    const { bodies, user } = renderAt('/', (body) => (body.hostIds as string[]).map((id) => hosts.find((h) => h.id === id)!))
+
+    await user.click(await screen.findByRole('button', { name: /^app1/ }))
+    await user.keyboard('{Control>}')
+    await user.click(row('app3'))
+    await user.keyboard('{/Control}')
+    const panel = await screen.findByRole('form', { name: '2 hosts selected' })
+
+    await user.click(within(panel).getByRole('button', { name: 'Add service' }))
+    expect(within(panel).getByLabelText('Type for service 1')).toHaveValue('Ssh')
+    expect(within(panel).getByText('Adds it to 1 host')).toBeInTheDocument()
+    // Each iDRAC has its own address, so it isn't offered here.
+    expect(within(within(panel).getByLabelText('Type for service 1')).queryByRole('option', { name: /iDRAC/ })).not.toBeInTheDocument()
+    expect(within(panel).queryByRole('button', { name: 'Move service 1 up' })).not.toBeInTheDocument()
+
+    await user.click(within(panel).getByRole('button', { name: 'Add service' }))
+    await user.selectOptions(within(panel).getByLabelText('Type for service 2'), 'Rdp')
+    await user.type(within(panel).getByLabelText('Port for service 2'), '3390')
+    await user.selectOptions(within(panel).getByLabelText('Security for service 2'), 'Tls')
+    expect(within(panel).getByText('Adds it to 2 hosts')).toBeInTheDocument()
+    await user.click(within(panel).getByRole('button', { name: 'Apply to 2 hosts' }))
+
+    expect(await within(panel).findByText('Updated 2 hosts.')).toBeInTheDocument()
+    expect(bodies[0]).toEqual({
+      hostIds: ['h-app1', 'h-app3'],
+      addTags: [],
+      setTags: [],
+      removeTags: [],
+      addServices: [
+        { protocol: 'Ssh', port: null, label: null },
+        { protocol: 'Rdp', port: 3390, label: null, rdpSecurity: 'Tls' },
+      ],
+    })
+    expect(within(panel).getByText('No services to add.')).toBeInTheDocument()
   })
 
   it('Shift+click selects a range, in the order the tree shows', async () => {

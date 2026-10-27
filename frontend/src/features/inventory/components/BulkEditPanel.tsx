@@ -4,8 +4,10 @@ import { Button } from '../../../components/ui/Button'
 import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
 import { BulkScanDialog } from './BulkScanDialog'
+import { ServicesEditor } from './ServicesEditor'
+import type { ServiceDraft } from '../drafts'
 import { hypervisorChoices } from '../hypervisors'
-import type { Host, HostTag } from '../types'
+import { PROTOCOL_INFO, SUPPORTED_PROTOCOLS, type Host, type HostService, type HostTag } from '../types'
 import listStyles from './ListEditor.module.css'
 import styles from './HostPanel.module.css'
 
@@ -38,6 +40,24 @@ const KEEP = '__keep'
 const CLEAR = '__clear'
 let nextKey = 1
 
+// Each iDRAC has its own address, so iDRAC services are added one host at a time.
+const BULK_PROTOCOLS = SUPPORTED_PROTOCOLS.filter((p) => p !== 'Idrac')
+
+const toService = (draft: ServiceDraft): HostService => ({
+  protocol: draft.protocol,
+  port: draft.port === '' ? null : Number(draft.port),
+  label: draft.label.trim() || null,
+  ...(draft.protocol === 'Rdp' ? { rdpSecurity: draft.rdpSecurity } : {}),
+})
+
+/** How many hosts a new service would be added to, in words: hosts with the same type and port keep theirs. */
+function serviceImpact(draft: ServiceDraft, hosts: Host[]): string {
+  const { protocol, port } = toService(draft)
+  const count = hosts.filter((h) => !h.services.some((s) => s.protocol === protocol && s.port === port)).length
+  const name = PROTOCOL_INFO[protocol].label
+  return count === 0 ? `All selected hosts already have ${name}${port ? ` on port ${port}` : ''}` : `Adds it to ${count === 1 ? '1 host' : `${count} hosts`}`
+}
+
 const same = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'accent' }) === 0
 const hasTag = (host: Host, name: string, value: string | null) =>
   host.tags.some((t) => same(t.name, name) && (value === null || same(t.value ?? '', value)))
@@ -64,7 +84,7 @@ function impact(change: TagChange, hosts: Host[]): string | null {
 
 /**
  * Changes for several hosts at once (Ctrl/⌘+click, Shift+click, or a group's "Select hosts"):
- * add, set or remove tags, and set or clear the host they run on. Applied in one request; hosts the
+ * add, set or remove tags, set or clear the host they run on, and add services. Applied in one request; hosts the
  * user can't manage are left out.
  */
 export function BulkEditPanel({
@@ -81,6 +101,7 @@ export function BulkEditPanel({
   const id = useId()
   const [changes, setChanges] = useState<TagChange[]>([{ key: nextKey++, action: 'add', name: '', value: '' }])
   const [hypervisor, setHypervisor] = useState(KEEP)
+  const [services, setServices] = useState<ServiceDraft[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
@@ -91,7 +112,7 @@ export function BulkEditPanel({
   const selectedIds = useMemo(() => new Set(selected.map((h) => h.id)), [selected])
   const choices = useMemo(() => hypervisorChoices(allHosts.filter((h) => !selectedIds.has(h.id))), [allHosts, selectedIds])
   const filled = changes.filter((c) => c.name.trim())
-  const nothing = filled.length === 0 && hypervisor === KEEP
+  const nothing = filled.length === 0 && hypervisor === KEEP && services.length === 0
 
   function update(key: number, patch: Partial<TagChange>) {
     setChanges((current) => current.map((c) => (c.key === key ? { ...c, ...patch } : c)))
@@ -114,10 +135,12 @@ export function BulkEditPanel({
         setTags: tags('set'),
         removeTags: tags('remove'),
         ...(hypervisor === KEEP ? {} : { hypervisor: { hypervisorId: hypervisor === CLEAR ? null : hypervisor } }),
+        ...(services.length > 0 ? { addServices: services.map(toService) } : {}),
       })
       onApplied(updated)
       setChanges([{ key: nextKey++, action: 'add', name: '', value: '' }])
       setHypervisor(KEEP)
+      setServices([])
       setDone(`Updated ${updated.length === 1 ? '1 host' : `${updated.length} hosts`}.`)
     } catch (failure) {
       const errors = toFormErrors(failure)
@@ -274,6 +297,20 @@ export function BulkEditPanel({
           </select>
           <p className={styles.fieldHint}>Choosing a host also marks the selected hosts as virtual machines.</p>
         </div>
+
+        <ServicesEditor
+          value={services}
+          onChange={(next) => {
+            setServices(next)
+            setDone(null)
+          }}
+          errors={{}}
+          protocols={BULK_PROTOCOLS}
+          hint="Added after each host’s own services. Hosts that already have the same type on the same port keep theirs. Leave the port empty to use the default."
+          emptyText="No services to add."
+          reorderable={false}
+          note={(service) => serviceImpact(service, manageable)}
+        />
       </div>
 
       <footer className={styles.footer}>
