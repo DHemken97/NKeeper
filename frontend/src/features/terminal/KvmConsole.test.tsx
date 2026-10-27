@@ -429,7 +429,7 @@ describe('KVM hosts', () => {
       return vnc.FakeRfb.instances[0]
     }
 
-    it('types the clipboard’s text into a VNC console, key by key', async () => {
+    it('types the clipboard’s text into a VNC console, key by key, holding Shift where needed', async () => {
       const { user } = renderWorkspace({
         'POST /api/kvm/vms': () => jsonResponse(200, { status: 'ready', vms, hostKey: null }),
         'POST /api/vnc/consoles': () => jsonResponse(200, consoleReady('v1')),
@@ -439,14 +439,18 @@ describe('KVM hosts', () => {
 
       await user.click(await screen.findByRole('button', { name: 'Type clipboard' }))
 
-      await waitFor(() => expect(rfb.sendKey).toHaveBeenCalledTimes(8))
+      await waitFor(() => expect(rfb.sendKey).toHaveBeenCalledTimes(12))
       expect(rfb.sendKey.mock.calls).toEqual([
+        [0xffe1, null, true],
         [0x48, null, true],
         [0x48, null, false],
+        [0xffe1, null, false],
         [0x69, null, true],
         [0x69, null, false],
+        [0xffe1, null, true],
         [0x21, null, true],
         [0x21, null, false],
+        [0xffe1, null, false],
         [0xff0d, null, true],
         [0xff0d, null, false],
       ])

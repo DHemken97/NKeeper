@@ -19,10 +19,12 @@ export function characters(text: string): string[] {
   return [...text.replace(/\r\n?/g, '\n')]
 }
 
+/** The X keysym of the left Shift key. */
+export const KEYSYM_SHIFT = 0xffe1
+
 /**
  * The X keysym for a character, as VNC sends keys: Latin-1 characters are their own code, Enter
- * and Tab have function keysyms, and other Unicode characters are 0x01000000 + code point. The
- * VNC server (QEMU) presses Shift as needed for its keyboard layout.
+ * and Tab have function keysyms, and other Unicode characters are 0x01000000 + code point.
  */
 export function vncKeysym(character: string): number | null {
   const code = character.codePointAt(0)!
@@ -38,7 +40,11 @@ export function vncKeysym(character: string): number | null {
   return code <= 0xff ? code : 0x01000000 + code
 }
 
-/** Types text into a VNC console, key by key. Stops early when `signal` is aborted. */
+/**
+ * Types text into a VNC console, key by key. The VNC server (QEMU) turns a keysym into its key
+ * without pressing Shift, so Shift is held for characters that need it on a US keyboard (or an
+ * uppercase 'A' would arrive as 'a'). Stops early when `signal` is aborted.
+ */
 export async function typeIntoVnc(rfb: RFB, text: string, signal?: AbortSignal): Promise<TypeResult> {
   const result: TypeResult = { typed: 0, skipped: 0 }
   for (const character of characters(text)) {
@@ -50,8 +56,15 @@ export async function typeIntoVnc(rfb: RFB, text: string, signal?: AbortSignal):
       result.skipped++
       continue
     }
+    const shift = spiceScancode(character)?.shift ?? false
+    if (shift) {
+      rfb.sendKey(KEYSYM_SHIFT, null, true)
+    }
     rfb.sendKey(keysym, null, true)
     rfb.sendKey(keysym, null, false)
+    if (shift) {
+      rfb.sendKey(KEYSYM_SHIFT, null, false)
+    }
     result.typed++
     await sleep(KEY_DELAY_MS)
   }
