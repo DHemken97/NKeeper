@@ -130,15 +130,19 @@ describe('buildTree', () => {
       host('pve-vm', [], { isVirtualMachine: true, hypervisorId: 'metal' }),
       host('guest', [], { isVirtualMachine: true, hypervisorId: 'pve-vm' }),
       host('printer'),
+      host('stray', [], { isVirtualMachine: true }),
     ]
 
     expect(outline(buildTree(hosts, [{ kind: 'hypervisor' }]))).toEqual([
       'metal (2)',
       ['metal', 'pve-vm'],
+      // Physical: it runs on its own hardware.
+      'printer (1)',
+      ['printer'],
       'pve-vm (2)',
       ['pve-vm', 'guest'],
       'Not on a known host (1)',
-      ['printer'],
+      ['stray'],
     ])
   })
 })
