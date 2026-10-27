@@ -5,6 +5,7 @@ import styles from './Reports.module.css'
 
 /** The reports NKeeper offers, in the section's list. */
 const REPORTS = [
+  { path: 'inventory', label: 'Inventory', description: 'Host counts by tag, OS, service, username and more' },
   { path: 'ip-addresses', label: 'IP address map', description: 'Hosts by address, one column per /24 subnet' },
   { path: 'health', label: 'Health', description: 'What’s down, and certificates about to expire' },
   { path: 'vm-resources', label: 'VM hosts & resources', description: 'Each VM host’s CPU and memory, and what its VMs use' },
