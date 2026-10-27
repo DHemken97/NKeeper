@@ -41,7 +41,11 @@ function makeHost(name: string, overrides: Partial<Host> = {}): Host {
 const hosts = [
   makeHost('app1', { tags: [{ name: 'site', value: 'DC-A' }, { name: 'env', value: 'test' }] }),
   makeHost('app2', { tags: [{ name: 'site', value: 'DC-A' }] }),
-  makeHost('app3', { tags: [{ name: 'site', value: 'DC-B' }], services: [{ protocol: 'Ssh', port: null, label: 'Shell' }] }),
+  makeHost('app3', {
+    tags: [{ name: 'site', value: 'DC-B' }],
+    services: [{ protocol: 'Ssh', port: null, label: 'Shell' }],
+    credentials: [{ id: 'c-app3', label: null, username: 'admin', domain: 'CORP', notes: null, hasPassword: true, hasPrivateKey: false }],
+  }),
   makeHost('node1', { services: [{ protocol: 'Kvm', port: null, label: null, rdpSecurity: null }] }),
   makeHost('locked', { tags: [{ name: 'site', value: 'DC-A' }], canManage: false }),
 ]
@@ -144,6 +148,47 @@ describe('bulk changes', () => {
       ],
     })
     expect(within(panel).getByText('No services to add.')).toBeInTheDocument()
+  })
+
+  it('removes services, and adds, changes and removes credentials on every selected host', async () => {
+    const { bodies, user } = renderAt('/', (body) => (body.hostIds as string[]).map((id) => hosts.find((h) => h.id === id)!))
+
+    await user.click(await screen.findByRole('button', { name: /^app1/ }))
+    await user.keyboard('{Control>}')
+    await user.click(row('app3'))
+    await user.keyboard('{/Control}')
+    const panel = await screen.findByRole('form', { name: '2 hosts selected' })
+
+    await user.click(within(panel).getByRole('button', { name: 'Remove a service' }))
+    expect(within(panel).getByLabelText('Type for service removal 1')).toHaveValue('Ssh')
+    expect(within(panel).getByText('1 host has it')).toBeInTheDocument()
+
+    await user.click(within(panel).getByRole('button', { name: 'Add a credential change' }))
+    await user.selectOptions(within(panel).getByLabelText('Action for credential change 1'), 'change')
+    await user.type(within(panel).getByLabelText('Username for credential change 1'), 'ADMIN')
+    await user.type(within(panel).getByLabelText('New password'), 'n3w-secret')
+    await user.click(within(panel).getByRole('button', { name: 'Add a credential change' }))
+    await user.type(within(panel).getByLabelText('Username for credential change 2'), 'deploy')
+    await user.type(within(panel).getByLabelText('Password'), 'd3ploy')
+    expect(within(panel).getByText('Adds it to 2 hosts')).toBeInTheDocument()
+    await user.click(within(panel).getByRole('button', { name: 'Add a credential change' }))
+    await user.selectOptions(within(panel).getByLabelText('Action for credential change 3'), 'remove')
+    await user.type(within(panel).getByLabelText('Username for credential change 3'), 'legacy')
+    expect(within(panel).getByText('No selected host has it')).toBeInTheDocument()
+    await user.click(within(panel).getByRole('button', { name: 'Apply to 2 hosts' }))
+
+    expect(await within(panel).findByText('Updated 2 hosts.')).toBeInTheDocument()
+    expect(bodies[0]).toEqual({
+      hostIds: ['h-app1', 'h-app3'],
+      addTags: [],
+      setTags: [],
+      removeTags: [],
+      removeServices: [{ protocol: 'Ssh', port: null }],
+      addCredentials: [{ label: null, username: 'deploy', domain: null, notes: null, password: 'd3ploy' }],
+      updateCredentials: [{ username: 'ADMIN', domain: null, password: 'n3w-secret' }],
+      removeCredentials: [{ username: 'legacy', domain: null }],
+    })
+    expect(within(panel).getByText('No credential changes.')).toBeInTheDocument()
   })
 
   it('Shift+click selects a range, in the order the tree shows', async () => {
