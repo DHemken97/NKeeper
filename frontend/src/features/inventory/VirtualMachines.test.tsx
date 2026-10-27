@@ -229,7 +229,9 @@ describe('virtual machines', () => {
     // The node itself heads its group: it runs on its own hardware.
     const group = within(node.closest('li')!).getAllByRole('button').filter((b) => b !== node)
     expect(group[0]).toHaveAccessibleName(/^node2/)
-    expect(screen.getByRole('button', { name: /Not on a known host/ })).toBeInTheDocument()
+    // So does a physical host without VMs, rather than being "not on a known host".
+    expect(screen.getByRole('button', { name: /runs on:\s*printer/, expanded: true })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Not on a known host/ })).not.toBeInTheDocument()
   })
 
   it('a scan inside a VM proposes marking it as one', () => {

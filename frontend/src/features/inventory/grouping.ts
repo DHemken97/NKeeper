@@ -91,8 +91,9 @@ interface Context {
 /**
  * The groups a host belongs to for a key, as a bucket key and a label; empty when it has none.
  * Tag values are matched case-insensitively. "Runs on" groups by the hypervisor's id (names can
- * repeat), labelled with its name; a hypervisor is in its own group too (it runs on its hardware),
- * and a nested one also in the group of the host it runs on.
+ * repeat), labelled with its name; a hypervisor or physical host is in its own group (it runs on
+ * its own hardware), and a nested hypervisor also in the group of the host it runs on. Only VMs
+ * whose host isn't known have no group.
  */
 function valuesFor(host: Host, key: GroupKey, { names, hypervisors }: Context): { key: string; label: string }[] {
   if (key.kind === 'service') {
@@ -112,7 +113,7 @@ function valuesFor(host: Host, key: GroupKey, { names, hypervisors }: Context): 
   }
   if (key.kind === 'hypervisor') {
     return [
-      ...(hypervisors.has(host.id) ? [{ key: host.id, label: host.name }] : []),
+      ...(hypervisors.has(host.id) || !host.isVirtualMachine ? [{ key: host.id, label: host.name }] : []),
       ...(host.hypervisorId ? [{ key: host.hypervisorId, label: names.get(host.hypervisorId) ?? 'A host you can’t see' }] : []),
     ]
   }
