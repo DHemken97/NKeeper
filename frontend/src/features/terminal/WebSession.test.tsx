@@ -42,7 +42,7 @@ const router1: Host = {
 const ready = (id: string) => ({
   status: 'ready',
   sessionId: id,
-  launchPath: '/.nkeeper/launch?t=token',
+  launchPath: '/nkeeper/launch?t=token',
   baseDomain: null,
   target: 'https://192.168.1.1/',
   certificate: null,
@@ -103,7 +103,7 @@ describe('web sessions', () => {
 
     const frame = await screen.findByTitle(/router — https:\/\/192\.168\.1\.1/)
     expect(body).toEqual({ hostId: 'h-router', serviceIndex: 0 })
-    expect(frame).toHaveAttribute('src', 'http://nkw-0123456789abcdef0123456789abcdef.web.localhost:3000/.nkeeper/launch?t=token')
+    expect(frame).toHaveAttribute('src', 'http://nkw-0123456789abcdef0123456789abcdef.web.localhost:3000/nkeeper/launch?t=token')
     expect(frame.getAttribute('sandbox')).not.toContain('allow-top-navigation')
     expect(openSpy).not.toHaveBeenCalled()
     expect(screen.getByRole('tab', { name: /router.*HTTPS/, selected: true })).toBeInTheDocument()
