@@ -37,28 +37,40 @@ interface Item {
   findings?: ScanFindings
 }
 
-/** The host's first SSH service, and its first saved login that needs no typing. */
+/** The services an internal scan logs in with, as in Tasks ▸ Scan ▸ Internal. */
+const scannable = (host: Host) =>
+  host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh' || service.protocol === 'Rpc')
+
+const sshPortOf = (host: Host, serviceIndex: number) => {
+  const service = host.services[serviceIndex]
+  return service.protocol === 'Ssh' ? (service.port ?? PROTOCOL_INFO.Ssh.defaultPort ?? 22) : null
+}
+
+/** The host's first SSH or RPC service with a saved login that needs no typing, and that login. */
 function savedLogin(host: Host): { login: InternalScanLogin | null; sshPort: number | null; skip?: string } {
-  const serviceIndex = host.services.findIndex((s) => s.protocol === 'Ssh')
-  if (serviceIndex === -1) {
-    return { login: null, sshPort: null, skip: 'No SSH service' }
+  const services = scannable(host)
+  if (services.length === 0) {
+    return { login: null, sshPort: null, skip: 'No SSH or RPC service' }
   }
-  const sshPort = host.services[serviceIndex].port ?? PROTOCOL_INFO.Ssh.defaultPort ?? 22
-  const credential = host.credentials.find((c) => credentialProblem(c, 'Ssh') === null && !credentialNeedsPassword(c, 'Ssh'))
-  return credential
-    ? { login: { serviceIndex, credentialId: credential.id }, sshPort }
-    : { login: null, sshPort, skip: 'No saved SSH login with a password or key' }
+  for (const { service, index } of services) {
+    const credential = host.credentials.find((c) => credentialProblem(c, service.protocol) === null && !credentialNeedsPassword(c, service.protocol))
+    if (credential) {
+      return { login: { serviceIndex: index, credentialId: credential.id }, sshPort: sshPortOf(host, index) }
+    }
+  }
+  return { login: null, sshPort: null, skip: 'No saved SSH or RPC login with a password (or SSH key)' }
 }
 
 /**
- * Internal scans of several hosts (from the bulk panel): each logs in over SSH with its own saved
- * login, or one login for all, a few at a time. The findings are then reviewed together and only
+ * Internal scans of several hosts (from the bulk panel): each logs in over SSH or RPC (WMI, for
+ * Windows) with its own saved login, or one login for all, a few at a time. The findings are then reviewed together and only
  * the chosen ones are saved.
  */
 export function BulkScanDialog({ hosts, canAddHosts, onClose, onApplied }: BulkScanDialogProps) {
   const [mode, setMode] = useState<'saved' | 'oneOff'>('saved')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [domain, setDomain] = useState('')
   const [trustNewKeys, setTrustNewKeys] = useState(false)
   const [items, setItems] = useState<Item[] | null>(null)
   const [setupError, setSetupError] = useState<string | null>(null)
@@ -71,7 +83,7 @@ export function BulkScanDialog({ hosts, canAddHosts, onClose, onApplied }: BulkS
     }
   }, [])
 
-  const readyCount = useMemo(() => hosts.filter((h) => (mode === 'saved' ? savedLogin(h).login : h.services.some((s) => s.protocol === 'Ssh'))).length, [hosts, mode])
+  const readyCount = useMemo(() => hosts.filter((h) => (mode === 'saved' ? savedLogin(h).login : scannable(h).length > 0)).length, [hosts, mode])
 
   async function start() {
     if (mode === 'oneOff' && !username.trim()) {
@@ -83,10 +95,17 @@ export function BulkScanDialog({ hosts, canAddHosts, onClose, onApplied }: BulkS
       if (mode === 'saved') {
         return { host, login: saved.login, sshPort: saved.sshPort, status: saved.login ? 'waiting' : 'skipped', message: saved.skip }
       }
-      const serviceIndex = host.services.findIndex((s) => s.protocol === 'Ssh')
-      return serviceIndex === -1
-        ? { host, login: null, sshPort: null, status: 'skipped', message: 'No SSH service' }
-        : { host, login: { serviceIndex, username: username.trim(), password }, sshPort: saved.sshPort, status: 'waiting' }
+      const [first] = scannable(host)
+      if (!first) {
+        return { host, login: null, sshPort: null, status: 'skipped', message: 'No SSH or RPC service' }
+      }
+      const rpcDomain = first.service.protocol === 'Rpc' && domain.trim() ? { domain: domain.trim() } : {}
+      return {
+        host,
+        login: { serviceIndex: first.index, username: username.trim(), password, ...rpcDomain },
+        sshPort: sshPortOf(host, first.index),
+        status: 'waiting',
+      }
     })
     setItems(initial)
 
@@ -135,7 +154,7 @@ export function BulkScanDialog({ hosts, canAddHosts, onClose, onApplied }: BulkS
   return (
     <Dialog
       title={title}
-      description="Each host gets one SSH login that reads its own settings. Nothing is saved until you review the results."
+      description="Each host gets one SSH or RPC (WMI) login that reads its own settings. Nothing is saved until you review the results."
       onClose={onClose}
       footer={
         <>
@@ -154,7 +173,7 @@ export function BulkScanDialog({ hosts, canAddHosts, onClose, onApplied }: BulkS
           <legend className={styles.heading}>Log in with</legend>
           <label className={styles.choice}>
             <input type="radio" name="bulk-scan-login" checked={mode === 'saved'} onChange={() => setMode('saved')} />
-            Each host’s saved SSH login (hosts without one are skipped)
+            Each host’s saved SSH or RPC login (hosts without one are skipped)
           </label>
           <label className={styles.choice}>
             <input type="radio" name="bulk-scan-login" checked={mode === 'oneOff'} onChange={() => setMode('oneOff')} />
@@ -165,6 +184,13 @@ export function BulkScanDialog({ hosts, canAddHosts, onClose, onApplied }: BulkS
           <>
             <TextField label="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" spellCheck={false} />
             <PasswordField label="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+            <TextField
+              label="Domain (RPC only, optional)"
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
           </>
         ) : null}
         <Checkbox label="Trust new SSH host keys (first connection)" checked={trustNewKeys} onChange={(e) => setTrustNewKeys(e.target.checked)} />

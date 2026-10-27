@@ -42,6 +42,20 @@ const web1 = makeHost('web1')
 const web2 = makeHost('web2')
 const noLogin = makeHost('nologin', { credentials: [{ id: 'c-x', label: null, username: 'ops', domain: null, notes: null, hasPassword: false, hasPrivateKey: false }] })
 
+const rpc = { protocol: 'Rpc' as const, port: null, label: null, rdpSecurity: null }
+const ssh = { protocol: 'Ssh' as const, port: null, label: null, rdpSecurity: null }
+const win1 = makeHost('win1', {
+  services: [rpc],
+  credentials: [{ id: 'c-win1', label: null, username: 'admin', domain: 'CORP', notes: null, hasPassword: true, hasPrivateKey: false }],
+})
+const mixed = makeHost('mixed', {
+  services: [rpc, ssh],
+  credentials: [{ id: 'c-mixed', label: null, username: 'root', domain: null, notes: null, hasPassword: false, hasPrivateKey: true }],
+})
+const windowsHosts = [mixed, web1, win1]
+
+const bodyFor = (scans: { hostId: string; body: Record<string, unknown> }[], hostId: string) => scans.find((s) => s.hostId === hostId)?.body
+
 const findings = (mac: string): ScanFindings => ({
   hostname: null,
   ipAddress: null,
@@ -58,16 +72,14 @@ const findings = (mac: string): ScanFindings => ({
   guests: [],
 })
 
-function renderWorkspace(scan: (hostId: string, body: Record<string, unknown>) => Response) {
+function renderWorkspace(scan: (hostId: string, body: Record<string, unknown>) => Response, hosts: Host[] = [noLogin, web1, web2]) {
   const scans: { hostId: string; body: Record<string, unknown> }[] = []
   const saved: Record<string, Record<string, unknown>> = {}
   mockFetch({
     ...antiforgeryRoute,
     'GET /api/auth/me': () => jsonResponse(200, adminUser),
-    'GET /api/hosts': () => jsonResponse(200, [noLogin, web1, web2]),
-    'POST /api/hosts/h-web1/scan/internal': (_url, init) => record('h-web1', init),
-    'POST /api/hosts/h-web2/scan/internal': (_url, init) => record('h-web2', init),
-    'POST /api/hosts/h-nologin/scan/internal': (_url, init) => record('h-nologin', init),
+    'GET /api/hosts': () => jsonResponse(200, hosts),
+    ...Object.fromEntries(hosts.map((h) => [`POST /api/hosts/${h.id}/scan/internal`, (_url: string, init: RequestInit) => record(h.id, init)])),
     'PUT /api/hosts/h-web1': (_url, init) => save('h-web1', init),
     'PUT /api/hosts/h-web2': (_url, init) => save('h-web2', init),
   })
@@ -88,10 +100,11 @@ function renderWorkspace(scan: (hostId: string, body: Record<string, unknown>) =
   return { scans, saved, user: userEvent.setup() }
 }
 
-async function scanAll(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByRole('button', { name: /^nologin/ }))
+/** Selects the hosts from `first` to `last` in the tree and opens the bulk internal scan. */
+async function scanAll(user: ReturnType<typeof userEvent.setup>, first = 'nologin', last = 'web2') {
+  await user.click(await screen.findByRole('button', { name: new RegExp(`^${first}`) }))
   await user.keyboard('{Shift>}')
-  await user.click(screen.getByRole('button', { name: /^web2/ }))
+  await user.click(screen.getByRole('button', { name: new RegExp(`^${last}`) }))
   await user.keyboard('{/Shift}')
   const panel = await screen.findByRole('form', { name: '3 hosts selected' })
   await user.click(within(panel).getByRole('button', { name: 'Internal scan…' }))
@@ -112,7 +125,7 @@ describe('bulk internal scans', () => {
 
     const review = await screen.findByRole('dialog', { name: 'Scanned 1 of 3 hosts' })
     const notScanned = within(review).getByRole('region', { name: 'Not scanned' })
-    expect(within(notScanned).getByText(/No saved SSH login/)).toBeInTheDocument()
+    expect(within(notScanned).getByText(/No saved SSH or RPC login/)).toBeInTheDocument()
     expect(within(notScanned).getByText(/SSH host key isn’t trusted yet/)).toBeInTheDocument()
     expect(scans.map((s) => s.hostId).sort()).toEqual(['h-web1', 'h-web2'])
     expect(scans.find((s) => s.hostId === 'h-web1')!.body).toEqual({ serviceIndex: 0, credentialId: 'c-web1' })
@@ -147,5 +160,34 @@ describe('bulk internal scans', () => {
       password: 's3cret',
       trustFingerprint: 'fp',
     })
+  })
+
+  it('scans Windows hosts over RPC with their saved logins, as Tasks ▸ Scan does', async () => {
+    const { scans, user } = renderWorkspace(() => jsonResponse(200, { status: 'ready', findings: findings('AA:BB:CC:00:00:03'), hostKey: null }), windowsHosts)
+
+    const setup = await scanAll(user, 'mixed', 'win1')
+    await user.click(within(setup).getByRole('button', { name: 'Scan 3 hosts' }))
+
+    await screen.findByRole('dialog', { name: /^Scanned/ })
+    expect(bodyFor(scans, 'h-win1')).toEqual({ serviceIndex: 0, credentialId: 'c-win1' })
+    // Its only login is an SSH key, which RPC can't use: it's scanned over SSH instead.
+    expect(bodyFor(scans, 'h-mixed')).toEqual({ serviceIndex: 1, credentialId: 'c-mixed' })
+    expect(bodyFor(scans, 'h-web1')).toEqual({ serviceIndex: 0, credentialId: 'c-web1' })
+  })
+
+  it('gives one login’s domain only to hosts scanned over RPC', async () => {
+    const { scans, user } = renderWorkspace(() => jsonResponse(200, { status: 'ready', findings: findings('AA:BB:CC:00:00:04'), hostKey: null }), windowsHosts)
+
+    const setup = await scanAll(user, 'mixed', 'win1')
+    await user.click(within(setup).getByRole('radio', { name: /One login for all/ }))
+    await user.type(within(setup).getByLabelText('Username'), 'admin')
+    await user.type(within(setup).getByLabelText('Password'), 's3cret')
+    await user.type(within(setup).getByLabelText('Domain (RPC only, optional)'), 'CORP')
+    await user.click(within(setup).getByRole('button', { name: 'Scan 3 hosts' }))
+
+    await screen.findByRole('dialog', { name: /^Scanned/ })
+    expect(bodyFor(scans, 'h-win1')).toEqual({ serviceIndex: 0, username: 'admin', password: 's3cret', domain: 'CORP' })
+    expect(bodyFor(scans, 'h-mixed')).toEqual({ serviceIndex: 0, username: 'admin', password: 's3cret', domain: 'CORP' })
+    expect(bodyFor(scans, 'h-web1')).toEqual({ serviceIndex: 0, username: 'admin', password: 's3cret' })
   })
 })
