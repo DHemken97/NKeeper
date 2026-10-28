@@ -3,7 +3,9 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using Renci.SshNet;
+using NKeeper.Sdk.Consoles;
 
 namespace NKeeper.Api.Kvm;
 

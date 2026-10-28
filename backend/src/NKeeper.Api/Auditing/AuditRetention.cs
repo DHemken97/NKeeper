@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using NKeeper.Infrastructure.Persistence;
 
+using NKeeper.Sdk.Auditing;
+
 namespace NKeeper.Api.Auditing;
 
 /// <summary>Deletes audit events and recordings past their retention, once at start-up and then daily.</summary>

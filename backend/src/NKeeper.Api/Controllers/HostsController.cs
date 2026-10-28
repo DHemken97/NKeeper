@@ -1,12 +1,15 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NKeeper.Infrastructure.Identity;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.Auditing;
+using NKeeper.Sdk.Auditing;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Api.Inventory;
 using NKeeper.Api.Inventory.Import;
 using NKeeper.Api.Security;
+using NKeeper.Sdk.Security;
 
 namespace NKeeper.Api.Controllers;
 

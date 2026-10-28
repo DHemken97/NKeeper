@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.Contracts.Auth;
 using NKeeper.Api.Security;
+using NKeeper.Sdk.Security;
 using NKeeper.Infrastructure.Email;
 using NKeeper.Infrastructure.Identity;
 
@@ -26,7 +27,7 @@ public sealed class AuthController(
     IOptions<SingleSignOnOptions> singleSignOnOptions,
     SignInCredentialStore signInCredentials,
     TwoFactorSignIn twoFactor,
-    Auditing.AuditLog audit,
+    NKeeper.Sdk.Auditing.AuditLog audit,
     TimeProvider timeProvider) : ControllerBase
 {
     public const string InvalidCredentialsCode = "invalid_credentials";
@@ -61,8 +62,8 @@ public sealed class AuthController(
         {
             // The name as typed (never the password), so repeated guessing shows up in the trail.
             var attempted = request.UserNameOrEmail.Trim();
-            await audit.RecordAsync(new Auditing.AuditEntry(
-                Auditing.AuditActions.SignInFailed, UserName: attempted.Length > 256 ? attempted[..256] : attempted));
+            await audit.RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry(
+                NKeeper.Sdk.Auditing.AuditActions.SignInFailed, UserName: attempted.Length > 256 ? attempted[..256] : attempted));
             var problem = ProblemDetailsFactory.CreateProblemDetails(
                 HttpContext,
                 StatusCodes.Status401Unauthorized,
@@ -89,8 +90,8 @@ public sealed class AuthController(
         }
         catch (EmailException)
         {
-            await audit.RecordAsync(new Auditing.AuditEntry(
-                Auditing.AuditActions.SignInFailed, Detail: "The sign-in code couldn't be emailed", UserId: user.Id, UserName: user.UserName));
+            await audit.RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry(
+                NKeeper.Sdk.Auditing.AuditActions.SignInFailed, Detail: "The sign-in code couldn't be emailed", UserId: user.Id, UserName: user.UserName));
             return CodedProblem(
                 StatusCodes.Status503ServiceUnavailable,
                 EmailUnavailableCode,
@@ -124,8 +125,8 @@ public sealed class AuthController(
         var (outcome, challenge, user) = await twoFactor.VerifyAsync(HttpContext, request.Code, cancellationToken);
         if (user is not null && outcome != TwoFactorOutcome.Verified)
         {
-            await audit.RecordAsync(new Auditing.AuditEntry(
-                Auditing.AuditActions.SignInFailed, Detail: "Wrong sign-in code", UserId: user.Id, UserName: user.UserName));
+            await audit.RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry(
+                NKeeper.Sdk.Auditing.AuditActions.SignInFailed, Detail: "Wrong sign-in code", UserId: user.Id, UserName: user.UserName));
         }
 
         if (outcome == TwoFactorOutcome.Verified && user is { IsDisabled: false } && challenge is not null)
@@ -196,8 +197,8 @@ public sealed class AuthController(
 
         await signInManager.SignInAsync(user, properties);
         var detail = string.Join(" · ", new[] { method, secondStep }.Where(part => part is not null));
-        await audit.RecordAsync(new Auditing.AuditEntry(
-            Auditing.AuditActions.SignIn, Detail: detail.Length > 0 ? detail : null, UserId: user.Id, UserName: user.UserName));
+        await audit.RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry(
+            NKeeper.Sdk.Auditing.AuditActions.SignIn, Detail: detail.Length > 0 ? detail : null, UserId: user.Id, UserName: user.UserName));
         return await ToResponseAsync(user, signInPassword is not null ? $"{directoryOptions.Value.Domain}\\{user.UserName}" : null);
     }
 
@@ -249,7 +250,7 @@ public sealed class AuthController(
     {
         if (User.Identity?.IsAuthenticated == true)
         {
-            await audit.RecordAsync(new Auditing.AuditEntry(Auditing.AuditActions.SignOut));
+            await audit.RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry(NKeeper.Sdk.Auditing.AuditActions.SignOut));
         }
 
         // Removes the server-side session row via the ticket store and clears the cookie.

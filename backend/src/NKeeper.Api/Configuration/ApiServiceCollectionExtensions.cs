@@ -9,12 +9,17 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.Inventory;
+using NKeeper.Api.Plugins;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Api.Security;
+using NKeeper.Sdk.Security;
 using NKeeper.Api.Desktop;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Ssh;
+using NKeeper.Sdk.Ssh;
 
 namespace NKeeper.Api.Configuration;
 
@@ -23,7 +28,7 @@ internal static class ApiServiceCollectionExtensions
     public const string AntiforgeryHeaderName = "X-XSRF-TOKEN";
     public const string RateLimitedCode = "rate_limited";
 
-    public static IServiceCollection AddNKeeperApi(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddNKeeperApi(this IServiceCollection services, IConfiguration configuration, PluginCatalog plugins)
     {
         services.AddOptions<AuthenticationSettings>()
             .Bind(configuration.GetSection(AuthenticationSettings.SectionName))
@@ -57,10 +62,10 @@ internal static class ApiServiceCollectionExtensions
                 options.ModelMetadataDetailsProviders.Add(new SystemTextJsonValidationMetadataProvider());
             })
             .AddJsonOptions(options =>
-                options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
+                options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)))
+            .AddPluginControllers(plugins);
         services.AddScoped<HostAccess>();
         services.AddScoped<HostManager>();
-        services.AddScoped<NKeeper.Api.Zabbix.ZabbixConnection>();
         services.AddScoped<NKeeper.Api.Inventory.Import.HostImporter>();
         services.AddSingleton<NKeeper.Api.Inventory.Scanning.ExternalScan>();
         services.AddScoped<NKeeper.Api.Users.UserAdministration>();
@@ -75,11 +80,11 @@ internal static class ApiServiceCollectionExtensions
         services.AddScoped<NKeeper.Api.Rpc.RpcSession>();
         services.AddSingleton<SessionLimiter>();
         services.AddHttpContextAccessor();
-        services.AddOptions<NKeeper.Api.Auditing.AuditSettings>()
-            .Bind(configuration.GetSection(NKeeper.Api.Auditing.AuditSettings.SectionName))
+        services.AddOptions<NKeeper.Sdk.Auditing.AuditSettings>()
+            .Bind(configuration.GetSection(NKeeper.Sdk.Auditing.AuditSettings.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
-        services.AddSingleton<NKeeper.Api.Auditing.AuditLog>();
+        services.AddSingleton<NKeeper.Sdk.Auditing.AuditLog>();
         services.AddSingleton<NKeeper.Api.Migration.MigrationJobs>();
         services.AddHostedService<NKeeper.Api.Auditing.AuditRetention>();
         services.AddOptions<NKeeper.Api.Health.HealthSettings>()
@@ -98,8 +103,8 @@ internal static class ApiServiceCollectionExtensions
         services.AddHttpForwarder();
         services.AddSingleton<NKeeper.Api.Web.WebSessionStore>();
         services.AddHostedService<NKeeper.Api.Web.WebSessionSweeper>();
-        services.AddSingleton<NKeeper.Api.Kvm.ConsoleSessionStore>();
-        services.AddHostedService<NKeeper.Api.Kvm.ConsoleSessionSweeper>();
+        services.AddSingleton<NKeeper.Sdk.Consoles.ConsoleSessionStore>();
+        services.AddHostedService<NKeeper.Sdk.Consoles.ConsoleSessionSweeper>();
         services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier));
         services.AddOpenApi();

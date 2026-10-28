@@ -5,6 +5,8 @@ using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
+using NKeeper.Sdk.Web;
 
 namespace NKeeper.Api.Web;
 
@@ -121,7 +123,7 @@ public sealed class WebSession : IDisposable
 }
 
 /// <summary>Open web sessions, in memory (per API instance; restarting the API ends them).</summary>
-public sealed class WebSessionStore(IOptions<WebProxySettings> settings, TimeProvider timeProvider, Auditing.AuditLog audit, ILogger<WebSessionStore> logger) : IDisposable
+public sealed class WebSessionStore(IOptions<WebProxySettings> settings, TimeProvider timeProvider, NKeeper.Sdk.Auditing.AuditLog audit, ILogger<WebSessionStore> logger) : IDisposable
 {
     public const int MaxSessionsPerUser = 20;
 
@@ -169,10 +171,10 @@ public sealed class WebSessionStore(IOptions<WebProxySettings> settings, TimePro
         }
 
         logger.LogInformation("Web session {SessionId} of user {UserId} ended: {Reason}", id, session.UserId, reason);
-        _ = audit.RecordAsync(new Auditing.AuditEntry(
-            Auditing.AuditActions.SessionEnd,
+        _ = audit.RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry(
+            NKeeper.Sdk.Auditing.AuditActions.SessionEnd,
             session.HostId,
-            $"Web · {session.Target} · after {Auditing.AuditedSession.FormatDuration(timeProvider.GetUtcNow() - session.CreatedAtUtc)} · {reason}",
+            $"Web · {session.Target} · after {NKeeper.Sdk.Auditing.AuditedSession.FormatDuration(timeProvider.GetUtcNow() - session.CreatedAtUtc)} · {reason}",
             session.Id,
             UserId: session.UserId));
         session.Dispose();

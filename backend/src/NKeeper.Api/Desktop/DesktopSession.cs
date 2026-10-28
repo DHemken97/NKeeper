@@ -4,9 +4,10 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Infrastructure.Inventory;
 
 namespace NKeeper.Api.Desktop;
@@ -50,7 +51,7 @@ internal sealed partial class DesktopSession(
     SessionTargetResolver resolver,
     TrustedKeyStore trustedKeys,
     IOptions<GuacdSettings> guacd,
-    Auditing.AuditLog audit,
+    NKeeper.Sdk.Auditing.AuditLog audit,
     ILogger<DesktopSession> logger)
 {
     public const string CertificateAlgorithm = "x509";
@@ -63,7 +64,7 @@ internal sealed partial class DesktopSession(
         var name = protocol == ServiceProtocol.Rdp ? "RDP" : "VNC";
         var started = Stopwatch.StartNew();
         SessionTarget? target = null;
-        Auditing.AuditedSession? audited = null;
+        NKeeper.Sdk.Auditing.AuditedSession? audited = null;
 
         try
         {

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Infrastructure.Persistence;
 using Host = NKeeper.Infrastructure.Inventory.Host;

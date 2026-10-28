@@ -4,11 +4,16 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using NKeeper.Api.Auditing;
+using NKeeper.Sdk.Auditing;
 using NKeeper.Api.Kvm;
+using NKeeper.Sdk.Consoles;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Security;
+using NKeeper.Sdk.Security;
 using NKeeper.Api.Transfer;
 using NKeeper.Api.Web;
+using NKeeper.Sdk.Web;
 using NKeeper.Infrastructure.Identity;
 using NKeeper.Infrastructure.Persistence;
 

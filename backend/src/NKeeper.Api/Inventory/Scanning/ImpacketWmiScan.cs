@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Text.Json;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 
 namespace NKeeper.Api.Inventory.Scanning;
 

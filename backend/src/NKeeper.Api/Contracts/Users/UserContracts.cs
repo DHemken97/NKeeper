@@ -41,7 +41,7 @@ public sealed record UserResponse(
     bool IsSingleSignOnAccount,
     bool EmailTwoFactor,
     DateTimeOffset CreatedAtUtc,
-    IReadOnlyList<HostAccessGrantResponse> Grants);
+    IReadOnlyList<HostAccessGrantResponse> Grants) : NKeeper.Sdk.Auditing.IAuditedUser;
 
 public sealed record CreateUserRequest
 {

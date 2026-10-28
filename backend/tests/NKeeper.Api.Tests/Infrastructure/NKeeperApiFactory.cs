@@ -24,6 +24,9 @@ public sealed class NKeeperApiFactory(
     public const string AdminPassword = "Test-Admin-Passw0rd";
     public const string SessionCookieName = "NKeeper.Session";
 
+    /// <summary>NKeeper's own plugins, referenced by the test project and loaded from its own files, unsigned.</summary>
+    private static readonly string[] BuiltInPlugins = ["NKeeper.Plugins.Zabbix"];
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // UseSetting applies before Program.cs reads configuration, unlike ConfigureAppConfiguration.
@@ -37,6 +40,11 @@ public sealed class NKeeperApiFactory(
         builder.UseSetting("BootstrapAdmin:UserName", AdminUserName);
         builder.UseSetting("BootstrapAdmin:Email", AdminEmail);
         builder.UseSetting("BootstrapAdmin:Password", adminPassword ?? AdminPassword);
+        for (var i = 0; i < BuiltInPlugins.Length; i++)
+        {
+            builder.UseSetting($"Plugins:BuiltIn:{i}", BuiltInPlugins[i]);
+        }
+
         foreach (var (key, value) in settings ?? new Dictionary<string, string>())
         {
             builder.UseSetting(key, value);

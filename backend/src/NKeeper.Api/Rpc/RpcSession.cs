@@ -3,8 +3,9 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text.Json;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Infrastructure.Inventory;
 
 namespace NKeeper.Api.Rpc;
@@ -29,7 +30,7 @@ public sealed record RpcStartMessage : SessionStartMessage
 /// browser sends <c>{ type: "call", opnum, stub }</c> (stub as hex) and receives
 /// <c>{ type: "response", stub }</c> or <c>{ type: "fault", message, status? }</c>.
 /// </summary>
-internal sealed class RpcSession(SessionTargetResolver resolver, Auditing.AuditLog audit, ILogger<RpcSession> logger)
+internal sealed class RpcSession(SessionTargetResolver resolver, NKeeper.Sdk.Auditing.AuditLog audit, ILogger<RpcSession> logger)
 {
     private const int MaxStubBytes = 256 * 1024;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
@@ -40,7 +41,7 @@ internal sealed class RpcSession(SessionTargetResolver resolver, Auditing.AuditL
     {
         var started = Stopwatch.StartNew();
         SessionTarget? target = null;
-        Auditing.AuditedSession? audited = null;
+        NKeeper.Sdk.Auditing.AuditedSession? audited = null;
 
         try
         {

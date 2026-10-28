@@ -1,7 +1,10 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Ssh;
+using NKeeper.Sdk.Ssh;
+using NKeeper.Sdk.Consoles;
 using NKeeper.Infrastructure.Inventory;
 using Renci.SshNet;
 using Renci.SshNet.Common;
@@ -17,15 +20,6 @@ public sealed record VirtualMachine(string Id, string Name, string State, string
 
 /// <summary>A hypervisor's VMs, and whether it is a Proxmox node (and which one).</summary>
 internal sealed record HypervisorListing(IReadOnlyList<VirtualMachine> Vms, string? ProxmoxNode);
-
-/// <summary>The console protocols NKeeper opens for VMs (libvirt's display URI schemes).</summary>
-public static class ConsoleProtocols
-{
-    public const string Spice = "spice";
-    public const string Vnc = "vnc";
-
-    public static string DisplayName(string protocol) => protocol.ToUpperInvariant();
-}
 
 /// <summary>The power actions NKeeper offers for libvirt VMs, and the virsh command each one is.</summary>
 public static class KvmActions
@@ -59,9 +53,6 @@ public static class KvmActions
         _ => false,
     };
 }
-
-/// <summary>Where a VM's console (SPICE or VNC) listens on the hypervisor, and its password if it has one.</summary>
-public sealed record ConsoleDisplay(string Protocol, string Host, int Port, string? Password);
 
 /// <summary>
 /// Talks to a KVM hypervisor the way virt-manager does: over SSH, running <c>virsh</c> against

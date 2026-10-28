@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Sockets;
 using System.Text;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 
 namespace NKeeper.Api.Desktop;
 

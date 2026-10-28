@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>NKeeper's Zabbix plugin: links hosts to Zabbix through its API and shows what Zabbix knows about them.</Description>
+  </PropertyGroup>
+
+</Project>

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing.Handlers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Tests.Infrastructure;
 using NKeeper.Infrastructure.Persistence;
 

@@ -547,7 +547,7 @@ public sealed class MigrationPlanTests
         }
         else
         {
-            Assert.Throws<NKeeper.Api.RemoteSessions.SessionException>(() => StorageTrace.Quoted(path));
+            Assert.Throws<NKeeper.Sdk.Sessions.SessionException>(() => StorageTrace.Quoted(path));
         }
     }
 

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 
 namespace NKeeper.Api.Idrac;
 

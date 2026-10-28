@@ -1,12 +1,16 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.Kvm;
+using NKeeper.Sdk.Consoles;
 using NKeeper.Api.Proxmox;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Security;
+using NKeeper.Sdk.Security;
 using NKeeper.Api.Web;
+using NKeeper.Sdk.Web;
 using NKeeper.Infrastructure.Inventory;
 
 namespace NKeeper.Api.Controllers;
@@ -157,7 +161,7 @@ public sealed class ProxmoxController(ConsoleSessionStore consoles) : Controller
         {
             var guest = await FindGuestAsync(connection, request.Vm, cancellationToken);
             var (upid, already) = await connection.Api.StartActionAsync(guest, request.Action, cancellationToken);
-            await Audit.RecordAsync(new Auditing.AuditEntry("proxmox.power", connection.Target.HostId, $"{request.Action} · {GuestDisplay(guest)}{(already is null ? "" : $" · {already}")}"));
+            await Audit.RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry("proxmox.power", connection.Target.HostId, $"{request.Action} · {GuestDisplay(guest)}{(already is null ? "" : $" · {already}")}"));
             return new ProxmoxTaskResponse("ready", display, null, Info(guest), Upid: upid, Already: already);
         }, cancellationToken);
 
@@ -182,7 +186,7 @@ public sealed class ProxmoxController(ConsoleSessionStore consoles) : Controller
             }
 
             var upid = await connection.Api.MigrateAsync(guest, target.Name, request.Online && guest.Status == "running", request.WithLocalDisks, cancellationToken);
-            await Audit.RecordAsync(new Auditing.AuditEntry("proxmox.migrate", connection.Target.HostId, $"{GuestDisplay(guest)} · {guest.Node} → {target.Name}"));
+            await Audit.RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry("proxmox.migrate", connection.Target.HostId, $"{GuestDisplay(guest)} · {guest.Node} → {target.Name}"));
             return new ProxmoxTaskResponse("ready", display, null, Info(guest), Upid: upid);
         }, cancellationToken);
 
@@ -276,7 +280,7 @@ public sealed class ProxmoxController(ConsoleSessionStore consoles) : Controller
 
     private static string GuestDisplay(ProxmoxGuest guest) => $"{(guest.Type == "lxc" ? "CT" : "VM")} {guest.VmId} {guest.Name}";
 
-    private Auditing.AuditLog Audit => HttpContext.RequestServices.GetRequiredService<Auditing.AuditLog>();
+    private NKeeper.Sdk.Auditing.AuditLog Audit => HttpContext.RequestServices.GetRequiredService<NKeeper.Sdk.Auditing.AuditLog>();
 
     /// <summary>A signed-in API connection to the node, through its jump-host tunnel (owned until handed to a console).</summary>
     internal sealed class ProxmoxConnection(SessionTarget target, ProxmoxApi api, JumpTunnel tunnel) : IDisposable

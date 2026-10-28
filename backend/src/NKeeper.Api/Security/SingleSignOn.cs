@@ -3,9 +3,11 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using NKeeper.Api.Auditing;
+using NKeeper.Sdk.Auditing;
 using NKeeper.Api.Configuration;
 using NKeeper.Infrastructure.Email;
 using NKeeper.Infrastructure.Identity;
+using NKeeper.Sdk.Security;
 
 namespace NKeeper.Api.Security;
 

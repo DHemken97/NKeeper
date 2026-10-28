@@ -25,6 +25,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NKeeper.Infrastructure\NKeeper.Infrastructure.csproj" />
+    <ProjectReference Include="..\NKeeper.Plugins.Packaging\NKeeper.Plugins.Packaging.csproj" />
+    <ProjectReference Include="..\NKeeper.Sdk\NKeeper.Sdk.csproj" />
   </ItemGroup>
 
   <ItemGroup>

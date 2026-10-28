@@ -5,7 +5,9 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Api.Kvm;
+using NKeeper.Sdk.Consoles;
 using NKeeper.Api.Tests.Infrastructure;
 
 namespace NKeeper.Api.Tests;

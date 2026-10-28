@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Api.Tests.Infrastructure;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Infrastructure.Persistence;

@@ -8,7 +8,9 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using NKeeper.Api.Controllers;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Web;
+using NKeeper.Sdk.Web;
 
 namespace NKeeper.Api.Proxmox;
 

@@ -39,7 +39,9 @@ public sealed class NKeeperDbContext(DbContextOptions<NKeeperDbContext> options)
 
     public DbSet<TwoFactorChallenge> TwoFactorChallenges => Set<TwoFactorChallenge>();
 
-    public DbSet<Zabbix.ZabbixSettings> ZabbixSettings => Set<Zabbix.ZabbixSettings>();
+    public DbSet<Plugins.PluginSetting> PluginSettings => Set<Plugins.PluginSetting>();
+
+    public DbSet<Plugins.HostPluginValue> HostPluginValues => Set<Plugins.HostPluginValue>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

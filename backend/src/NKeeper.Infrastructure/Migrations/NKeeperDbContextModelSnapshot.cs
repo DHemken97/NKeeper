@@ -632,10 +632,6 @@ namespace NKeeper.Infrastructure.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
-                    b.Property<string>("ZabbixHostId")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByUserId");
@@ -896,20 +892,43 @@ namespace NKeeper.Infrastructure.Migrations
                     b.ToTable("ServiceChecks", (string)null);
                 });
 
-            modelBuilder.Entity("NKeeper.Infrastructure.Zabbix.ZabbixSettings", b =>
+            modelBuilder.Entity("NKeeper.Infrastructure.Plugins.HostPluginValue", b =>
                 {
-                    b.Property<int>("Id")
-                        .HasColumnType("integer");
+                    b.Property<Guid>("HostId")
+                        .HasColumnType("uuid");
 
-                    b.Property<bool>("Enabled")
-                        .HasColumnType("boolean");
+                    b.Property<string>("PluginId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
 
-                    b.Property<byte[]>("ProtectedApiToken")
+                    b.Property<string>("Name")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.HasKey("HostId", "PluginId", "Name");
+
+                    b.HasIndex("PluginId", "Name", "Value");
+
+                    b.ToTable("HostPluginValues", (string)null);
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Plugins.PluginSetting", b =>
+                {
+                    b.Property<string>("PluginId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<byte[]>("ProtectedValue")
                         .HasColumnType("bytea");
-
-                    b.Property<string>("TrustedCertificateFingerprint")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
 
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -917,19 +936,14 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<Guid?>("UpdatedByUserId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Url")
-                        .IsRequired()
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)");
+                    b.Property<string>("Value")
+                        .HasColumnType("text");
 
-                    b.HasKey("Id");
+                    b.HasKey("PluginId", "Name");
 
                     b.HasIndex("UpdatedByUserId");
 
-                    b.ToTable("ZabbixSettings", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_ZabbixSettings_Singleton", "\"Id\" = 1");
-                        });
+                    b.ToTable("PluginSettings", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
@@ -1114,7 +1128,16 @@ namespace NKeeper.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("NKeeper.Infrastructure.Zabbix.ZabbixSettings", b =>
+            modelBuilder.Entity("NKeeper.Infrastructure.Plugins.HostPluginValue", b =>
+                {
+                    b.HasOne("NKeeper.Infrastructure.Inventory.Host", null)
+                        .WithMany("PluginValues")
+                        .HasForeignKey("HostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Plugins.PluginSetting", b =>
                 {
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
@@ -1125,6 +1148,8 @@ namespace NKeeper.Infrastructure.Migrations
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Host", b =>
                 {
                     b.Navigation("Credentials");
+
+                    b.Navigation("PluginValues");
 
                     b.Navigation("Services");
 

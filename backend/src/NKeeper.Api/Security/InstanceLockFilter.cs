@@ -2,12 +2,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using NKeeper.Api.Transfer;
+using NKeeper.Sdk.Security;
 
 namespace NKeeper.Api.Security;
-
-/// <summary>Marks controllers whose changes are refused while the instance is locked for a move.</summary>
-[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
-public sealed class BlockedWhileInstanceLockedAttribute : Attribute;
 
 /// <summary>
 /// After an export with "lock", changes to hosts and users (anything not GET) answer 409

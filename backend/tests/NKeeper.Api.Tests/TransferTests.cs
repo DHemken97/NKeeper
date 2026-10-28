@@ -6,10 +6,13 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Ssh;
+using NKeeper.Sdk.Ssh;
 using NKeeper.Api.Tests.Infrastructure;
 using NKeeper.Api.Transfer;
 using NKeeper.Infrastructure.Inventory;
@@ -249,6 +252,77 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
         var bobId = users!.Single(u => u.GetProperty("userName").GetString() == "bob").GetProperty("id").GetString();
         (await _sourceAdmin.SendJsonAsync(HttpMethod.Put, $"/api/users/{bobId}/grants", new { grants = new[] { new { hostId = vm.Id, level = "Use" } } }, Ct)).EnsureSuccessStatusCode();
         return (node, vm);
+    }
+
+    [Fact]
+    public async Task PluginSettingsAndHostValues_MoveToo_WithSecretsReEncrypted()
+    {
+        await SeedSourceAsync();
+        var linked = await CreateAsync(_sourceAdmin, new { name = "monitored01", ipAddress = "10.20.0.1", plugins = new { zabbix = new { hostId = "10084" } } });
+        (await _sourceAdmin.SendJsonAsync(HttpMethod.Put, "/api/plugins/zabbix/settings", new { enabled = false, url = "https://zabbix.example.com/", apiToken = "zabbix-token-1" }, Ct)).EnsureSuccessStatusCode();
+
+        await ImportIntoTargetAsync(await ExportAsync());
+
+        await AssertZabbixMovedAsync(linked.Id, "zabbix-token-1");
+    }
+
+    [Fact]
+    public async Task AFileFromBeforeZabbixWasAPlugin_StillBringsItsSettingsAndLinks()
+    {
+        await SeedSourceAsync();
+        var linked = await CreateAsync(_sourceAdmin, new { name = "monitored01", ipAddress = "10.20.0.1" });
+        var bundle = await ExportAsync();
+
+        // Rewrite the export the way an older NKeeper wrote it: Zabbix settings and host IDs of their own.
+        var (header, compressed) = BundleFormat.Read(bundle, Passphrase);
+        System.Text.Json.Nodes.JsonObject data;
+        await using (var gzip = new System.IO.Compression.GZipStream(new MemoryStream(compressed), System.IO.Compression.CompressionMode.Decompress))
+        {
+            data = (await System.Text.Json.Nodes.JsonNode.ParseAsync(gzip, cancellationToken: Ct))!.AsObject();
+        }
+
+        data.Remove("pluginSettings");
+        data["zabbix"] = new System.Text.Json.Nodes.JsonObject
+        {
+            ["enabled"] = true, ["url"] = "https://zabbix.example.com/", ["apiToken"] = "old-token", ["trustedCertificateFingerprint"] = null,
+        };
+        var host = data["hosts"]!.AsArray().Single(h => h!["id"]!.GetValue<Guid>() == linked.Id)!;
+        host["zabbixHostId"] = "10084";
+        using var plain = new MemoryStream();
+        await using (var gzip = new System.IO.Compression.GZipStream(plain, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true))
+        {
+            await JsonSerializer.SerializeAsync(gzip, data, cancellationToken: Ct);
+        }
+
+        using var rewritten = new MemoryStream();
+        await BundleFormat.WriteAsync(rewritten, header, Passphrase, plain.ToArray(), Ct);
+
+        await ImportIntoTargetAsync(rewritten.ToArray());
+
+        await AssertZabbixMovedAsync(linked.Id, "old-token");
+    }
+
+    private async Task ImportIntoTargetAsync(byte[] bundle)
+    {
+        var imported = await PostImportAsync(_targetAdmin, "import", bundle, Passphrase, confirm: true);
+        Assert.True(imported.StatusCode == HttpStatusCode.OK, await imported.Content.ReadAsStringAsync(Ct));
+    }
+
+    private async Task AssertZabbixMovedAsync(Guid hostId, string apiToken)
+    {
+        using var admin = _target.CreateClient();
+        (await admin.LoginAsync(NKeeperApiFactory.AdminUserName, NKeeperApiFactory.AdminPassword, Ct)).EnsureSuccessStatusCode();
+
+        var host = (await admin.GetFromJsonAsync<HostResponse>($"/api/hosts/{hostId}", Json, Ct))!;
+        Assert.Equal("10084", host.Plugins["zabbix"]["hostId"]);
+        var settings = await admin.GetFromJsonAsync<JsonElement>("/api/plugins/zabbix/settings", Ct);
+        Assert.Equal("https://zabbix.example.com/", settings.GetProperty("url").GetString());
+        Assert.True(settings.GetProperty("hasApiToken").GetBoolean());
+
+        // The token was re-encrypted with the new server's keys.
+        await using var scope = _target.Services.CreateAsyncScope();
+        var stored = scope.ServiceProvider.GetRequiredKeyedService<NKeeper.Sdk.Plugins.IPluginSettings>("zabbix");
+        Assert.Equal(apiToken, await stored.GetSecretAsync("apiToken", Ct));
     }
 
     private async Task<byte[]> ExportAsync(bool lockAfterExport = false)

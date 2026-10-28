@@ -1,13 +1,17 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.Migration;
 using NKeeper.Api.Proxmox;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Security;
+using NKeeper.Sdk.Security;
 using NKeeper.Api.Ssh;
+using NKeeper.Sdk.Ssh;
 using NKeeper.Api.Web;
+using NKeeper.Sdk.Web;
 using NKeeper.Infrastructure.Inventory;
 using Renci.SshNet;
 

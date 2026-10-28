@@ -1,8 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.Auditing;
+using NKeeper.Sdk.Auditing;
 using NKeeper.Api.Health;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Infrastructure.Persistence;

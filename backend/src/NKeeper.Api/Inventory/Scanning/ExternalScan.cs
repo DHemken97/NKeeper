@@ -2,7 +2,9 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Infrastructure.Inventory;
 using Host = NKeeper.Infrastructure.Inventory.Host;
 

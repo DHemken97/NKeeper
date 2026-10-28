@@ -1,4 +1,5 @@
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Infrastructure.Inventory;
 
 namespace NKeeper.Api.Inventory.Scanning;

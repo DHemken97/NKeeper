@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Net;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 

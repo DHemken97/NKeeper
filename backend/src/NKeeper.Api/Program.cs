@@ -1,12 +1,15 @@
 using Microsoft.Extensions.Options;
 using NKeeper.Api.Configuration;
+using NKeeper.Api.Plugins;
 using NKeeper.Infrastructure;
 using NKeeper.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddNKeeperInfrastructure(builder.Configuration);
-builder.Services.AddNKeeperApi(builder.Configuration);
+// Plugins first: they register services, and their controllers join the API's.
+var plugins = builder.Services.AddNKeeperPlugins(builder.Configuration, builder.Environment.ContentRootPath);
+builder.Services.AddNKeeperApi(builder.Configuration, plugins);
 
 var app = builder.Build();
 var hostsFrontend = SpaHosting.IsDeployed(app.Environment);

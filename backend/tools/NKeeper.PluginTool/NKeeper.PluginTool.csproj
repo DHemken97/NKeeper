@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>nkeeper-plugin: makes signing keys, and packs, signs and verifies NKeeper plugin packages.</Description>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>nkeeper-plugin</ToolCommandName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\NKeeper.Plugins.Packaging\NKeeper.Plugins.Packaging.csproj" />
+  </ItemGroup>
+
+</Project>

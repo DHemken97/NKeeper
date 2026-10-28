@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using NKeeper.Sdk.Inventory;
 
 namespace NKeeper.Api.Contracts.Inventory;
 
@@ -51,4 +52,12 @@ public sealed record HostImportResponse(
     IReadOnlyList<string> Unchanged,
     IReadOnlyList<string> Deleted,
     IReadOnlyList<HostImportSkip> Skipped,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings) : NKeeper.Sdk.Auditing.IAuditDescribed
+{
+    // A dry run changes nothing, so it isn't recorded.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsAudited => !DryRun;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string AuditDetail => $"added {Added.Count}, updated {Updated.Count}, deleted {Deleted.Count}";
+}

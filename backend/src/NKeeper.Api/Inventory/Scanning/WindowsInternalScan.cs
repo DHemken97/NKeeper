@@ -2,7 +2,9 @@ using System.Management;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 
 namespace NKeeper.Api.Inventory.Scanning;
 

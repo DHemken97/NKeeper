@@ -1,7 +1,9 @@
 using System.ComponentModel.DataAnnotations;
 using NKeeper.Api.Controllers;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Infrastructure.Inventory;
+using NKeeper.Sdk.Inventory;
 
 namespace NKeeper.Api.Contracts.Inventory;
 

@@ -3,15 +3,9 @@ using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
+using NKeeper.Sdk.Inventory;
 
 namespace NKeeper.Api.Inventory;
-
-/// <summary>A request that is well-formed but conflicts with stored data (e.g. an unknown group).</summary>
-public sealed class InventoryValidationException(string field, string message) : Exception(message)
-{
-    /// <summary>camelCase JSON property name the error belongs to.</summary>
-    public string Field { get; } = field;
-}
 
 /// <summary>Turns inventory domain failures into consistent problem responses.</summary>
 internal sealed class InventoryExceptionFilter(ProblemDetailsFactory problemDetailsFactory) : IExceptionFilter
@@ -30,7 +24,7 @@ internal sealed class InventoryExceptionFilter(ProblemDetailsFactory problemDeta
                 context.ExceptionHandled = true;
                 break;
 
-            case Access.HostAccessDeniedException denied:
+            case NKeeper.Sdk.Access.HostAccessDeniedException denied:
                 var forbidden = problemDetailsFactory.CreateProblemDetails(
                     context.HttpContext, StatusCodes.Status403Forbidden, title: "Not allowed", detail: denied.Message);
                 forbidden.Extensions["code"] = "forbidden";

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 

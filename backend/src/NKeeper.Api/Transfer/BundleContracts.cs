@@ -14,15 +14,23 @@ namespace NKeeper.Api.Transfer;
  */
 
 /// <param name="Email">The SMTP settings, password in plain text; absent from older files.</param>
-/// <param name="Zabbix">The Zabbix settings, API token in plain text; absent from older files.</param>
+/// <param name="Zabbix">
+/// The Zabbix settings, API token in plain text, from files written before Zabbix was a plugin.
+/// Read into the zabbix plugin's settings; no longer written (they're in <paramref name="PluginSettings"/>).
+/// </param>
+/// <param name="PluginSettings">Every plugin's settings, secrets in plain text; absent from older files.</param>
 public sealed record BundleV1(
     IReadOnlyList<BundleUser> Users,
     IReadOnlyList<BundleGrant> Grants,
     IReadOnlyList<BundleHost> Hosts,
     BundleEmail? Email = null,
-    BundleZabbix? Zabbix = null);
+    BundleZabbix? Zabbix = null,
+    IReadOnlyList<BundlePluginSetting>? PluginSettings = null);
 
 public sealed record BundleZabbix(bool Enabled, string Url, string? ApiToken, string? TrustedCertificateFingerprint);
+
+/// <summary>One plugin setting: a <paramref name="Value"/>, or a <paramref name="Secret"/> in plain text (re-encrypted by the target).</summary>
+public sealed record BundlePluginSetting(string PluginId, string Name, string? Value, string? Secret, DateTimeOffset UpdatedAtUtc);
 
 public sealed record BundleEmail(
     bool Enabled,
@@ -70,7 +78,8 @@ public sealed record BundleGrant(
     Guid? CreatedByUserId);
 
 /// <param name="JumpHostId">The host it's reached through; absent from older files.</param>
-/// <param name="ZabbixHostId">The Zabbix host it's linked to; absent from older files.</param>
+/// <param name="ZabbixHostId">The Zabbix host it's linked to, from files written before Zabbix was a plugin; read into the zabbix plugin's hostId.</param>
+/// <param name="Plugins">Plugins' values on the host, by plugin ID then field; absent from older files.</param>
 public sealed record BundleHost(
     Guid Id,
     string Name,
@@ -95,7 +104,8 @@ public sealed record BundleHost(
     IReadOnlyList<BundleTrustedKey> TrustedKeys,
     Guid? JumpHostId = null,
     Guid? JumpCredentialId = null,
-    string? ZabbixHostId = null);
+    string? ZabbixHostId = null,
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? Plugins = null);
 
 public sealed record BundleService(Guid Id, ServiceProtocol Protocol, int? Port, string? Label, int Position, RdpSecurityMode? RdpSecurity, string? Address);
 

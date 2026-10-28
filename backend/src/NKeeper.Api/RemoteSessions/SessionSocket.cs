@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Net.WebSockets;
 using System.Text.Json;
+using NKeeper.Sdk.Sessions;
 
 namespace NKeeper.Api.RemoteSessions;
 

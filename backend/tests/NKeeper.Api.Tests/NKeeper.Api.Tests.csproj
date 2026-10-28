@@ -32,6 +32,17 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NKeeper.Api\NKeeper.Api.csproj" />
+    <!-- NKeeper's own plugins, which NKeeperApiFactory loads as built-in plugins (Plugins:BuiltIn). -->
+    <ProjectReference Include="..\..\..\plugins\zabbix\backend\NKeeper.Plugins.Zabbix.csproj" />
+    <!-- Built, not referenced: the tests package it and load it as a plugin, in its own load context. -->
+    <ProjectReference Include="..\NKeeper.SamplePlugin\NKeeper.SamplePlugin.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
+
+  <Target Name="CopySamplePlugin" AfterTargets="Build">
+    <ItemGroup>
+      <SamplePluginFiles Include="..\NKeeper.SamplePlugin\bin\$(Configuration)\$(TargetFramework)\NKeeper.SamplePlugin.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(SamplePluginFiles)" DestinationFolder="$(OutDir)sample-plugin" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

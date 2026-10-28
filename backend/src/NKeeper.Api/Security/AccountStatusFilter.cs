@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using NKeeper.Infrastructure.Identity;
 using NKeeper.Infrastructure.Persistence;
+using NKeeper.Sdk.Security;
 
 namespace NKeeper.Api.Security;
 

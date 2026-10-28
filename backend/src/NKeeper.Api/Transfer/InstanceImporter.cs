@@ -4,10 +4,10 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using NKeeper.Infrastructure.Access;
 using NKeeper.Infrastructure.Email;
-using NKeeper.Infrastructure.Zabbix;
 using NKeeper.Infrastructure.Identity;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Infrastructure.Persistence;
+using NKeeper.Infrastructure.Plugins;
 using Host = NKeeper.Infrastructure.Inventory.Host;
 
 namespace NKeeper.Api.Transfer;
@@ -121,17 +121,19 @@ internal sealed class InstanceImporter(
             });
         }
 
-        if (bundle.Data.Zabbix is { } zabbix)
+        var pluginSettings = PluginSettingsOf(bundle.Data);
+        if (pluginSettings.Count > 0)
         {
-            await db.ZabbixSettings.ExecuteDeleteAsync(cancellationToken);
-            db.ZabbixSettings.Add(new ZabbixSettings
+            await db.PluginSettings.ExecuteDeleteAsync(cancellationToken);
+            db.PluginSettings.AddRange(pluginSettings.Select(s => new PluginSetting
             {
-                Enabled = zabbix.Enabled,
-                Url = zabbix.Url,
-                ProtectedApiToken = zabbix.ApiToken is null ? null : protector.Protect(zabbix.ApiToken),
-                TrustedCertificateFingerprint = zabbix.TrustedCertificateFingerprint,
-                UpdatedAtUtc = timeProvider.GetUtcNow(),
-            });
+                PluginId = s.PluginId,
+                Name = s.Name,
+                Value = s.Secret is null ? s.Value : null,
+                // Re-encrypted with this instance's own keys.
+                ProtectedValue = s.Secret is null ? null : protector.Protect(s.Secret),
+                UpdatedAtUtc = s.UpdatedAtUtc,
+            }));
         }
 
         var roles = await db.Roles.ToDictionaryAsync(r => r.NormalizedName!, cancellationToken);
@@ -194,7 +196,7 @@ internal sealed class InstanceImporter(
                 SerialNumber = host.SerialNumber,
                 JumpHostId = host.JumpHostId,
                 JumpCredentialId = host.JumpCredentialId,
-                ZabbixHostId = host.ZabbixHostId,
+                PluginValues = PluginValuesOf(host),
                 CreatedAtUtc = host.CreatedAtUtc,
                 UpdatedAtUtc = host.UpdatedAtUtc,
                 CreatedByUserId = host.CreatedByUserId,
@@ -265,6 +267,13 @@ internal sealed class InstanceImporter(
             throw new BundleException("The file has no enabled administrator who can sign in, so nobody could manage the new instance.");
         }
 
+        if (PluginSettingsOf(data).Any(s => !Fits(s.PluginId, s.Name))
+            || data.Hosts.Any(h => (h.Plugins ?? new Dictionary<string, IReadOnlyDictionary<string, string>>())
+                .Any(p => p.Value.Any(v => !Fits(p.Key, v.Key) || v.Value.Length > HostPluginValue.MaxLength))))
+        {
+            throw new BundleException("The file has plugin data that doesn't fit, so it wasn't imported.");
+        }
+
         var warnings = new List<string>();
         var noPassword = data.Users.Count(u => u.PasswordHash is null && !u.IsDirectoryAccount && u.SingleSignOnSubject is null);
         if (noPassword > 0)
@@ -297,6 +306,50 @@ internal sealed class InstanceImporter(
         }
 
         return warnings;
+    }
+
+    private static bool Fits(string pluginId, string name) =>
+        pluginId.Length is > 0 and <= PluginSetting.PluginIdMaxLength && name.Length is > 0 and <= PluginSetting.NameMaxLength;
+
+    /// <summary>The plugins' settings, with those of a file written before Zabbix was a plugin as the zabbix plugin's.</summary>
+    private static List<BundlePluginSetting> PluginSettingsOf(BundleV1 data)
+    {
+        var settings = data.PluginSettings?.ToList() ?? [];
+        if (data.Zabbix is { } zabbix && !settings.Any(s => s.PluginId == "zabbix"))
+        {
+            var now = DateTimeOffset.UtcNow;
+            settings.Add(new BundlePluginSetting("zabbix", "enabled", zabbix.Enabled ? "true" : "false", null, now));
+            if (zabbix.Url.Length > 0)
+            {
+                settings.Add(new BundlePluginSetting("zabbix", "url", zabbix.Url, null, now));
+            }
+
+            if (zabbix.TrustedCertificateFingerprint is { } fingerprint)
+            {
+                settings.Add(new BundlePluginSetting("zabbix", "trustedCertificateFingerprint", fingerprint, null, now));
+            }
+
+            if (zabbix.ApiToken is { } token)
+            {
+                settings.Add(new BundlePluginSetting("zabbix", "apiToken", null, token, now));
+            }
+        }
+
+        return settings;
+    }
+
+    /// <summary>A host's plugin values, with the Zabbix host ID of a file written before Zabbix was a plugin as the zabbix plugin's hostId.</summary>
+    private static List<HostPluginValue> PluginValuesOf(BundleHost host)
+    {
+        var values = (host.Plugins ?? new Dictionary<string, IReadOnlyDictionary<string, string>>())
+            .SelectMany(p => p.Value.Select(v => new HostPluginValue { HostId = host.Id, PluginId = p.Key, Name = v.Key, Value = v.Value }))
+            .ToList();
+        if (host.ZabbixHostId is { } zabbixHostId && !values.Any(v => v.PluginId == "zabbix" && v.Name == "hostId"))
+        {
+            values.Add(new HostPluginValue { HostId = host.Id, PluginId = "zabbix", Name = "hostId", Value = zabbixHostId });
+        }
+
+        return values;
     }
 
     /// <summary>Stops reading past a size, so a small compressed file can't expand without bound.</summary>

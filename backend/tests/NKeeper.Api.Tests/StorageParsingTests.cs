@@ -1,4 +1,5 @@
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Storage;
 
 namespace NKeeper.Api.Tests;

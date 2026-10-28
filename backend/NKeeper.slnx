@@ -2,8 +2,17 @@
   <Folder Name="/src/">
     <Project Path="src/NKeeper.Api/NKeeper.Api.csproj" />
     <Project Path="src/NKeeper.Infrastructure/NKeeper.Infrastructure.csproj" />
+    <Project Path="src/NKeeper.Plugins.Packaging/NKeeper.Plugins.Packaging.csproj" />
+    <Project Path="src/NKeeper.Sdk/NKeeper.Sdk.csproj" />
+  </Folder>
+  <Folder Name="/plugins/">
+    <Project Path="../plugins/zabbix/backend/NKeeper.Plugins.Zabbix.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/NKeeper.PluginTool/NKeeper.PluginTool.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/NKeeper.Api.Tests/NKeeper.Api.Tests.csproj" />
+    <Project Path="tests/NKeeper.SamplePlugin/NKeeper.SamplePlugin.csproj" />
   </Folder>
 </Solution>

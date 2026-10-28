@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using NKeeper.Sdk.Sessions;
 
 namespace NKeeper.Api.RemoteSessions;
 

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using NKeeper.Sdk.Inventory;
 
 namespace NKeeper.Api.Inventory.Scanning;
 

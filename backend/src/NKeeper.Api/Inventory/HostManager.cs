@@ -1,20 +1,23 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
-using NKeeper.Api.Access;
 using NKeeper.Api.Contracts.Inventory;
-using NKeeper.Api.Contracts.Zabbix;
-using NKeeper.Api.Zabbix;
+using NKeeper.Api.Plugins;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Infrastructure.Persistence;
+using NKeeper.Infrastructure.Plugins;
+using NKeeper.Sdk.Access;
+using NKeeper.Sdk.Inventory;
 using Host = NKeeper.Infrastructure.Inventory.Host;
 
 namespace NKeeper.Api.Inventory;
 
 /// <summary>
-/// Manages hosts together with the tags, services and credentials they own.
-/// Credential secrets go in encrypted and never come back out.
+/// Manages hosts together with the tags, services, credentials and plugin values they own.
+/// Credential secrets go in encrypted and never come back out. Plugins reach it as
+/// <see cref="IHostDirectory"/>.
 /// </summary>
-public sealed class HostManager(NKeeperDbContext db, HostAccess access, CredentialProtector protector, TimeProvider timeProvider)
+public sealed class HostManager(NKeeperDbContext db, HostAccess access, CredentialProtector protector, HostFieldRegistry hostFields, TimeProvider timeProvider)
+    : IHostDirectory
 {
     private static readonly Expression<Func<Host, HostResponse>> Projection = h => new HostResponse(
         h.Id,
@@ -32,7 +35,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         h.SerialNumber,
         h.JumpHostId,
         h.JumpCredentialId,
-        h.ZabbixHostId,
+        PluginValueMap(h.PluginValues.Select(v => new PluginValueRow(v.PluginId, v.Name, v.Value)).ToList()),
         h.Tags
             .OrderBy(t => t.Name.ToUpper()).ThenBy(t => t.Value.ToUpper())
             .Select(t => new HostTagResponse(t.Name, t.Value == "" ? null : t.Value))
@@ -112,6 +115,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             .Include(h => h.Services)
             .Include(h => h.Tags)
             .Include(h => h.Credentials)
+            .Include(h => h.PluginValues)
             .AsSplitQuery()
             .FirstOrDefaultAsync(h => h.Id == id, cancellationToken);
         if (host is null)
@@ -256,113 +260,6 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             .OrderBy(h => h.Name.ToUpper()).ThenBy(h => h.Id)
             .Select(Projection).AsSplitQuery().ToListAsync(cancellationToken);
         return [.. created.Select(h => h with { CanManage = true })];
-    }
-
-    /// <summary>Links hosts to Zabbix hosts (or, with no Zabbix host ID, unlinks them).</summary>
-    /// <returns>The updated hosts.</returns>
-    /// <exception cref="HostAccessDeniedException">A host is missing or the user can't manage it.</exception>
-    public async Task<List<HostResponse>> LinkZabbixAsync(IReadOnlyList<ZabbixLinkRequest> links, RequestUser user, CancellationToken cancellationToken)
-    {
-        var ids = links.Select(l => l.HostId).Distinct().ToList();
-        var hosts = await access.Manageable(user).Where(h => ids.Contains(h.Id)).ToDictionaryAsync(h => h.Id, cancellationToken);
-        if (hosts.Count != ids.Count)
-        {
-            throw new HostAccessDeniedException();
-        }
-
-        var now = timeProvider.GetUtcNow();
-        foreach (var link in links)
-        {
-            var host = hosts[link.HostId];
-            var zabbixHostId = InventoryText.TrimToNull(link.ZabbixHostId);
-            if (host.ZabbixHostId != zabbixHostId)
-            {
-                host.ZabbixHostId = zabbixHostId;
-                host.UpdatedAtUtc = now;
-                host.UpdatedByUserId = user.Id;
-            }
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
-        var manageable = await access.ManageableAsync(user, cancellationToken);
-        var updated = await access.Visible(user).AsNoTracking().Where(h => ids.Contains(h.Id))
-            .OrderBy(h => h.Name.ToUpper()).ThenBy(h => h.Id)
-            .Select(Projection).AsSplitQuery().ToListAsync(cancellationToken);
-        return [.. updated.Select(h => h with { CanManage = manageable?.Contains(h.Id) ?? true })];
-    }
-
-    /// <summary>
-    /// Adds hosts for Zabbix hosts, from what Zabbix knows: the visible name, the main interface's IP
-    /// address and DNS name, the inventory's MAC address and serial number, the description and tags
-    /// (and, if asked, the host groups as <c>group</c> tags), each linked to its Zabbix host. Zabbix
-    /// hosts already linked to an NKeeper host, or without an address, are skipped. Administrators
-    /// only (enforced by the controller).
-    /// </summary>
-    internal async Task<ZabbixImportResponse> CreateFromZabbixAsync(
-        IReadOnlyList<ZabbixHostRecord> records, bool groupsAsTags, RequestUser user, CancellationToken cancellationToken)
-    {
-        var ids = records.Select(r => r.Summary.HostId).ToList();
-        var existing = await db.Hosts.AsNoTracking()
-            .Where(h => h.ZabbixHostId != null && ids.Contains(h.ZabbixHostId))
-            .Select(h => new { h.ZabbixHostId, h.Name })
-            .ToListAsync(cancellationToken);
-        var linkedTo = existing.GroupBy(h => h.ZabbixHostId!).ToDictionary(g => g.Key, g => g.First().Name);
-
-        var now = timeProvider.GetUtcNow();
-        var hosts = new List<Host>();
-        var skipped = new List<ZabbixImportSkipped>();
-        foreach (var record in records)
-        {
-            var zabbix = record.Summary;
-            if (linkedTo.TryGetValue(zabbix.HostId, out var nkeeperName))
-            {
-                skipped.Add(new ZabbixImportSkipped(zabbix.HostId, zabbix.Name, $"Already in NKeeper as “{nkeeperName}”."));
-                continue;
-            }
-
-            var ip = zabbix.IpAddresses.Count > 0 ? zabbix.IpAddresses[0] : null;
-            var hostname = zabbix.DnsNames.FirstOrDefault(NetworkAddress.IsValidHostname)
-                // The technical name is often the machine's hostname.
-                ?? (NetworkAddress.IsValidHostname(zabbix.Host) && ip is null ? zabbix.Host : null);
-            if (hostname is null && ip is null)
-            {
-                skipped.Add(new ZabbixImportSkipped(zabbix.HostId, zabbix.Name, "Zabbix has no IP address or DNS name for it."));
-                continue;
-            }
-
-            var host = new Host
-            {
-                Id = Guid.NewGuid(),
-                Name = Truncate(zabbix.Name, 200),
-                Hostname = hostname,
-                IpAddress = ip,
-                MacAddress = zabbix.MacAddresses.Count > 0 ? zabbix.MacAddresses[0] : null,
-                Description = record.Description is null ? null : Truncate(record.Description, 4000),
-                SerialNumber = record.SerialNumber is null ? null : Truncate(record.SerialNumber, 128),
-                ZabbixHostId = zabbix.HostId,
-                CreatedAtUtc = now,
-                CreatedByUserId = user.Id,
-                UpdatedAtUtc = now,
-                UpdatedByUserId = user.Id,
-            };
-            var tags = zabbix.Tags.Select(t => (Name: t.Name, Value: t.Value))
-                .Concat(groupsAsTags ? record.Groups.Select(g => (Name: "group", Value: (string?)g)) : []);
-            ApplyTags(host, tags
-                // "name:value" is NKeeper's search syntax, so tag names can't have a colon.
-                .Where(t => t.Name.Trim().Length is > 0 and <= HostTag.NameMaxLength && !t.Name.Contains(':', StringComparison.Ordinal))
-                .Where(t => (t.Value?.Length ?? 0) <= HostTag.ValueMaxLength)
-                .Take(50)
-                .Select(t => new HostTagRequest { Name = t.Name.Trim(), Value = t.Value }));
-            hosts.Add(host);
-        }
-
-        db.Hosts.AddRange(hosts);
-        await db.SaveChangesAsync(cancellationToken);
-        var createdIds = hosts.Select(h => h.Id).ToList();
-        var created = await access.Visible(user).AsNoTracking().Where(h => createdIds.Contains(h.Id))
-            .OrderBy(h => h.Name.ToUpper()).ThenBy(h => h.Id)
-            .Select(Projection).AsSplitQuery().ToListAsync(cancellationToken);
-        return new ZabbixImportResponse([.. created.Select(h => h with { CanManage = true })], skipped);
     }
 
     private static string Truncate(string text, int length) => text.Length <= length ? text : text[..length];
@@ -755,7 +652,6 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         host.CpuCores = request.CpuCores;
         host.MemoryMiB = request.MemoryMiB;
         host.SerialNumber = InventoryText.TrimToNull(request.SerialNumber);
-        host.ZabbixHostId = InventoryText.TrimToNull(request.ZabbixHostId);
         host.JumpHostId = request.JumpHostId;
         host.JumpCredentialId = request.JumpHostId is null ? null : request.JumpCredentialId;
         ApplyVirtualMachine(host, request);
@@ -765,6 +661,130 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         ApplyServices(host, request.Services);
         ApplyTags(host, request.Tags);
         ApplyCredentials(host, request.Credentials, copySources);
+        foreach (var (pluginId, fields) in request.Plugins ?? [])
+        {
+            foreach (var (name, value) in fields)
+            {
+                ApplyPluginValue(host, pluginId, name, value);
+            }
+        }
+    }
+
+    /// <summary>Sets (or removes) one plugin value on a host whose <see cref="Host.PluginValues"/> are loaded.</summary>
+    /// <returns>Whether it changed.</returns>
+    private bool ApplyPluginValue(Host host, string pluginId, string name, string? value)
+    {
+        var normalized = hostFields.Normalize(pluginId, name, value);
+        var existing = host.PluginValues.FirstOrDefault(v => v.PluginId == pluginId && v.Name == name);
+        if (normalized is null)
+        {
+            return existing is not null && host.PluginValues.Remove(existing);
+        }
+
+        if (existing is null)
+        {
+            host.PluginValues.Add(new HostPluginValue { HostId = host.Id, PluginId = pluginId, Name = name, Value = normalized });
+            return true;
+        }
+
+        if (existing.Value == normalized)
+        {
+            return false;
+        }
+
+        existing.Value = normalized;
+        return true;
+    }
+
+    private sealed record PluginValueRow(string PluginId, string Name, string Value);
+
+    private static Dictionary<string, IReadOnlyDictionary<string, string>> PluginValueMap(List<PluginValueRow> rows) =>
+        rows.GroupBy(r => r.PluginId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, IReadOnlyDictionary<string, string> (g) => g.ToDictionary(r => r.Name, r => r.Value, StringComparer.Ordinal), StringComparer.Ordinal);
+
+    async Task<IReadOnlyList<HostResponse>> IHostDirectory.GetAsync(IReadOnlyCollection<Guid> ids, RequestUser user, CancellationToken cancellationToken) =>
+        await GetManyAsync(ids, user, cancellationToken);
+
+    async Task<IReadOnlyList<HostResponse>> IHostDirectory.SetPluginValuesAsync(
+        string pluginId, string field, IReadOnlyDictionary<Guid, string?> values, RequestUser user, CancellationToken cancellationToken)
+    {
+        var ids = values.Keys.ToList();
+        var hosts = await access.Manageable(user).Where(h => ids.Contains(h.Id)).Include(h => h.PluginValues).ToListAsync(cancellationToken);
+        if (hosts.Count != ids.Count)
+        {
+            throw new HostAccessDeniedException();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        foreach (var host in hosts)
+        {
+            if (ApplyPluginValue(host, pluginId, field, values[host.Id]))
+            {
+                host.UpdatedAtUtc = now;
+                host.UpdatedByUserId = user.Id;
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return await GetManyAsync(ids, user, cancellationToken);
+    }
+
+    async Task<IReadOnlyList<HostResponse>> IHostDirectory.CreateAsync(IReadOnlyList<NewHost> newHosts, RequestUser user, CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        var hosts = new List<Host>();
+        foreach (var item in newHosts)
+        {
+            var hostname = item.Hostname is { } name && NetworkAddress.IsValidHostname(name.Trim()) ? name.Trim() : null;
+            var ip = NetworkAddress.TryNormalizeIp(item.IpAddress ?? string.Empty, out var normalizedIp) ? normalizedIp : null;
+            if (hostname is null && ip is null)
+            {
+                throw new InventoryValidationException("hostname", $"{item.Name} has neither a valid hostname nor an IP address.");
+            }
+
+            var host = new Host
+            {
+                Id = Guid.NewGuid(),
+                Name = Truncate(InventoryText.TrimToNull(item.Name) ?? hostname ?? ip!, 200),
+                Hostname = hostname,
+                IpAddress = ip,
+                MacAddress = NetworkAddress.TryNormalizeMac(item.MacAddress ?? string.Empty, out var mac) ? mac : null,
+                Description = InventoryText.TrimToNull(item.Description) is { } description ? Truncate(description, 4000) : null,
+                SerialNumber = InventoryText.TrimToNull(item.SerialNumber) is { } serial ? Truncate(serial, 128) : null,
+                CreatedAtUtc = now,
+                CreatedByUserId = user.Id,
+                UpdatedAtUtc = now,
+                UpdatedByUserId = user.Id,
+            };
+            ApplyTags(host, item.Tags
+                // "name:value" is NKeeper's search syntax, so tag names can't have a colon.
+                .Where(t => t.Name.Trim().Length is > 0 and <= HostTag.NameMaxLength && !t.Name.Contains(':', StringComparison.Ordinal))
+                .Where(t => (t.Value?.Length ?? 0) <= HostTag.ValueMaxLength)
+                .Take(50)
+                .Select(t => new HostTagRequest { Name = t.Name.Trim(), Value = t.Value }));
+            foreach (var (pluginId, fields) in item.Plugins)
+            {
+                foreach (var (field, value) in fields)
+                {
+                    ApplyPluginValue(host, pluginId, field, value);
+                }
+            }
+
+            hosts.Add(host);
+        }
+
+        db.Hosts.AddRange(hosts);
+        await db.SaveChangesAsync(cancellationToken);
+        return await GetManyAsync([.. hosts.Select(h => h.Id)], user, cancellationToken);
+    }
+
+    private async Task<List<HostResponse>> GetManyAsync(IReadOnlyCollection<Guid> ids, RequestUser user, CancellationToken cancellationToken)
+    {
+        var hosts = await access.Visible(user).AsNoTracking().Where(h => ids.Contains(h.Id))
+            .OrderBy(h => h.Name.ToUpper()).ThenBy(h => h.Id)
+            .Select(Projection).AsSplitQuery().ToListAsync(cancellationToken);
+        var manageable = await access.ManageableAsync(user, cancellationToken);
+        return [.. hosts.Select(h => h with { CanManage = manageable?.Contains(h.Id) ?? true })];
     }
 
     private static HashSet<string> IdracAddresses(Host host) =>

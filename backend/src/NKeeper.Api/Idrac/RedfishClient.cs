@@ -7,7 +7,9 @@ using System.Text;
 using System.Text.Json;
 using NKeeper.Api.Controllers;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Web;
+using NKeeper.Sdk.Web;
 
 namespace NKeeper.Api.Idrac;
 

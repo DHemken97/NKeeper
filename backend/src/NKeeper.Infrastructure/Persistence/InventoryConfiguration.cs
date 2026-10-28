@@ -19,7 +19,6 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
         builder.Property(h => h.Description).HasMaxLength(4000);
         builder.Property(h => h.VirtualMachineId).HasMaxLength(128);
         builder.Property(h => h.SerialNumber).HasMaxLength(128);
-        builder.Property(h => h.ZabbixHostId).HasMaxLength(Host.ZabbixHostIdMaxLength);
         builder.ToTable(t => t.HasCheckConstraint("CK_Hosts_Address", "\"Hostname\" IS NOT NULL OR \"IpAddress\" IS NOT NULL"));
 
         // A VM's hypervisor is another host; deleting the hypervisor keeps its VMs and clears the link.
@@ -38,6 +37,7 @@ internal sealed class HostConfiguration : IEntityTypeConfiguration<Host>
         builder.HasMany(h => h.Tags).WithOne().HasForeignKey(t => t.HostId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(h => h.Credentials).WithOne().HasForeignKey(c => c.HostId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(h => h.TrustedKeys).WithOne().HasForeignKey(k => k.HostId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(h => h.PluginValues).WithOne().HasForeignKey(v => v.HostId).OnDelete(DeleteBehavior.Cascade);
 
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(h => h.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(h => h.UpdatedByUserId).OnDelete(DeleteBehavior.SetNull);

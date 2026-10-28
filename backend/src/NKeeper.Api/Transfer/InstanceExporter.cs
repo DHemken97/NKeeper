@@ -66,12 +66,13 @@ internal sealed class InstanceExporter(NKeeperDbContext db, CredentialProtector 
         var users = await db.Users.AsNoTracking().OrderBy(u => u.CreatedAtUtc).ToListAsync(cancellationToken);
         var grants = await db.HostAccessGrants.AsNoTracking().ToListAsync(cancellationToken);
         var email = await db.EmailSettings.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
-        var zabbix = await db.ZabbixSettings.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
+        var pluginSettings = await db.PluginSettings.AsNoTracking().OrderBy(s => s.PluginId).ThenBy(s => s.Name).ToListAsync(cancellationToken);
         var hosts = await db.Hosts.AsNoTracking()
             .Include(h => h.Services)
             .Include(h => h.Tags)
             .Include(h => h.Credentials)
             .Include(h => h.TrustedKeys)
+            .Include(h => h.PluginValues)
             .AsSplitQuery()
             .OrderBy(h => h.CreatedAtUtc)
             .ToListAsync(cancellationToken);
@@ -95,19 +96,18 @@ internal sealed class InstanceExporter(NKeeperDbContext db, CredentialProtector 
                 [.. h.TrustedKeys.Select(k => new BundleTrustedKey(k.Id, k.Protocol, k.Port, k.Algorithm, k.Fingerprint, k.TrustedAtUtc, k.TrustedByUserId))],
                 h.JumpHostId,
                 h.JumpCredentialId,
-                h.ZabbixHostId))],
+                Plugins: h.PluginValues.Count == 0
+                    ? null
+                    : h.PluginValues.GroupBy(v => v.PluginId).ToDictionary(
+                        g => g.Key, IReadOnlyDictionary<string, string> (g) => g.ToDictionary(v => v.Name, v => v.Value))))],
             email is null
                 ? null
                 : new BundleEmail(
                     email.Enabled, email.Host, email.Port, email.Security, email.UserName,
                     email.ProtectedPassword is null ? null : protector.Unprotect(email.ProtectedPassword),
                     email.FromAddress, email.FromName),
-            zabbix is null
-                ? null
-                : new BundleZabbix(
-                    zabbix.Enabled, zabbix.Url,
-                    zabbix.ProtectedApiToken is null ? null : protector.Unprotect(zabbix.ProtectedApiToken),
-                    zabbix.TrustedCertificateFingerprint));
+            PluginSettings: [.. pluginSettings.Select(s => new BundlePluginSetting(
+                s.PluginId, s.Name, s.Value, s.ProtectedValue is null ? null : protector.Unprotect(s.ProtectedValue), s.UpdatedAtUtc))]);
     }
 }
 

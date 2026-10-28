@@ -4,12 +4,14 @@ using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Infrastructure.Inventory;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 using SshConnectionInfo = Renci.SshNet.ConnectionInfo;
+using NKeeper.Sdk.Ssh;
 
 namespace NKeeper.Api.Ssh;
 
@@ -28,7 +30,7 @@ public sealed record SshStartMessage : SessionStartMessage
 /// credentials from the inventory can be used, and decrypted secrets never leave the server.
 /// Unknown host keys must be confirmed by the user; changed keys are refused.
 /// </summary>
-internal sealed class SshTerminalSession(SessionTargetResolver resolver, TrustedKeyStore trustedKeys, Auditing.AuditLog audit, ILogger<SshTerminalSession> logger)
+internal sealed class SshTerminalSession(SessionTargetResolver resolver, TrustedKeyStore trustedKeys, NKeeper.Sdk.Auditing.AuditLog audit, ILogger<SshTerminalSession> logger)
 {
     private const int DefaultSshPort = 22;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
@@ -41,7 +43,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
         var started = Stopwatch.StartNew();
         SessionTarget? target = null;
         var disposables = new List<IDisposable>();
-        Auditing.AuditedSession? audited = null;
+        NKeeper.Sdk.Auditing.AuditedSession? audited = null;
 
         try
         {
@@ -124,7 +126,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
         }
     }
 
-    private static async Task PumpAsync(SessionSocket socket, SshClient client, ShellStream shell, Auditing.TerminalRecorder? recorder, CancellationToken cancellationToken)
+    private static async Task PumpAsync(SessionSocket socket, SshClient client, ShellStream shell, NKeeper.Sdk.Auditing.TerminalRecorder? recorder, CancellationToken cancellationToken)
     {
         using var inputCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var output = PumpOutputAsync(socket, shell, recorder, cancellationToken);
@@ -149,7 +151,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
         await Task.WhenAll(output, input).ContinueWith(_ => { }, TaskScheduler.Default);
     }
 
-    private static async Task PumpOutputAsync(SessionSocket socket, ShellStream shell, Auditing.TerminalRecorder? recorder, CancellationToken cancellationToken)
+    private static async Task PumpOutputAsync(SessionSocket socket, ShellStream shell, NKeeper.Sdk.Auditing.TerminalRecorder? recorder, CancellationToken cancellationToken)
     {
         var buffer = new byte[16 * 1024];
         try
@@ -172,7 +174,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
         }
     }
 
-    private static async Task PumpInputAsync(SessionSocket socket, ShellStream shell, Auditing.TerminalRecorder? recorder, CancellationToken cancellationToken)
+    private static async Task PumpInputAsync(SessionSocket socket, ShellStream shell, NKeeper.Sdk.Auditing.TerminalRecorder? recorder, CancellationToken cancellationToken)
     {
         while (socket.State == WebSocketState.Open)
         {

@@ -3,10 +3,12 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using NKeeper.Api.Auditing;
+using NKeeper.Sdk.Auditing;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.Contracts.Auth;
 using NKeeper.Api.Contracts.Users;
 using NKeeper.Api.Security;
+using NKeeper.Sdk.Security;
 using NKeeper.Api.Users;
 using NKeeper.Infrastructure.Identity;
 
@@ -121,17 +123,17 @@ public sealed class AccountController(
 
         if (user.IsDirectoryAccount)
         {
-            throw new Inventory.InventoryValidationException("currentPassword", "Your password is managed by Active Directory. Change it in Windows.");
+            throw new NKeeper.Sdk.Inventory.InventoryValidationException("currentPassword", "Your password is managed by Active Directory. Change it in Windows.");
         }
 
         if (user.IsSingleSignOnAccount)
         {
-            throw new Inventory.InventoryValidationException("currentPassword", "You sign in with single sign-on, so NKeeper has no password for you to change.");
+            throw new NKeeper.Sdk.Inventory.InventoryValidationException("currentPassword", "You sign in with single sign-on, so NKeeper has no password for you to change.");
         }
 
         if (request.CurrentPassword == request.NewPassword)
         {
-            throw new Inventory.InventoryValidationException("newPassword", "Choose a password different from your current one.");
+            throw new NKeeper.Sdk.Inventory.InventoryValidationException("newPassword", "Choose a password different from your current one.");
         }
 
         var result = await userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);

@@ -2,12 +2,15 @@ using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.Idrac;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Security;
+using NKeeper.Sdk.Security;
 using NKeeper.Api.Web;
+using NKeeper.Sdk.Web;
 using NKeeper.Infrastructure.Inventory;
 
 namespace NKeeper.Api.Controllers;
@@ -56,7 +59,7 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
         WithRedfishAsync(request, async (client, target) =>
         {
             await IdracRedfish.ResetAsync(client, request.ResetType, cancellationToken);
-            await Audit.RecordAsync(new Auditing.AuditEntry("idrac.power", target.HostId, $"{request.ResetType} · {target.Display}"));
+            await Audit.RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry("idrac.power", target.HostId, $"{request.ResetType} · {target.Display}"));
             return new IdracOverviewResponse("ready", null, Display(target), null);
         }, cancellationToken);
 
@@ -97,7 +100,7 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
                     SessionErrorCodes.TooManySessions, $"You already have {WebSessionStore.MaxSessionsPerUser} open web sessions. Close one and try again.");
             }
 
-            await Audit.RecordAsync(new Auditing.AuditEntry(Auditing.AuditActions.SessionStart, target.HostId, $"iDRAC console · {target.Display}", session.Id));
+            await Audit.RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry(NKeeper.Sdk.Auditing.AuditActions.SessionStart, target.HostId, $"iDRAC console · {target.Display}", session.Id));
             return new OpenWebSessionResponse(
                 "ready", session.Id, $"{WebProxyMiddleware.LaunchPath}?t={session.LaunchToken}", settings.Value.BaseDomain, uri.ToString(), null);
         }
@@ -153,7 +156,7 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
             target.HostId, target.Address, target.Port, target.KeyProtocol, target.KnownKeys, request.TrustFingerprint, User.GetUserId(), HttpContext.RequestServices.GetRequiredService<TrustedKeyStore>(), cancellationToken, tunnel);
     }
 
-    private Auditing.AuditLog Audit => HttpContext.RequestServices.GetRequiredService<Auditing.AuditLog>();
+    private NKeeper.Sdk.Auditing.AuditLog Audit => HttpContext.RequestServices.GetRequiredService<NKeeper.Sdk.Auditing.AuditLog>();
 
     private SessionTargetResolver Resolver => HttpContext.RequestServices.GetRequiredService<SessionTargetResolver>();
 

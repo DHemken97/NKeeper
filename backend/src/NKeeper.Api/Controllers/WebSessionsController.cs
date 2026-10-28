@@ -3,11 +3,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Security;
+using NKeeper.Sdk.Security;
 using NKeeper.Api.Web;
+using NKeeper.Sdk.Web;
 using NKeeper.Infrastructure.Inventory;
 
 namespace NKeeper.Api.Controllers;
@@ -23,8 +26,6 @@ public sealed record OpenWebSessionRequest
     [StringLength(128)]
     public string? TrustFingerprint { get; init; }
 }
-
-public sealed record WebCertificateResponse(string Fingerprint, string Subject, string Issuer, DateTimeOffset Expires);
 
 /// <summary>
 /// Either the session is ready (open <see cref="LaunchPath"/> on the session's own origin,
@@ -121,8 +122,8 @@ public sealed class WebSessionsController(HostAccess access, WebSessionStore ses
                 $"You already have {WebSessionStore.MaxSessionsPerUser} open web sessions. Close one and try again.");
         }
 
-        await HttpContext.RequestServices.GetRequiredService<Auditing.AuditLog>().RecordAsync(
-            new Auditing.AuditEntry(Auditing.AuditActions.SessionStart, host.Id, $"{(idrac ? "iDRAC web interface" : "Web")} · {target}", session.Id));
+        await HttpContext.RequestServices.GetRequiredService<NKeeper.Sdk.Auditing.AuditLog>().RecordAsync(
+            new NKeeper.Sdk.Auditing.AuditEntry(NKeeper.Sdk.Auditing.AuditActions.SessionStart, host.Id, $"{(idrac ? "iDRAC web interface" : "Web")} · {target}", session.Id));
         return new OpenWebSessionResponse(
             "ready", session.Id, $"{WebProxyMiddleware.LaunchPath}?t={session.LaunchToken}", settings.Value.BaseDomain, target.ToString(), null);
     }

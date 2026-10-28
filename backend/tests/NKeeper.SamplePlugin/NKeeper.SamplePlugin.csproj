@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A minimal plugin the tests sign, package and load the way a server loads real ones. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!-- Its own dependency list, so the server's loader can resolve what it ships beside it. -->
+    <GenerateDependencyFile>true</GenerateDependencyFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The server provides the SDK: it isn't copied into the plugin. -->
+    <ProjectReference Include="..\..\src\NKeeper.Sdk\NKeeper.Sdk.csproj" Private="false" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>

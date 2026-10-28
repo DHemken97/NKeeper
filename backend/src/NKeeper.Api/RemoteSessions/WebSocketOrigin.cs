@@ -1,4 +1,5 @@
 using NKeeper.Api.Configuration;
+using NKeeper.Sdk.Sessions;
 
 namespace NKeeper.Api.RemoteSessions;
 

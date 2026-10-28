@@ -1,14 +1,17 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.Desktop;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Rpc;
 using NKeeper.Api.Security;
+using NKeeper.Sdk.Security;
 using NKeeper.Api.Ssh;
+using NKeeper.Sdk.Ssh;
 
 namespace NKeeper.Api.Controllers;
 

@@ -8,6 +8,7 @@ using NKeeper.Api.Configuration;
 using NKeeper.Infrastructure.Email;
 using NKeeper.Infrastructure.Identity;
 using NKeeper.Infrastructure.Persistence;
+using NKeeper.Sdk.Security;
 
 namespace NKeeper.Api.Security;
 

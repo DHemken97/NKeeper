@@ -4,12 +4,16 @@ using System.Net.WebSockets;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.Configuration;
 using NKeeper.Api.Kvm;
+using NKeeper.Sdk.Consoles;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Security;
+using NKeeper.Sdk.Security;
 using NKeeper.Api.Ssh;
+using NKeeper.Sdk.Ssh;
 using NKeeper.Infrastructure.Inventory;
 using Renci.SshNet;
 using Renci.SshNet.Common;
@@ -86,8 +90,8 @@ public sealed class KvmController(ConsoleSessionStore consoles, IOptions<CorsSet
             }
 
             await KvmHost.PowerAsync(client, Guid.Parse(machine.Id), request.Action, cancellationToken);
-            await HttpContext.RequestServices.GetRequiredService<Auditing.AuditLog>()
-                .RecordAsync(new Auditing.AuditEntry("kvm.power", request.HostId, $"{request.Action} · VM {machine.Name}"));
+            await HttpContext.RequestServices.GetRequiredService<NKeeper.Sdk.Auditing.AuditLog>()
+                .RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry("kvm.power", request.HostId, $"{request.Action} · VM {machine.Name}"));
             var after = (await KvmHost.ListAsync(client, cancellationToken)).Vms.FirstOrDefault(v => v.Id == machine.Id);
             return after ?? machine;
         }, cancellationToken);

@@ -5,8 +5,9 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using NKeeper.Api.Access;
+using NKeeper.Sdk.Access;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Infrastructure.Inventory;
 
 namespace NKeeper.Api.Telnet;
@@ -28,7 +29,7 @@ public sealed record TelnetStartMessage : SessionStartMessage
 /// without one, the user types them. Telnet isn't encrypted: everything, passwords included, crosses
 /// the network from NKeeper to the host in the clear.
 /// </summary>
-internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolver, Auditing.AuditLog audit, ILogger<TelnetTerminalSession> logger)
+internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolver, NKeeper.Sdk.Auditing.AuditLog audit, ILogger<TelnetTerminalSession> logger)
 {
     private const int DefaultTelnetPort = 23;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(15);
@@ -41,7 +42,7 @@ internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolv
     {
         var started = Stopwatch.StartNew();
         SessionTarget? target = null;
-        Auditing.AuditedSession? audited = null;
+        NKeeper.Sdk.Auditing.AuditedSession? audited = null;
         try
         {
             var start = await socket.ReceiveStartAsync<TelnetStartMessage>(cancellationToken);
@@ -107,7 +108,7 @@ internal sealed partial class TelnetTerminalSession(SessionTargetResolver resolv
     private static partial Regex PasswordPrompt();
 
     /// <summary>One open connection: the two pumps, the protocol state and the automatic login.</summary>
-    private sealed class Connection(SessionSocket socket, NetworkStream stream, SessionTarget target, int cols, int rows, Auditing.TerminalRecorder? recorder) : IDisposable
+    private sealed class Connection(SessionSocket socket, NetworkStream stream, SessionTarget target, int cols, int rows, NKeeper.Sdk.Auditing.TerminalRecorder? recorder) : IDisposable
     {
         private readonly TelnetProtocol _protocol = new();
         private readonly SemaphoreSlim _writeLock = new(1, 1);

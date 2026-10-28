@@ -2,7 +2,9 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using NKeeper.Api.Contracts.Users;
 using NKeeper.Api.Inventory;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Infrastructure.Access;
 using NKeeper.Infrastructure.Identity;
 using NKeeper.Infrastructure.Persistence;
@@ -21,7 +23,7 @@ public sealed class UserAdministration(
     Infrastructure.Email.EmailSender email,
     SessionLimiter remoteSessions,
     Web.WebSessionStore webSessions,
-    Kvm.ConsoleSessionStore consoles,
+    NKeeper.Sdk.Consoles.ConsoleSessionStore consoles,
     TimeProvider timeProvider,
     ILogger<UserAdministration> logger)
 {

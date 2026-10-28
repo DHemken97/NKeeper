@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
+using NKeeper.Sdk.Security;
 
 namespace NKeeper.Api.Security;
 

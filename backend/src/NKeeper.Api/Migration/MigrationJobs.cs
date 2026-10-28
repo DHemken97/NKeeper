@@ -3,7 +3,9 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using NKeeper.Api.Auditing;
+using NKeeper.Sdk.Auditing;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Storage;
 using Renci.SshNet;
 

@@ -6,8 +6,11 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.TestHost;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Sdk.Inventory;
 using NKeeper.Api.Kvm;
+using NKeeper.Sdk.Consoles;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Sdk.Sessions;
 using NKeeper.Api.Tests.Infrastructure;
 
 namespace NKeeper.Api.Tests;

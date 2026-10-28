@@ -24,11 +24,11 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
     [Fact]
     public async Task Test_AsksToTrustTheCertificate_ThenReportsTheVersionAndHosts()
     {
-        var first = await PostAsync("/api/admin/zabbix/test", new { url = zabbix.Url, apiToken = ZabbixServerFixture.ApiToken });
+        var first = await PostAsync("/api/plugins/zabbix/settings/test", new { url = zabbix.Url, apiToken = ZabbixServerFixture.ApiToken });
         Assert.Equal("trustRequired", first.GetProperty("status").GetString());
         Assert.Equal(zabbix.CertificateFingerprint, first.GetProperty("certificate").GetProperty("fingerprint").GetString());
 
-        var ready = await PostAsync("/api/admin/zabbix/test", new
+        var ready = await PostAsync("/api/plugins/zabbix/settings/test", new
         {
             url = $"{zabbix.Url}zabbix.php?action=dashboard.view",
             apiToken = ZabbixServerFixture.ApiToken,
@@ -42,7 +42,7 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
     [Fact]
     public async Task Test_ReportsARefusedToken_OnTheTokenField()
     {
-        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/admin/zabbix/test", new
+        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/plugins/zabbix/settings/test", new
         {
             url = zabbix.Url, apiToken = "wrong", trustFingerprint = zabbix.CertificateFingerprint,
         }, Ct);
@@ -56,7 +56,7 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
     [Fact]
     public async Task Settings_KeepTheTokenSecret_AndTheTrustedCertificateForTheSameServer()
     {
-        Assert.False((await GetAsync("/api/zabbix/status")).GetProperty("enabled").GetBoolean());
+        Assert.False((await GetAsync("/api/plugins/zabbix/status")).GetProperty("enabled").GetBoolean());
 
         var saved = await ConfigureAsync();
         Assert.True(saved.GetProperty("hasApiToken").GetBoolean());
@@ -65,28 +65,28 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
         Assert.DoesNotContain(ZabbixServerFixture.ApiToken, saved.GetRawText(), StringComparison.Ordinal);
 
         // Saved again without a token or fingerprint: both are kept.
-        var again = await PutAsync("/api/admin/zabbix", new { enabled = true, url = zabbix.Url });
+        var again = await PutAsync("/api/plugins/zabbix/settings", new { enabled = true, url = zabbix.Url });
         Assert.True(again.GetProperty("hasApiToken").GetBoolean());
         Assert.Equal(zabbix.CertificateFingerprint, again.GetProperty("trustedCertificateFingerprint").GetString());
-        Assert.DoesNotContain(ZabbixServerFixture.ApiToken, (await GetAsync("/api/admin/zabbix")).GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain(ZabbixServerFixture.ApiToken, (await GetAsync("/api/plugins/zabbix/settings")).GetRawText(), StringComparison.Ordinal);
 
-        var status = await GetAsync("/api/zabbix/status");
+        var status = await GetAsync("/api/plugins/zabbix/status");
         Assert.True(status.GetProperty("enabled").GetBoolean());
         Assert.Equal(zabbix.Url, status.GetProperty("frontendUrl").GetString());
 
         // Another server: the certificate trusted for the old one doesn't carry over.
-        var moved = await PutAsync("/api/admin/zabbix", new { enabled = true, url = "https://zabbix.example.com/" });
+        var moved = await PutAsync("/api/plugins/zabbix/settings", new { enabled = true, url = "https://zabbix.example.com/" });
         Assert.Equal(JsonValueKind.Null, moved.GetProperty("trustedCertificateFingerprint").ValueKind);
     }
 
     [Fact]
     public async Task Settings_RequireAnAddressAndToken_ToTurnOn()
     {
-        var noToken = await _admin.SendJsonAsync(HttpMethod.Put, "/api/admin/zabbix", new { enabled = true, url = zabbix.Url }, Ct);
+        var noToken = await _admin.SendJsonAsync(HttpMethod.Put, "/api/plugins/zabbix/settings", new { enabled = true, url = zabbix.Url }, Ct);
         Assert.Equal(HttpStatusCode.BadRequest, noToken.StatusCode);
         Assert.Contains("apiToken", await noToken.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
 
-        var badUrl = await _admin.SendJsonAsync(HttpMethod.Put, "/api/admin/zabbix", new { enabled = true, url = "ftp://zabbix", apiToken = "x" }, Ct);
+        var badUrl = await _admin.SendJsonAsync(HttpMethod.Put, "/api/plugins/zabbix/settings", new { enabled = true, url = "ftp://zabbix", apiToken = "x" }, Ct);
         Assert.Equal(HttpStatusCode.BadRequest, badUrl.StatusCode);
     }
 
@@ -95,9 +95,9 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
     {
         await ConfigureAsync();
         var host = await CreateHostAsync("pve1", "192.168.42.2", zabbixHostId: "10084");
-        Assert.Equal("10084", host.GetProperty("zabbixHostId").GetString());
+        Assert.Equal("10084", ZabbixId(host));
 
-        var overview = await GetAsync($"/api/hosts/{Id(host)}/zabbix");
+        var overview = await GetAsync($"/api/plugins/zabbix/hosts/{Id(host)}");
         var summary = overview.GetProperty("host");
         Assert.Equal("10084", summary.GetProperty("hostId").GetString());
         Assert.True(summary.GetProperty("monitored").GetBoolean());
@@ -123,18 +123,18 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
     public async Task Overview_ExplainsWhyItCant()
     {
         var host = await CreateHostAsync("pve1", "192.168.42.2", zabbixHostId: "10084");
-        var disabled = await _admin.GetAsync($"/api/hosts/{Id(host)}/zabbix", Ct);
+        var disabled = await _admin.GetAsync($"/api/plugins/zabbix/hosts/{Id(host)}", Ct);
         Assert.Equal(HttpStatusCode.Conflict, disabled.StatusCode);
         Assert.Contains("zabbix_disabled", await disabled.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
 
         await ConfigureAsync();
         var unlinked = await CreateHostAsync("other", "10.1.1.1");
-        var notLinked = await _admin.GetAsync($"/api/hosts/{Id(unlinked)}/zabbix", Ct);
+        var notLinked = await _admin.GetAsync($"/api/plugins/zabbix/hosts/{Id(unlinked)}", Ct);
         Assert.Equal(HttpStatusCode.NotFound, notLinked.StatusCode);
         Assert.Contains("zabbix_not_linked", await notLinked.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
 
         var gone = await CreateHostAsync("gone", "10.1.1.2", zabbixHostId: "99999");
-        var missing = await _admin.GetAsync($"/api/hosts/{Id(gone)}/zabbix", Ct);
+        var missing = await _admin.GetAsync($"/api/plugins/zabbix/hosts/{Id(gone)}", Ct);
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
         Assert.Contains("zabbix_host_not_found", await missing.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
     }
@@ -142,9 +142,9 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
     [Fact]
     public async Task HostZabbixId_MustBeANumber()
     {
-        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/hosts", new { name = "x", ipAddress = "10.0.0.1", zabbixHostId = "abc" }, Ct);
+        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/hosts", new { name = "x", ipAddress = "10.0.0.1", plugins = new { zabbix = new { hostId = "abc" } } }, Ct);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("zabbixHostId", await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+        Assert.Contains("plugins.zabbix.hostId", await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -152,11 +152,11 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
     {
         await ConfigureAsync();
 
-        var byName = await GetAsync("/api/zabbix/hosts?search=web");
+        var byName = await GetAsync("/api/plugins/zabbix/hosts?search=web");
         Assert.Equal(["10085"], byName.EnumerateArray().Select(h => h.GetProperty("hostId").GetString()));
         Assert.Equal(["web01.example.com"], Strings(byName[0].GetProperty("dnsNames")));
 
-        var byAddress = await GetAsync("/api/zabbix/hosts?search=10.0.0.25");
+        var byAddress = await GetAsync("/api/plugins/zabbix/hosts?search=10.0.0.25");
         Assert.Equal(["10086"], byAddress.EnumerateArray().Select(h => h.GetProperty("hostId").GetString()));
         Assert.False(byAddress[0].GetProperty("monitored").GetBoolean());
     }
@@ -169,9 +169,9 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
         var bob = _factory.CreateClient();
         (await bob.LoginAsync("bob", "Bob-password-123", Ct)).EnsureSuccessStatusCode();
 
-        Assert.Equal(HttpStatusCode.Forbidden, (await bob.GetAsync("/api/zabbix/hosts?search=web", Ct)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await bob.GetAsync("/api/zabbix/comparison", Ct)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await bob.GetAsync("/api/admin/zabbix", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await bob.GetAsync("/api/plugins/zabbix/hosts?search=web", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await bob.GetAsync("/api/plugins/zabbix/comparison", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await bob.GetAsync("/api/plugins/zabbix/settings", Ct)).StatusCode);
     }
 
     [Fact]
@@ -183,7 +183,7 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
         await CreateHostAsync("lonely", "10.9.9.9");
         await CreateHostAsync("removed from zabbix", "10.9.9.10", zabbixHostId: "99999");
 
-        var comparison = await GetAsync("/api/zabbix/comparison");
+        var comparison = await GetAsync("/api/plugins/zabbix/comparison");
 
         var linked = Assert.Single(comparison.GetProperty("linked").EnumerateArray());
         Assert.Equal("Proxmox 1", linked.GetProperty("host").GetProperty("name").GetString());
@@ -204,11 +204,11 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
     {
         var host = await CreateHostAsync("web server", "10.0.0.20");
 
-        var linked = await PostAsync("/api/zabbix/links", new { links = new[] { new { hostId = Id(host), zabbixHostId = "10085" } } });
-        Assert.Equal("10085", linked[0].GetProperty("zabbixHostId").GetString());
+        var linked = await PostAsync("/api/plugins/zabbix/links", new { links = new[] { new { hostId = Id(host), zabbixHostId = "10085" } } });
+        Assert.Equal("10085", ZabbixId(linked[0]));
 
-        var unlinked = await PostAsync("/api/zabbix/links", new { links = new[] { new { hostId = Id(host), zabbixHostId = (string?)null } } });
-        Assert.Equal(JsonValueKind.Null, unlinked[0].GetProperty("zabbixHostId").ValueKind);
+        var unlinked = await PostAsync("/api/plugins/zabbix/links", new { links = new[] { new { hostId = Id(host), zabbixHostId = (string?)null } } });
+        Assert.Null(ZabbixId(unlinked[0]));
     }
 
     [Fact]
@@ -217,9 +217,9 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
         await ConfigureAsync();
         await CreateHostAsync("Already here", "10.0.0.250", zabbixHostId: "10086");
 
-        var result = await PostAsync("/api/zabbix/import", new { zabbixHostIds = new[] { "10084", "10085", "10086", "424242" }, groupsAsTags = true });
+        var result = await PostAsync("/api/plugins/zabbix/import", new { zabbixHostIds = new[] { "10084", "10085", "10086", "424242" }, groupsAsTags = true });
 
-        var created = result.GetProperty("created").EnumerateArray().ToDictionary(h => h.GetProperty("zabbixHostId").GetString()!);
+        var created = result.GetProperty("created").EnumerateArray().ToDictionary(h => ZabbixId(h)!);
         Assert.Equal(["10084", "10085"], created.Keys.Order());
 
         var pve = created["10084"];
@@ -243,7 +243,7 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
     }
 
     private async Task<JsonElement> ConfigureAsync() =>
-        await PutAsync("/api/admin/zabbix", new
+        await PutAsync("/api/plugins/zabbix/settings", new
         {
             enabled = true,
             url = zabbix.Url,
@@ -253,12 +253,16 @@ public sealed class ZabbixTests(PostgresServerFixture postgres, ZabbixServerFixt
 
     private async Task<JsonElement> CreateHostAsync(string name, string ip, string? zabbixHostId = null)
     {
-        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/hosts", new { name, ipAddress = ip, zabbixHostId }, Ct);
+        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/hosts", new { name, ipAddress = ip, plugins = zabbixHostId is null ? null : new { zabbix = new { hostId = zabbixHostId } } }, Ct);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
     }
 
     private static string Id(JsonElement host) => host.GetProperty("id").GetString()!;
+
+    /// <summary>The Zabbix host a host is linked to: the zabbix plugin's hostId field.</summary>
+    private static string? ZabbixId(JsonElement host) =>
+        host.GetProperty("plugins").TryGetProperty("zabbix", out var zabbix) && zabbix.TryGetProperty("hostId", out var id) ? id.GetString() : null;
 
     private static List<string?> Strings(JsonElement array) => [.. array.EnumerateArray().Select(e => e.GetString())];
 
