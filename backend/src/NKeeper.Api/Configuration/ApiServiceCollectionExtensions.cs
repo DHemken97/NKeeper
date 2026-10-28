@@ -60,6 +60,7 @@ internal static class ApiServiceCollectionExtensions
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
         services.AddScoped<HostAccess>();
         services.AddScoped<HostManager>();
+        services.AddScoped<NKeeper.Api.Zabbix.ZabbixConnection>();
         services.AddScoped<NKeeper.Api.Inventory.Import.HostImporter>();
         services.AddSingleton<NKeeper.Api.Inventory.Scanning.ExternalScan>();
         services.AddScoped<NKeeper.Api.Users.UserAdministration>();

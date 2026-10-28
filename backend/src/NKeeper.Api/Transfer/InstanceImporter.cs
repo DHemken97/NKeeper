@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using NKeeper.Infrastructure.Access;
 using NKeeper.Infrastructure.Email;
+using NKeeper.Infrastructure.Zabbix;
 using NKeeper.Infrastructure.Identity;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Infrastructure.Persistence;
@@ -120,6 +121,19 @@ internal sealed class InstanceImporter(
             });
         }
 
+        if (bundle.Data.Zabbix is { } zabbix)
+        {
+            await db.ZabbixSettings.ExecuteDeleteAsync(cancellationToken);
+            db.ZabbixSettings.Add(new ZabbixSettings
+            {
+                Enabled = zabbix.Enabled,
+                Url = zabbix.Url,
+                ProtectedApiToken = zabbix.ApiToken is null ? null : protector.Protect(zabbix.ApiToken),
+                TrustedCertificateFingerprint = zabbix.TrustedCertificateFingerprint,
+                UpdatedAtUtc = timeProvider.GetUtcNow(),
+            });
+        }
+
         var roles = await db.Roles.ToDictionaryAsync(r => r.NormalizedName!, cancellationToken);
         foreach (var user in bundle.Data.Users)
         {
@@ -180,6 +194,7 @@ internal sealed class InstanceImporter(
                 SerialNumber = host.SerialNumber,
                 JumpHostId = host.JumpHostId,
                 JumpCredentialId = host.JumpCredentialId,
+                ZabbixHostId = host.ZabbixHostId,
                 CreatedAtUtc = host.CreatedAtUtc,
                 UpdatedAtUtc = host.UpdatedAtUtc,
                 CreatedByUserId = host.CreatedByUserId,
