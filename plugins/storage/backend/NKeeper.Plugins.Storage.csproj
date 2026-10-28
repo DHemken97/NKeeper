@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>NKeeper's storage plugin: a Linux host's iSCSI, multipath and DRBD over SSH.</Description>
+  </PropertyGroup>
+
+</Project>

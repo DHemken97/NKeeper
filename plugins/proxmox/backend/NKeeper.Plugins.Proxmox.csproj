@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>NKeeper's Proxmox VE plugin: VM and container consoles, power and migrations through the Proxmox API.</Description>
+  </PropertyGroup>
+
+</Project>

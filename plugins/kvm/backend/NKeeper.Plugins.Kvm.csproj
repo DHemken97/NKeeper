@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>NKeeper's KVM plugin: a libvirt host's (or Proxmox node's) virtual machines over SSH, their power and SPICE or VNC consoles.</Description>
+  </PropertyGroup>
+
+</Project>

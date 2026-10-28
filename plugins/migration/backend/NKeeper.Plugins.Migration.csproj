@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>NKeeper's migration plugin: moves a VM between hypervisors with its storage (LVM, DRBD, multipath, iSCSI).</Description>
+  </PropertyGroup>
+
+  <!-- Plugins this one builds on: loaded by the server as plugins of their own, so not copied into this one. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..$dackend\NKeeper.Plugins.Kvm.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="..\..$dackend\NKeeper.Plugins.Proxmox.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="..\..$dackend\NKeeper.Plugins.Storage.csproj" Private="false" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>

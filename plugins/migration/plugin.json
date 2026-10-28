@@ -1,0 +1,11 @@
+{
+  "id": "migration",
+  "name": "Migration",
+  "version": "1.0.0",
+  "description": "Moves a VM between hypervisors with its storage: traces each disk through LVM, DRBD, multipath and iSCSI and hands it over, live where it can.",
+  "author": "NKeeper",
+  "sdkVersion": "1.0",
+  "backend": { "assembly": "backend/NKeeper.Plugins.Migration.dll" },
+  "frontend": { "entry": "frontend/index.js", "styles": ["frontend/index.css"] },
+  "dependencies": ["kvm", "proxmox", "storage"]
+}
