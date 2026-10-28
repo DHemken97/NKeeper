@@ -91,6 +91,7 @@ const guest = (overrides: Partial<ScannedGuest>): ScannedGuest => ({
   memoryMiB: null,
   note: null,
   newHost: null,
+  namesake: null,
   ...overrides,
 })
 
@@ -217,6 +218,45 @@ describe('virtual machines', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     // The new host joins the tree.
     expect(await screen.findByRole('button', { name: /^scratch/ })).toBeInTheDocument()
+  })
+
+  it('found by a scan can all be ticked or unticked at once, and say why a host with their name isn’t them', async () => {
+    const { user } = renderAt('/', {
+      'POST /api/hosts/h-node1/scan/internal': () =>
+        jsonResponse(200, {
+          status: 'ready',
+          hostKey: null,
+          findings: {
+            ...nodeScan,
+            guests: [
+              nodeScan.guests[0],
+              guest({ virtualMachineId: 'libvirt:4', name: 'printer', guestHostId: 'h-printer', guestHostName: 'printer', matchedBy: 'mac', linkProposed: true }),
+              guest({
+                ...nodeScan.guests[1],
+                name: 'zproxy',
+                namesake: '“zproxy” has its name but runs on “node2”, and neither a MAC address nor a VM identity confirms it’s this VM, so it’s left there.',
+              }),
+            ],
+          },
+        }),
+    })
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /node1/ }))
+    for (const item of ['Tasks', 'Scan', 'Internal']) {
+      await user.hover(screen.getByRole('menuitem', { name: new RegExp(`^${item}`) }))
+    }
+    await user.click(screen.getByRole('menuitem', { name: /^root/ }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Internal scan of node1' })
+    const vms = await within(dialog).findByRole('group', { name: 'Virtual machines' })
+    const links = within(vms).getAllByRole('checkbox')
+    links.forEach((c) => expect(c).toBeChecked())
+    await user.click(within(vms).getByRole('button', { name: 'Select none' }))
+    links.forEach((c) => expect(c).not.toBeChecked())
+    await user.click(within(vms).getByRole('button', { name: 'Select all 2' }))
+    links.forEach((c) => expect(c).toBeChecked())
+
+    expect(within(dialog).getByText(/runs on “node2”, and neither a MAC address nor a VM identity confirms it/)).toBeInTheDocument()
   })
 
   it('can group the tree by the host they run on', async () => {
