@@ -26,7 +26,7 @@ const router1: Host = {
   serialNumber: null,
   jumpHostId: null,
   jumpCredentialId: null,
-  zabbixHostId: null,
+  plugins: {},
   tags: [],
   services: [
     { protocol: 'Https', port: null, label: 'Admin UI' },

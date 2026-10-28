@@ -5,7 +5,7 @@
  * Redfish; idracconsole: its iDRAC's HTML5 virtual console (RACADM is an ssh session); storage: a
  * host's iSCSI, multipath and DRBD over SSH.
  */
-export type SessionProtocol = 'ssh' | 'telnet' | 'sftp' | 'storage' | 'rdp' | 'rpc' | 'vnc' | 'web' | 'kvm' | 'kvmvm' | 'spice' | 'vmvnc' | 'pvevnc' | 'idrac' | 'idracconsole'
+export type SessionProtocol = 'ssh' | 'telnet' | 'sftp' | 'storage' | 'rdp' | 'rpc' | 'vnc' | 'web' | 'kvm' | 'kvmvm' | 'spice' | 'vmvnc' | 'pvevnc' | 'idrac' | 'idracconsole' | (string & {})
 
 /** What the browser asks the server to connect to. Secrets for saved credentials stay on the server. */
 export interface SessionRequest {

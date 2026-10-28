@@ -26,7 +26,7 @@ const web01: Host = {
   serialNumber: null,
   jumpHostId: null,
   jumpCredentialId: null,
-  zabbixHostId: null,
+  plugins: {},
   tags: [{ name: 'site', value: 'DC-A' }],
   services: [{ protocol: 'Ssh', port: null, label: null, rdpSecurity: null }],
   credentials: [{ id: 'c-ops', label: null, username: 'ops', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],

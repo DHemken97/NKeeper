@@ -1,4 +1,5 @@
 import type { MenuEntry } from '../../components/ui/ContextMenu'
+import type { HostMenuContext, NKeeperPlugin } from '../../sdk/types'
 import {
   formatAccount,
   PROTOCOL_INFO,
@@ -57,6 +58,8 @@ export interface HostMenuActions {
   wake?: (host: Host) => void
   /** A VM host's console and tasks, through the hypervisor it runs on (its Proxmox or KVM service and login). */
   guests?: GuestActions
+  /** The plugins' entries, and what they build them with. */
+  plugins?: { list: readonly NKeeperPlugin[]; context: HostMenuContext }
 }
 
 /** How a VM host's console and tasks are reached: its Proxmox node's API, or its libvirt host over SSH. */
@@ -227,7 +230,7 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
     { kind: 'item', label: 'Connect', submenu: connectMenuEntries(host, actions) },
     { kind: 'separator' },
     ...(host.canManage ? [{ kind: 'item', label: 'Edit', onSelect: () => actions.edit(host) } as const] : []),
-    ...(host.canManage || (host.macAddress && actions.wake) || guestHypervisorOf(host, actions)
+    ...(host.canManage || (host.macAddress && actions.wake) || guestHypervisorOf(host, actions) || pluginTaskEntries(host, actions).length > 0
       ? [{ kind: 'item', label: 'Tasks', submenu: taskMenuEntries(host, actions) } as const]
       : []),
     {
@@ -270,7 +273,7 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
 /** One entry per connectable service, each opening its credentials (also used by the Connect button). */
 export function connectMenuEntries(
   host: Host,
-  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin' | 'connectWeb' | 'openDirect' | 'signIn' | 'guests'>,
+  actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin' | 'connectWeb' | 'openDirect' | 'signIn' | 'guests' | 'plugins'>,
 ): MenuEntry[] {
   const services: MenuEntry[] = host.services.flatMap((service, index): MenuEntry | MenuEntry[] => {
     if (!CONNECTABLE.has(service.protocol)) {
@@ -281,10 +284,12 @@ export function connectMenuEntries(
       return { kind: 'item', label: serviceLabel(service), detail: 'Not through a jump host yet', disabled: true }
     }
 
-    const web: MenuEntry[] = [
-      { kind: 'item', label: 'Through NKeeper', detail: 'Server connects', onSelect: () => actions.connectWeb(host, index) },
-      { kind: 'item', label: 'Directly in a new tab', detail: 'This computer connects', onSelect: () => actions.openDirect(host, index) },
-    ]
+    const plugin = actions.plugins?.list.find((p) => p.serviceMenus?.[service.protocol])
+    if (plugin && actions.plugins) {
+      return plugin.serviceMenus![service.protocol]!.entry(host, index, actions.plugins.context)
+    }
+
+    const web = webMenuEntries(host, index, actions)
 
     if (WEB_PROTOCOLS.has(service.protocol)) {
       return { kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: web }
@@ -312,11 +317,36 @@ export function connectMenuEntries(
   })
 
   const console = guestConsoleEntries(host, actions)
+  const fromPlugins = actions.plugins ? actions.plugins.list.flatMap((p) => p.connectEntries?.(host, actions.plugins!.context) ?? []) : []
   const entries =
-    services.length > 0 || console.length > 0
+    services.length > 0 || console.length > 0 || fromPlugins.length > 0
       ? services
       : [{ kind: 'item', label: host.services.length > 0 ? 'No services to connect with' : 'No services', detail: 'Edit the host to add one', disabled: true } as const]
-  return [...entries, ...console, ...sshToolEntries(host, actions)]
+  return [...entries, ...console, ...fromPlugins, ...sshToolEntries(host, actions)]
+}
+
+/** A web service's ways to open: through NKeeper's server, or directly from this computer. */
+export function webMenuEntries(host: Host, index: number, actions: Pick<HostMenuActions, 'connectWeb' | 'openDirect'>): MenuEntry[] {
+  return [
+    { kind: 'item', label: 'Through NKeeper', detail: 'Server connects', onSelect: () => actions.connectWeb(host, index) },
+    { kind: 'item', label: 'Directly in a new tab', detail: 'This computer connects', onSelect: () => actions.openDirect(host, index) },
+  ]
+}
+
+/**
+ * A service's logins for a plugin: `choose` gets the credential, and whether to ask for the
+ * password (or the whole login, without a credential) first.
+ */
+export function serviceLoginEntries(host: Host, index: number, choose: (credential: HostCredential | undefined, ask: boolean) => void): MenuEntry[] {
+  return loginEntries(host, index, {
+    connect: (_h, _i, credential) => choose(credential, false),
+    connectWithPrompt: (_h, _i, account) => choose(account, true),
+    connectWithoutLogin: () => choose(undefined, false),
+  })
+}
+
+function pluginTaskEntries(host: Host, actions: Pick<HostMenuActions, 'plugins'>): MenuEntry[] {
+  return actions.plugins ? actions.plugins.list.flatMap((p) => p.taskEntries?.(host, actions.plugins!.context) ?? []) : []
 }
 
 /**
@@ -362,7 +392,7 @@ function credentialEntry(credential: HostCredential, detail?: string): Extract<M
 }
 
 /** Tasks ▸ Scan ▸ Internal (SSH or RPC service ▸ credential) or External. */
-export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scanInternal' | 'scanExternal' | 'wake' | 'guests'>): MenuEntry[] {
+export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scanInternal' | 'scanExternal' | 'wake' | 'guests' | 'plugins'>): MenuEntry[] {
   const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh' || service.protocol === 'Rpc')
   const logins = (index: number): MenuEntry[] => [
     ...host.credentials
@@ -397,6 +427,7 @@ export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scan
       ? [{ kind: 'item', label: 'Wake', detail: 'Wake-on-LAN', onSelect: () => actions.wake!(host) } as const]
       : []),
     ...guestTaskEntries(host, actions),
+    ...pluginTaskEntries(host, actions),
   ]
 }
 

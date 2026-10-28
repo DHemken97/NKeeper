@@ -91,7 +91,7 @@ const hypervisor: Host = {
   serialNumber: null,
   jumpHostId: null,
   jumpCredentialId: null,
-  zabbixHostId: null,
+  plugins: {},
   tags: [],
   services: [{ protocol: 'Kvm', port: null, label: null }],
   credentials: [{ id: 'c1', label: null, username: 'virt', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],

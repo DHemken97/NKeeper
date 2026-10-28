@@ -26,7 +26,7 @@ function makeHost(overrides: Partial<Host>): Host {
     serialNumber: null,
     jumpHostId: null,
     jumpCredentialId: null,
-    zabbixHostId: null,
+    plugins: {},
     tags: [],
     services: [],
     credentials: [],

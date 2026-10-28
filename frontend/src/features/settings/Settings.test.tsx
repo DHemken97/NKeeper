@@ -1,8 +1,9 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
+import { definePlugin, resetPlugins } from '../../sdk/registry'
 import { SettingsPage } from './pages/SettingsPage'
 
 const saved = {
@@ -16,8 +17,6 @@ const saved = {
   fromName: null,
   updatedAtUtc: '2026-10-20T10:00:00Z',
 }
-
-const savedEmail = saved
 
 function renderPage() {
   render(
@@ -76,78 +75,31 @@ describe('Settings: email', () => {
   })
 })
 
-const zabbixSaved = {
-  enabled: false,
-  url: '',
-  hasApiToken: false,
-  trustedCertificateFingerprint: null,
-  updatedAtUtc: null,
-}
 
-const certificate = {
-  fingerprint: 'AA:BB:CC',
-  subject: 'CN=zabbix.example.com',
-  issuer: 'CN=zabbix.example.com',
-  expires: '2027-10-20T10:00:00Z',
-}
+describe('Settings: plugins', () => {
+  afterEach(() => resetPlugins())
 
-describe('Settings: Zabbix', () => {
-  it('asks to trust a self-signed certificate, then tests and saves with it', { timeout: 20_000 }, async () => {
-    const tests: Record<string, unknown>[] = []
-    let saved: Record<string, unknown> | undefined
-    let current: Record<string, unknown> = zabbixSaved
+  it('shows the installed plugins, why one wasn’t loaded, and the loaded ones’ own settings', async () => {
+    definePlugin({ id: 'demo', settingsSections: [() => <section aria-label="Demo settings">Demo options</section>] })
     mockFetch({
-      ...antiforgeryRoute,
-      'GET /api/admin/email': () => jsonResponse(200, savedEmail),
-      'GET /api/admin/zabbix': () => jsonResponse(200, current),
-      'POST /api/admin/zabbix/test': (_url, init) => {
-        const body = JSON.parse(String(init.body))
-        tests.push(body)
-        return jsonResponse(
-          200,
-          body.trustFingerprint
-            ? { status: 'ready', version: '7.0.5', hostCount: 9, certificate: null }
-            : { status: 'trustRequired', version: null, hostCount: null, certificate },
-        )
-      },
-      'PUT /api/admin/zabbix': (_url, init) => {
-        saved = JSON.parse(String(init.body))
-        current = { ...zabbixSaved, enabled: true, url: 'https://zabbix.example.com/', hasApiToken: true, updatedAtUtc: '2026-10-28T10:00:00Z' }
-        return jsonResponse(200, current)
-      },
+      'GET /api/admin/email': () => jsonResponse(200, saved),
+      'GET /api/admin/plugins': () =>
+        jsonResponse(200, {
+          sdkVersion: '1.0',
+          plugins: [
+            { id: 'demo', name: 'Demo', version: '1.2.0', description: 'Shows how.', author: null, status: 'loaded', error: null, signer: 'ab12cd34ef56ab12', source: 'demo.nkplugin', dependencies: [], hasBackend: true, hasFrontend: true },
+            { id: 'old', name: 'Old', version: '0.1.0', description: null, author: null, status: 'failed', error: 'It needs plugin SDK 2.0; this server has 1.0.', signer: 'ab12cd34ef56ab12', source: 'old.nkplugin', dependencies: [], hasBackend: true, hasFrontend: false },
+          ],
+          rejected: [{ source: 'evil.nkplugin', error: 'The package is signed with key 0000000000000000, which this server doesn’t trust.' }],
+          trustedKeys: ['ab12cd34ef56ab12'],
+        }),
     })
-    const user = renderPage()
-    const panel = within(await screen.findByRole('region', { name: 'Zabbix' }))
+    renderPage()
 
-    await user.click(panel.getByLabelText('Read host information from Zabbix'))
-    await user.type(panel.getByLabelText('Zabbix address'), 'https://zabbix.example.com')
-    await user.type(panel.getByLabelText('API token'), 'secret-token')
-    await user.click(panel.getByRole('button', { name: 'Test connection' }))
-
-    expect(await panel.findByText('AA:BB:CC')).toBeInTheDocument()
-    await user.click(panel.getByRole('button', { name: 'Trust and test' }))
-
-    expect(await panel.findByText(/Connected to Zabbix 7\.0\.5\. The API token can see 9 hosts\./)).toBeInTheDocument()
-    expect(tests[1]).toMatchObject({ url: 'https://zabbix.example.com', apiToken: 'secret-token', trustFingerprint: 'AA:BB:CC' })
-
-    await user.click(panel.getByRole('button', { name: 'Save' }))
-    await screen.findByText('A token is saved. Leave this empty to keep it.')
-    expect(saved).toMatchObject({ enabled: true, apiToken: 'secret-token', trustFingerprint: 'AA:BB:CC' })
-  })
-
-  it('shows a refused token on its field', async () => {
-    mockFetch({
-      ...antiforgeryRoute,
-      'GET /api/admin/email': () => jsonResponse(200, savedEmail),
-      'GET /api/admin/zabbix': () => jsonResponse(200, { ...zabbixSaved, enabled: true, url: 'https://zabbix.example.com/', hasApiToken: true }),
-      'POST /api/admin/zabbix/test': () =>
-        jsonResponse(400, { status: 400, errors: { apiToken: ['Zabbix at zabbix.example.com refused the API token: Not authorized.'] } }),
-    })
-    const user = renderPage()
-    const panel = within(await screen.findByRole('region', { name: 'Zabbix' }))
-
-    await user.click(panel.getByRole('button', { name: 'Test connection' }))
-
-    expect((await panel.findAllByText('Zabbix at zabbix.example.com refused the API token: Not authorized.')).length).toBeGreaterThan(0)
+    expect(await screen.findByRole('region', { name: 'Demo settings' })).toHaveTextContent('Demo options')
+    const plugins = within(await screen.findByRole('region', { name: 'Plugins' }))
+    expect(await plugins.findByText('Signed with key ab12cd34ef56ab12 · demo.nkplugin')).toBeInTheDocument()
+    expect(plugins.getByText('It needs plugin SDK 2.0; this server has 1.0.')).toBeInTheDocument()
+    expect(plugins.getByText(/evil\.nkplugin was refused/)).toBeInTheDocument()
   })
 })

@@ -114,7 +114,7 @@ const linux01: Host = {
   serialNumber: null,
   jumpHostId: null,
   jumpCredentialId: null,
-  zabbixHostId: null,
+  plugins: {},
   tags: [],
   services: [
     { protocol: 'Ssh', port: null, label: null },

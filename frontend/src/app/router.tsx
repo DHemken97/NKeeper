@@ -9,7 +9,7 @@ import { ReportsLayout } from '../features/reports/pages/ReportsLayout'
 import { VmResourcesReport } from '../features/reports/pages/VmResourcesReport'
 import { HealthReport } from '../features/reports/pages/HealthReport'
 import { InventoryReport } from '../features/reports/pages/InventoryReport'
-import { ZabbixReport } from '../features/zabbix/pages/ZabbixReport'
+import { PluginReportPage } from '../features/reports/pages/PluginReportPage'
 import { AuditLogReport } from '../features/audit/pages/AuditLogReport'
 import { RecordingPlayer } from '../features/audit/pages/RecordingPlayer'
 import { TransferPage } from '../features/transfer/pages/TransferPage'
@@ -42,10 +42,11 @@ export const routes: RouteObject[] = [
               { path: 'vm-resources', element: <VmResourcesReport /> },
               { path: 'health', element: <HealthReport /> },
               { path: 'inventory', element: <InventoryReport /> },
+              // Plugins' reports; NKeeper's own paths come first.
+              { path: ':report', element: <PluginReportPage /> },
               {
                 element: <AdminRoute />,
                 children: [
-                  { path: 'zabbix', element: <ZabbixReport /> },
                   { path: 'audit', element: <AuditLogReport /> },
                   { path: 'audit/recordings/:id', element: <RecordingPlayer /> },
                 ],

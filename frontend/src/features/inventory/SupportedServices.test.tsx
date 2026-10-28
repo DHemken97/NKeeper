@@ -24,7 +24,7 @@ const switch01: Host = {
   serialNumber: null,
   jumpHostId: null,
   jumpCredentialId: null,
-  zabbixHostId: null,
+  plugins: {},
   tags: [],
   // FTP was stored by an older version (or an import).
   services: [

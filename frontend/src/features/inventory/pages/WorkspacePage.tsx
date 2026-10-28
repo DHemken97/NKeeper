@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router'
 import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
@@ -41,7 +41,9 @@ import {
   IDRAC_MODES,
   guestId,
   serviceLabel,
+  serviceLoginEntries,
   WEB_PROTOCOLS,
+  webMenuEntries,
   type HostMenuActions,
   type GuestTask,
   type GuestVia,
@@ -61,6 +63,9 @@ import {
 } from '../types'
 import { useAuth } from '../../auth/context'
 import { isAdministrator } from '../../auth/types'
+import { usePlugins } from '../../../sdk/registry'
+import type { HostMenuContext, Login, NewSession } from '../../../sdk/types'
+import { PluginSessionView } from '../../../sdk/PluginSessionView'
 import styles from './WorkspacePage.module.css'
 
 const NEW_HOST = 'new'
@@ -205,7 +210,12 @@ export function WorkspacePage() {
     mode?: ConnectMode
     /** A VM whose console opens (or task runs) through `host`, its hypervisor. */
     vm?: { host: Host; via: GuestVia; task?: GuestTask }
+    /** A plugin's login: what to do with the one typed in. */
+    then?: (login: Login) => void
   } | null>(null)
+  /** Plugins' dialogs, open until they close themselves. */
+  const [dialogs, setDialogs] = useState<{ id: number; render: (close: () => void) => ReactNode }[]>([])
+  const plugins = usePlugins()
   /** Tasks ▸ Proxmox / KVM: an action on a VM through its hypervisor's service. */
   const [guestTask, setGuestTask] = useState<{
     vm: Host
@@ -472,7 +482,32 @@ export function WorkspacePage() {
     }
   }
 
+  /** A tab a plugin opens; it replaces the tabs it says it replaces. */
+  function openPluginSession(next: NewSession) {
+    const id = `session-${nextSessionId++}`
+    setSessions((current) => [
+      ...current.filter((s) => !next.replaces?.(s)),
+      { id, hostId: next.hostId, protocol: next.view, title: next.title, detail: next.detail, request: next.request },
+    ])
+    setActiveTab(id)
+  }
+
+  const pluginContext: HostMenuContext = {
+    hosts: allHosts ?? [],
+    loginEntries: (host, serviceIndex, onLogin) =>
+      serviceLoginEntries(host, serviceIndex, (credential, ask) =>
+        ask
+          ? setPrompt({ host, serviceIndex, account: credential, purpose: 'connect', then: onLogin })
+          : onLogin(credential ? { credential } : {}),
+      ),
+    webEntries: (host, serviceIndex) => webMenuEntries(host, serviceIndex, menuActions),
+    openSession: openPluginSession,
+    openDialog: (render) => setDialogs((current) => [...current, { id: nextSessionId++, render }]),
+    reloadHosts: () => resource.reload(),
+  }
+
   const menuActions: HostMenuActions = {
+    plugins: { list: plugins, context: pluginContext },
     connect: (host, serviceIndex, credential, mode) => openSession(host, serviceIndex, credential, undefined, mode),
     connectWithPrompt: (host, serviceIndex, account, mode) => setPrompt({ host, serviceIndex, account, purpose: 'connect', mode }),
     connectWithoutLogin: (host, serviceIndex) => openSession(host, serviceIndex),
@@ -851,7 +886,21 @@ export function WorkspacePage() {
           }
         >
           {sessions.map((session) => (
-            session.protocol === 'web' || session.protocol === 'idracconsole' ? (
+            plugins.some((p) => p.sessionViews?.[session.protocol]) ? (
+              <PluginSessionView
+                key={session.id}
+                plugins={plugins}
+                session={session}
+                active={activeTab === session.id}
+                host={allHosts?.find((h) => h.id === session.hostId)}
+                hosts={allHosts ?? []}
+                onShowHost={(id) => showHost(id)}
+                onEnded={() => closeSession(session.id)}
+                onHostChanged={handleChanged}
+                openSession={openPluginSession}
+                updateSession={(changes) => setSessions((current) => current.map((s) => (s.id === session.id ? { ...s, ...changes } : s)))}
+              />
+            ) : session.protocol === 'web' || session.protocol === 'idracconsole' ? (
               <WebSession
                 key={session.id}
                 session={session}
@@ -942,7 +991,9 @@ export function WorkspacePage() {
           submitLabel={prompt.purpose === 'scan' ? 'Scan' : undefined}
           onConnect={(username, password) => {
             const domain = prompt.account?.domain ?? undefined
-            if (prompt.purpose === 'scan') {
+            if (prompt.then) {
+              prompt.then({ oneOff: { username, password, ...(domain ? { domain } : {}) } })
+            } else if (prompt.purpose === 'scan') {
               setScan({ host: prompt.host, kind: 'internal', login: { serviceIndex: prompt.serviceIndex, username, password, ...(domain ? { domain } : {}) } })
             } else if (prompt.vm?.task) {
               setGuestTask({
@@ -980,8 +1031,16 @@ export function WorkspacePage() {
         />
       ) : null}
       {importing ? <ImportHostsDialog onClose={() => setImporting(false)} onImported={resource.reload} /> : null}
+      {dialogs.map((dialog) => (
+        <PluginDialog key={dialog.id} render={dialog.render} onClose={() => setDialogs((current) => current.filter((d) => d.id !== dialog.id))} />
+      ))}
     </div>
   )
+}
+
+/** A plugin's dialog: whatever it renders, given a way to close itself. */
+function PluginDialog({ render, onClose }: { render: (close: () => void) => ReactNode; onClose: () => void }) {
+  return <>{render(onClose)}</>
 }
 
 interface GroupMenuProps {

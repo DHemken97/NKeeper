@@ -27,7 +27,7 @@ function makeHost(overrides: Partial<Host>): Host {
     serialNumber: null,
     jumpHostId: null,
     jumpCredentialId: null,
-    zabbixHostId: null,
+    plugins: {},
     tags: [],
     services: [{ protocol: 'Ssh', port: null, label: null, rdpSecurity: null }],
     credentials: [{ id: 'c-root', label: null, username: 'root', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],
@@ -54,7 +54,7 @@ const app01 = makeHost({
   serialNumber: null,
   jumpHostId: null,
   jumpCredentialId: null,
-  zabbixHostId: null,
+  plugins: {},
 })
 const printer = makeHost({ id: 'h-printer', name: 'printer', ipAddress: '10.0.0.90' })
 

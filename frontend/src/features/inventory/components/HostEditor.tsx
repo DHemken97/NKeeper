@@ -11,7 +11,8 @@ import { isSupportedProtocol, type Host } from '../types'
 import { CredentialsEditor } from './CredentialsEditor'
 import { HypervisorField } from './HypervisorField'
 import { JumpHostField } from './JumpHostField'
-import { ZabbixHostField } from '../../zabbix/components/ZabbixHostField'
+import { usePlugins } from '../../../sdk/registry'
+import { PluginBoundary } from '../../../sdk/PluginSessionView'
 import styles from './HostPanel.module.css'
 import { ServicesEditor } from './ServicesEditor'
 import { TagEditor } from './TagEditor'
@@ -43,18 +44,25 @@ const FIELDS = [
   'hypervisorId',
   'jumpHostId',
   'jumpCredentialId',
-  'zabbixHostId',
+  'plugins',
   'tags',
   'services',
   'credentials',
 ]
 
-/** Create or edit a host in the details panel, including its tags, services and credentials. */
+/** One plugin's field errors ("plugins.zabbix.hostId"), by field name. */
+function pluginErrors(errors: Record<string, string>, pluginId: string): Record<string, string> {
+  const prefix = `plugins.${pluginId}.`
+  return Object.fromEntries(Object.entries(errors).filter(([key]) => key.startsWith(prefix)).map(([key, message]) => [key.slice(prefix.length), message]))
+}
+
+/** Create or edit a host in the details panel, including its tags, services, credentials and plugin fields. */
 export function HostEditor({ host, cloneOf, onClone, knownTagNames, knownTagValues, allHosts, onSaved, onCancel }: HostEditorProps) {
   const [draft, setDraft] = useState<HostDraft>(() => (!host && cloneOf ? toCloneDraft(cloneOf) : toHostDraft(host)))
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const plugins = usePlugins()
 
   function set<K extends keyof HostDraft>(key: K, value: HostDraft[K]) {
     setDraft((current) => ({ ...current, [key]: value }))
@@ -239,12 +247,21 @@ export function HostEditor({ host, cloneOf, onClone, knownTagNames, knownTagValu
               error={fieldErrors.jumpHostId}
               credentialError={fieldErrors.jumpCredentialId}
             />
-            <ZabbixHostField
-              value={draft.zabbixHostId}
-              onChange={(id) => set('zabbixHostId', id)}
-              error={fieldErrors.zabbixHostId}
-              suggestion={draft.name.trim() || draft.ipAddress.trim() || draft.hostname.trim()}
-            />
+            {plugins.flatMap((plugin) =>
+              (plugin.hostFields ?? []).map((Field, index) => (
+                <PluginBoundary key={`${plugin.id}-${index}`} plugin={plugin.id}>
+                  <Field
+                    host={host}
+                    values={draft.plugins[plugin.id] ?? {}}
+                    onChange={(field, value) =>
+                      setDraft((current) => ({ ...current, plugins: { ...current.plugins, [plugin.id]: { ...current.plugins[plugin.id], [field]: value } } }))
+                    }
+                    errors={pluginErrors(fieldErrors, plugin.id)}
+                    draft={{ name: draft.name, hostname: draft.hostname, ipAddress: draft.ipAddress }}
+                  />
+                </PluginBoundary>
+              )),
+            )}
           </div>
         </section>
 

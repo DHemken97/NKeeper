@@ -25,7 +25,7 @@ const base: Host = {
   serialNumber: null,
   jumpHostId: null,
   jumpCredentialId: null,
-  zabbixHostId: null,
+  plugins: {},
   tags: [],
   services: [{ protocol: 'Kvm', port: null, label: null }],
   credentials: [{ id: 'c1', label: null, username: 'root', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],

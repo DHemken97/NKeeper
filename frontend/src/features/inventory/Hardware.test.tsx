@@ -27,7 +27,7 @@ const r750: Host = {
   serialNumber: 'ABC1234',
   jumpHostId: null,
   jumpCredentialId: null,
-  zabbixHostId: null,
+  plugins: {},
   tags: [],
   services: [],
   credentials: [],

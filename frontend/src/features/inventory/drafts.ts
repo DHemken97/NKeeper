@@ -58,8 +58,10 @@ export interface HostDraft {
   jumpHostId: string
   /** The jump host's credential, or empty for its first usable one. */
   jumpCredentialId: string
-  /** The Zabbix host it's linked to, or empty. */
-  zabbixHostId: string
+  /** Plugin values, by plugin ID then field name; empty for none. */
+  plugins: Record<string, Record<string, string>>
+  /** The plugin values as saved, so only changed ones are sent (others belong to plugins this browser may not know). */
+  savedPlugins: Record<string, Record<string, string>>
   tags: TagDraft[]
   services: ServiceDraft[]
   credentials: CredentialDraft[]
@@ -120,7 +122,8 @@ export function toHostDraft(host: Host | null): HostDraft {
     serialNumber: host?.serialNumber ?? '',
     jumpHostId: host?.jumpHostId ?? '',
     jumpCredentialId: host?.jumpCredentialId ?? '',
-    zabbixHostId: host?.zabbixHostId ?? '',
+    plugins: structuredClone(host?.plugins ?? {}),
+    savedPlugins: host?.plugins ?? {},
     tags: host?.tags.map((t) => newTagDraft(t.name, t.value)) ?? [],
     // Services of types NKeeper can't connect with can't be saved; the editor says they'll go.
     services:
@@ -136,9 +139,10 @@ export function toCloneDraft(source: Host): HostDraft {
   return {
     ...draft,
     name: `${source.name} (copy)`,
-    // A serial number and a Zabbix host belong to one machine.
+    // A serial number belongs to one machine, as do the plugins' values (e.g. its Zabbix host).
     serialNumber: '',
-    zabbixHostId: '',
+    plugins: {},
+    savedPlugins: {},
     credentials: source.credentials.map((c) => ({ ...newCredentialDraft(c), id: undefined, copyFrom: c.id })),
   }
 }
@@ -149,6 +153,22 @@ const blankToNull = (value: string) => (value.trim() === '' ? null : value.trim(
 function memoryMiB(gib: string): number | null {
   const text = gib.trim().replace(',', '.')
   return text === '' ? null : Math.round(Number(text) * 1024)
+}
+
+/** The plugin values the draft changes (null removes one), or nothing when it changes none. */
+function changedPlugins(draft: HostDraft): Pick<HostInput, 'plugins'> {
+  const changes: Record<string, Record<string, string | null>> = {}
+  for (const pluginId of new Set([...Object.keys(draft.plugins), ...Object.keys(draft.savedPlugins)])) {
+    const now = draft.plugins[pluginId] ?? {}
+    const saved = draft.savedPlugins[pluginId] ?? {}
+    for (const field of new Set([...Object.keys(now), ...Object.keys(saved)])) {
+      const value = blankToNull(now[field] ?? '')
+      if (value !== (saved[field] ?? null)) {
+        changes[pluginId] = { ...changes[pluginId], [field]: value }
+      }
+    }
+  }
+  return Object.keys(changes).length > 0 ? { plugins: changes } : {}
 }
 
 export function toHostInput(draft: HostDraft, version?: number): HostInput {
@@ -165,7 +185,7 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
     serialNumber: blankToNull(draft.serialNumber),
     jumpHostId: draft.jumpHostId || null,
     jumpCredentialId: draft.jumpHostId && draft.jumpCredentialId ? draft.jumpCredentialId : null,
-    zabbixHostId: blankToNull(draft.zabbixHostId),
+    ...changedPlugins(draft),
     // Rows left completely empty are ignored rather than rejected.
     tags: draft.tags
       .filter((t) => t.name.trim() || t.value.trim())

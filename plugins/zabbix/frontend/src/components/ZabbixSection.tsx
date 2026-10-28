@@ -1,24 +1,30 @@
 import { Fragment, useState } from 'react'
-import { Alert } from '../../../components/ui/Alert'
-import { Badge } from '../../../components/ui/Badge'
-import { Button } from '../../../components/ui/Button'
-import { Checkbox } from '../../../components/ui/Checkbox'
-import { Spinner } from '../../../components/ui/Spinner'
-import { ApiError } from '../../../lib/api'
-import { toFormErrors } from '../../../lib/formErrors'
-import { hostsApi } from '../../inventory/api/inventoryApi'
-import panel from '../../inventory/components/HostPanel.module.css'
-import { toHostDraft, toHostInput } from '../../inventory/drafts'
-import { useResource } from '../../inventory/hooks/useResource'
-import { formatMemory, type Host } from '../../inventory/types'
+import {
+  Alert,
+  ApiError,
+  Badge,
+  Button,
+  Checkbox,
+  formatMemory,
+  hostsApi,
+  Spinner,
+  styles as nkeeper,
+  toFormErrors,
+  toHostDraft,
+  toHostInput,
+  useResource,
+  type Host,
+} from '@nkeeper/plugin-sdk'
 import { formatItemValue, INVENTORY_LABELS, zabbixHardware, type ZabbixHardware } from '../format'
-import { SEVERITIES, zabbixApi, zabbixLinks, type ZabbixAvailability, type ZabbixHostOverview } from '../zabbixApi'
+import { linkedZabbixHost, SEVERITIES, zabbixApi, zabbixLinks, type ZabbixAvailability, type ZabbixHostOverview } from '../zabbixApi'
 import styles from './Zabbix.module.css'
+
+const panel = nkeeper.hostPanel
 
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 interface ZabbixSectionProps {
-  /** A host linked to Zabbix (with a zabbixHostId). */
+  /** A host linked to Zabbix (with the plugin's hostId). */
   host: Host
   /** The host changed here (details copied from Zabbix). */
   onChanged: (host: Host) => void
@@ -26,10 +32,10 @@ interface ZabbixSectionProps {
 
 /** What Zabbix knows about a linked host: availability, problems, latest values, inventory and interfaces. */
 export function ZabbixSection({ host, onChanged }: ZabbixSectionProps) {
-  const overview = useResource((signal) => zabbixApi.overview(host.id, signal), `${host.id}:${host.zabbixHostId}`)
+  const overview = useResource((signal) => zabbixApi.overview(host.id, signal), `${host.id}:${linkedZabbixHost(host)}`)
   const status = useResource((signal) => zabbixApi.status(signal))
   const frontendUrl = status.data?.frontendUrl ?? null
-  const zabbixHostId = host.zabbixHostId!
+  const zabbixHostId = linkedZabbixHost(host)!
 
   return (
     <section className={panel.section} aria-labelledby="zabbix-section-title">

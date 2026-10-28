@@ -1,18 +1,22 @@
 import { useState, type FormEvent } from 'react'
-import { Alert } from '../../../components/ui/Alert'
-import { Button } from '../../../components/ui/Button'
-import { Checkbox } from '../../../components/ui/Checkbox'
-import { PasswordField } from '../../../components/ui/PasswordField'
-import { TextField } from '../../../components/ui/TextField'
-import { toFormErrors } from '../../../lib/formErrors'
-import styles from '../../transfer/pages/TransferPage.module.css'
-import own from '../../settings/pages/SettingsPage.module.css'
+import { Alert, Button, Checkbox, PasswordField, Spinner, styles as nkeeper, TextField, toFormErrors, useResource } from '@nkeeper/plugin-sdk'
 import { zabbixApi, type ZabbixCertificate, type ZabbixSettings, type ZabbixSettingsInput } from '../zabbixApi'
 
+const styles = nkeeper.page
+const own = nkeeper.settings
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
 
 const FIELDS = ['enabled', 'url', 'apiToken']
+
+/** Settings ▸ Zabbix: loads the saved settings, then shows the form for them. */
+export function ZabbixSettingsSection() {
+  const zabbix = useResource((signal) => zabbixApi.getSettings(signal))
+  if (zabbix.error && !zabbix.data) {
+    return <Alert>{toFormErrors(zabbix.error).message}</Alert>
+  }
+  return zabbix.data ? <ZabbixSettingsPanel key={zabbix.data.updatedAtUtc ?? 'new'} saved={zabbix.data} onSaved={zabbix.reload} /> : <Spinner label="Loading" />
+}
 
 /** The Zabbix server NKeeper reads host information from, with an API token. */
 export function ZabbixSettingsPanel({ saved, onSaved }: { saved: ZabbixSettings; onSaved: () => void }) {

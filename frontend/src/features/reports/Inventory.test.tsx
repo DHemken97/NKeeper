@@ -28,7 +28,7 @@ function host(id: string, name: string, tags: HostTag[], fields: Partial<Host> =
     serialNumber: null,
     jumpHostId: null,
     jumpCredentialId: null,
-    zabbixHostId: null,
+    plugins: {},
     tags,
     services: [],
     credentials: [],

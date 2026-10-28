@@ -1,15 +1,10 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { Alert } from '../../../components/ui/Alert'
-import { Button } from '../../../components/ui/Button'
-import { Checkbox } from '../../../components/ui/Checkbox'
-import { Spinner } from '../../../components/ui/Spinner'
-import { ApiError } from '../../../lib/api'
-import { toFormErrors } from '../../../lib/formErrors'
-import { useResource } from '../../inventory/hooks/useResource'
-import styles from '../../reports/pages/Reports.module.css'
+import { Alert, ApiError, Button, Checkbox, Spinner, styles as nkeeper, toFormErrors, useResource } from '@nkeeper/plugin-sdk'
 import { zabbixApi, type ComparedHost, type MatchedBy, type ZabbixComparison, type ZabbixHostSummary } from '../zabbixApi'
 import own from './ZabbixReport.module.css'
+
+const styles = nkeeper.report
 
 const MATCHED_BY: Record<MatchedBy, string> = { mac: 'MAC address', ip: 'IP address', hostname: 'Hostname', name: 'Name' }
 

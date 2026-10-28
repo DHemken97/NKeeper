@@ -28,7 +28,7 @@ function host(id: string, name: string, tags: Host['tags'] = [], canManage = tru
     serialNumber: null,
     jumpHostId: null,
     jumpCredentialId: null,
-    zabbixHostId: null,
+    plugins: {},
     tags,
     services: [],
     credentials: [],

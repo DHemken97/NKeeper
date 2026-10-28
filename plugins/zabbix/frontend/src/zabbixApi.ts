@@ -1,5 +1,4 @@
-import { api } from '../../lib/api'
-import type { Host, HostTag } from '../inventory/types'
+import { api, type Host, type HostTag } from '@nkeeper/plugin-sdk'
 
 /** Mirrors the API's ZabbixSettingsResponse. The API token itself never comes back. */
 export interface ZabbixSettings {
@@ -129,20 +128,20 @@ export interface ZabbixImportResult {
 export const SEVERITIES = ['Not classified', 'Information', 'Warning', 'Average', 'High', 'Disaster'] as const
 
 export const zabbixApi = {
-  status: (signal?: AbortSignal) => api.get<ZabbixStatus>('/api/zabbix/status', { signal }),
-  getSettings: (signal?: AbortSignal) => api.get<ZabbixSettings>('/api/admin/zabbix', { signal }),
-  saveSettings: (input: ZabbixSettingsInput) => api.put<ZabbixSettings>('/api/admin/zabbix', { body: input }),
+  status: (signal?: AbortSignal) => api.get<ZabbixStatus>('/api/plugins/zabbix/status', { signal }),
+  getSettings: (signal?: AbortSignal) => api.get<ZabbixSettings>('/api/plugins/zabbix/settings', { signal }),
+  saveSettings: (input: ZabbixSettingsInput) => api.put<ZabbixSettings>('/api/plugins/zabbix/settings', { body: input }),
   /** Tests these (possibly unsaved) settings; an empty token means the saved one. */
-  testSettings: (input: ZabbixSettingsInput) => api.post<ZabbixTestResult>('/api/admin/zabbix/test', { body: input }),
-  overview: (hostId: string, signal?: AbortSignal) => api.get<ZabbixHostOverview>(`/api/hosts/${hostId}/zabbix`, { signal }),
+  testSettings: (input: ZabbixSettingsInput) => api.post<ZabbixTestResult>('/api/plugins/zabbix/settings/test', { body: input }),
+  overview: (hostId: string, signal?: AbortSignal) => api.get<ZabbixHostOverview>(`/api/plugins/zabbix/hosts/${hostId}`, { signal }),
   search: (text: string, signal?: AbortSignal) =>
-    api.get<ZabbixHostSummary[]>(`/api/zabbix/hosts?search=${encodeURIComponent(text)}`, { signal }),
-  comparison: (signal?: AbortSignal) => api.get<ZabbixComparison>('/api/zabbix/comparison', { signal }),
+    api.get<ZabbixHostSummary[]>(`/api/plugins/zabbix/hosts?search=${encodeURIComponent(text)}`, { signal }),
+  comparison: (signal?: AbortSignal) => api.get<ZabbixComparison>('/api/plugins/zabbix/comparison', { signal }),
   /** Link hosts to Zabbix hosts (null unlinks); returns the hosts as they now are. */
-  link: (links: { hostId: string; zabbixHostId: string | null }[]) => api.post<Host[]>('/api/zabbix/links', { body: { links } }),
+  link: (links: { hostId: string; zabbixHostId: string | null }[]) => api.post<Host[]>('/api/plugins/zabbix/links', { body: { links } }),
   /** Add NKeeper hosts for Zabbix hosts, from Zabbix's data. */
   importHosts: (zabbixHostIds: string[], groupsAsTags: boolean) =>
-    api.post<ZabbixImportResult>('/api/zabbix/import', { body: { zabbixHostIds, groupsAsTags } }),
+    api.post<ZabbixImportResult>('/api/plugins/zabbix/import', { body: { zabbixHostIds, groupsAsTags } }),
 }
 
 /** Links into the Zabbix frontend. */
@@ -150,4 +149,9 @@ export const zabbixLinks = {
   host: (frontendUrl: string, hostId: string) => `${frontendUrl}zabbix.php?action=host.view&filter_host=&filter_hostids%5B%5D=${hostId}&filter_set=1`,
   problems: (frontendUrl: string, hostId: string) => `${frontendUrl}zabbix.php?action=problem.view&hostids%5B%5D=${hostId}&filter_set=1`,
   latestData: (frontendUrl: string, hostId: string) => `${frontendUrl}zabbix.php?action=latest.view&hostids%5B%5D=${hostId}&filter_set=1`,
+}
+
+/** The Zabbix host a host is linked to: the plugin's hostId field. */
+export function linkedZabbixHost(host: Pick<Host, 'plugins'>): string | null {
+  return host.plugins.zabbix?.hostId ?? null
 }

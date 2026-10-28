@@ -20,7 +20,8 @@ import {
   type ServiceCheck,
   type TrustedKey,
 } from '../types'
-import { ZabbixSection } from '../../zabbix/components/ZabbixSection'
+import { PluginBoundary } from '../../../sdk/PluginSessionView'
+import { usePlugins } from '../../../sdk/registry'
 import { DeleteButton } from './DeleteButton'
 import styles from './HostPanel.module.css'
 
@@ -70,6 +71,7 @@ export function HostDetails({
 }: HostDetailsProps) {
   const [checking, setChecking] = useState(false)
   const [wake, setWake] = useState<{ busy: boolean; message?: string; error?: boolean }>({ busy: false })
+  const plugins = usePlugins()
 
   async function checkNow() {
     setChecking(true)
@@ -331,7 +333,13 @@ export function HostDetails({
           )}
         </section>
 
-        {host.zabbixHostId ? <ZabbixSection key={host.id} host={host} onChanged={onChanged} /> : null}
+        {plugins.flatMap((plugin) =>
+          (plugin.hostSections ?? []).map((Section, index) => (
+            <PluginBoundary key={`${plugin.id}-${index}-${host.id}`} plugin={plugin.id}>
+              <Section host={host} onChanged={onChanged} />
+            </PluginBoundary>
+          )),
+        )}
 
         <section className={styles.section} aria-labelledby="credentials-title">
           <h2 id="credentials-title" className={styles.sectionTitle}>

@@ -26,7 +26,7 @@ function host(id: string, name: string, fields: Partial<Host> = {}): Host {
     serialNumber: null,
     jumpHostId: null,
     jumpCredentialId: null,
-    zabbixHostId: null,
+    plugins: {},
     tags: [],
     services: [],
     credentials: [],

@@ -3,8 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
-import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
-import type { Host } from '../inventory/types'
+import { antiforgeryRoute, jsonResponse, mockFetch } from '@nkeeper/plugin-sdk/testing'
+import type { Host } from '@nkeeper/plugin-sdk'
 import { ZabbixHostField } from './components/ZabbixHostField'
 import { ZabbixSection } from './components/ZabbixSection'
 import { ZabbixReport } from './pages/ZabbixReport'
@@ -26,7 +26,7 @@ const host: Host = {
   serialNumber: null,
   jumpHostId: null,
   jumpCredentialId: null,
-  zabbixHostId: '10084',
+  plugins: { zabbix: { hostId: '10084' } },
   tags: [],
   services: [],
   credentials: [],
@@ -63,11 +63,11 @@ const overview: ZabbixHostOverview = {
   problems: [{ eventId: '9001', name: 'High CPU utilization', severity: 4, startedAtUtc: '2026-10-27T10:00:00Z', acknowledged: true, suppressed: false }],
 }
 
-const statusRoute = { 'GET /api/zabbix/status': () => jsonResponse(200, { enabled: true, frontendUrl: 'https://zabbix.example.com/' }) }
+const statusRoute = { 'GET /api/plugins/zabbix/status': () => jsonResponse(200, { enabled: true, frontendUrl: 'https://zabbix.example.com/' }) }
 
 describe('Zabbix in host details', () => {
   it('shows what Zabbix knows about the linked host', async () => {
-    mockFetch({ ...statusRoute, 'GET /api/hosts/h1/zabbix': () => jsonResponse(200, overview) })
+    mockFetch({ ...statusRoute, 'GET /api/plugins/zabbix/hosts/h1': () => jsonResponse(200, overview) })
     render(<ZabbixSection host={host} onChanged={() => {}} />)
 
     expect(await screen.findByText('High CPU utilization')).toBeInTheDocument()
@@ -86,7 +86,7 @@ describe('Zabbix in host details', () => {
     mockFetch({
       ...antiforgeryRoute,
       ...statusRoute,
-      'GET /api/hosts/h1/zabbix': () => jsonResponse(200, overview),
+      'GET /api/plugins/zabbix/hosts/h1': () => jsonResponse(200, overview),
       'PUT /api/hosts/h1': (_url, init) => {
         body = JSON.parse(String(init.body))
         return jsonResponse(200, { ...host, serialNumber: 'SN-PVE1' })
@@ -101,13 +101,13 @@ describe('Zabbix in host details', () => {
     await user.click(group.getByRole('button', { name: 'Copy to host' }))
 
     await vi.waitFor(() => expect(onChanged).toHaveBeenCalled())
-    expect(body).toMatchObject({ serialNumber: 'SN-PVE1', macAddress: 'AA:BB:CC:00:00:01', memoryMiB: 16384, cpuCores: 12, version: 7, zabbixHostId: '10084' })
+    expect(body).toMatchObject({ serialNumber: 'SN-PVE1', macAddress: 'AA:BB:CC:00:00:01', memoryMiB: 16384, cpuCores: 12, version: 7 })
   })
 
   it('says when Zabbix isn’t set up', async () => {
     mockFetch({
       ...statusRoute,
-      'GET /api/hosts/h1/zabbix': () => jsonResponse(409, { status: 409, code: 'zabbix_disabled', detail: 'Zabbix isn’t set up.' }),
+      'GET /api/plugins/zabbix/hosts/h1': () => jsonResponse(409, { status: 409, code: 'zabbix_disabled', detail: 'Zabbix isn’t set up.' }),
     })
     render(<ZabbixSection host={host} onChanged={() => {}} />)
 
@@ -123,7 +123,7 @@ function Field() {
 describe('Zabbix host field', () => {
   it('finds a Zabbix host and links it', async () => {
     mockFetch({
-      'GET /api/zabbix/hosts': (url) =>
+      'GET /api/plugins/zabbix/hosts': (url) =>
         jsonResponse(
           200,
           new URL(url, 'http://localhost').searchParams.get('search') === 'web'
@@ -168,12 +168,12 @@ describe('Zabbix report', () => {
     const posts: Record<string, unknown>[] = []
     mockFetch({
       ...antiforgeryRoute,
-      'GET /api/zabbix/comparison': () => jsonResponse(200, comparison),
-      'POST /api/zabbix/links': (_url, init) => {
+      'GET /api/plugins/zabbix/comparison': () => jsonResponse(200, comparison),
+      'POST /api/plugins/zabbix/links': (_url, init) => {
         posts.push(JSON.parse(String(init.body)))
         return jsonResponse(200, [])
       },
-      'POST /api/zabbix/import': (_url, init) => {
+      'POST /api/plugins/zabbix/import': (_url, init) => {
         posts.push(JSON.parse(String(init.body)))
         return jsonResponse(200, { created: [host], skipped: [{ zabbixHostId: '10087', name: 'PBX1', reason: 'Zabbix has no IP address or DNS name for it.' }] })
       },
@@ -195,7 +195,7 @@ describe('Zabbix report', () => {
   })
 
   it('points to Settings when Zabbix isn’t set up', async () => {
-    mockFetch({ 'GET /api/zabbix/comparison': () => jsonResponse(409, { status: 409, code: 'zabbix_disabled', detail: 'Zabbix isn’t set up.' }) })
+    mockFetch({ 'GET /api/plugins/zabbix/comparison': () => jsonResponse(409, { status: 409, code: 'zabbix_disabled', detail: 'Zabbix isn’t set up.' }) })
     renderReport()
 
     expect(await screen.findByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings')

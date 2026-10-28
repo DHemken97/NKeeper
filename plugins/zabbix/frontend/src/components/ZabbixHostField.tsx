@@ -1,11 +1,9 @@
 import { useId, useState, type KeyboardEvent } from 'react'
-import { Button } from '../../../components/ui/Button'
-import { TextField } from '../../../components/ui/TextField'
-import { ApiError } from '../../../lib/api'
-import { toFormErrors } from '../../../lib/formErrors'
-import panel from '../../inventory/components/HostPanel.module.css'
+import { ApiError, Button, styles as nkeeper, TextField, toFormErrors } from '@nkeeper/plugin-sdk'
 import { zabbixApi, type ZabbixHostSummary } from '../zabbixApi'
 import styles from './Zabbix.module.css'
+
+const panel = nkeeper.hostPanel
 
 interface ZabbixHostFieldProps {
   /** The Zabbix host ID, or empty when not linked. */

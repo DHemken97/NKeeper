@@ -115,10 +115,6 @@
 .severity4 { background: #e9765940; }
 .severity5 { background: #e4594040; }
 
-.inventory {
-  composes: properties from '../../inventory/components/HostPanel.module.css';
-}
-
 .apply {
   display: flex;
   flex-direction: column;

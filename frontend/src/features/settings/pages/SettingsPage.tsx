@@ -10,16 +10,17 @@ import { toFormErrors } from '../../../lib/formErrors'
 import { useResource } from '../../inventory/hooks/useResource'
 import styles from '../../transfer/pages/TransferPage.module.css'
 import own from './SettingsPage.module.css'
-import { ZabbixSettingsPanel } from '../../zabbix/components/ZabbixSettingsPanel'
-import { zabbixApi } from '../../zabbix/zabbixApi'
+import { PluginBoundary } from '../../../sdk/PluginSessionView'
+import { usePlugins } from '../../../sdk/registry'
+import { PluginsPanel } from '../components/PluginsPanel'
 import { settingsApi, SMTP_SECURITY, type EmailSettings, type EmailSettingsInput, type SmtpSecurity } from '../settingsApi'
 
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
-/** Instance-wide settings (administrators): the SMTP server NKeeper sends email through, and Zabbix. */
+/** Instance-wide settings (administrators): the SMTP server NKeeper sends email through, the plugins, and the plugins' own settings. */
 export function SettingsPage() {
   const email = useResource((signal) => settingsApi.getEmail(signal))
-  const zabbix = useResource((signal) => zabbixApi.getSettings(signal))
+  const plugins = usePlugins()
 
   return (
     <div className={styles.page}>
@@ -32,8 +33,15 @@ export function SettingsPage() {
       {!email.data && !email.error ? <Spinner label="Loading" /> : null}
       {email.data ? <EmailPanel key={email.data.updatedAtUtc ?? 'new'} saved={email.data} onSaved={email.reload} /> : null}
 
-      {zabbix.error && !zabbix.data ? <Alert>{toFormErrors(zabbix.error).message}</Alert> : null}
-      {zabbix.data ? <ZabbixSettingsPanel key={zabbix.data.updatedAtUtc ?? 'new'} saved={zabbix.data} onSaved={zabbix.reload} /> : null}
+      {plugins.flatMap((plugin) =>
+        (plugin.settingsSections ?? []).map((Section, index) => (
+          <PluginBoundary key={`${plugin.id}-${index}`} plugin={plugin.id}>
+            <Section />
+          </PluginBoundary>
+        )),
+      )}
+
+      <PluginsPanel />
     </div>
   )
 }

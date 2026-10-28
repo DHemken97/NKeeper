@@ -121,8 +121,8 @@ export interface Host {
   jumpHostId: string | null
   /** Which of the jump host's credentials to sign in to it with; null means its first usable one. */
   jumpCredentialId: string | null
-  /** The host's ID in Zabbix, when it's linked to one. */
-  zabbixHostId: string | null
+  /** Values plugins keep on the host, by plugin ID then field name, e.g. plugins.zabbix.hostId. */
+  plugins: Record<string, Record<string, string>>
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredential[]
@@ -165,7 +165,8 @@ export interface HostInput {
   serialNumber: string | null
   jumpHostId: string | null
   jumpCredentialId: string | null
-  zabbixHostId: string | null
+  /** Plugin values to change, by plugin ID then field name; null or empty removes one. Values left out are kept. */
+  plugins?: Record<string, Record<string, string | null>>
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredentialInput[]
