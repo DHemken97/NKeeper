@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using NKeeper.Api.Controllers;
 using NKeeper.Api.RemoteSessions;
 using NKeeper.Infrastructure.Inventory;
@@ -68,6 +69,14 @@ public sealed record ScannedGuest(
     int? MemoryMiB = null,
     string? Namesake = null);
 
+/// <summary>
+/// A host NKeeper has running on the scanned hypervisor (or another node of its Proxmox cluster) that
+/// the scan didn't find there, nor anything like it: the VM was deleted or moved, so its link can be removed.
+/// </summary>
+/// <param name="HypervisorHostId">The host NKeeper has it running on.</param>
+/// <param name="CanManage">Whether the user may unlink it.</param>
+public sealed record MissingGuest(Guid HostId, string Name, Guid HypervisorHostId, string HypervisorHostName, bool CanManage);
+
 /// <summary>A host a scan could add for a guest NKeeper doesn't have yet.</summary>
 public sealed record ProposedHost(string Name, string? Hostname, string? IpAddress, string? MacAddress, string Description);
 
@@ -119,7 +128,18 @@ public sealed record ScanFindings(
     IReadOnlyList<ScannedNeighbor> Neighbors,
     int? CpuCores = null,
     int? MemoryMiB = null,
-    string? SerialNumber = null);
+    string? SerialNumber = null)
+{
+    /// <summary>
+    /// Internal scans of hypervisors: hosts linked to it (or its cluster's nodes) that the scan didn't
+    /// find. Empty when the hypervisor's VM list couldn't be read in full.
+    /// </summary>
+    public IReadOnlyList<MissingGuest> MissingGuests { get; init; } = [];
+
+    /// <summary>Whether some of the hypervisor's VMs couldn't be listed (so a VM not found may still be there).</summary>
+    [JsonIgnore]
+    public bool GuestListIncomplete { get; init; }
+}
 
 /// <param name="Status">"ready", or "trustRequired" when the SSH host key must be confirmed first (internal scans).</param>
 public sealed record ScanResponse(string Status, ScanFindings? Findings, HostKeyPromptResponse? HostKey);

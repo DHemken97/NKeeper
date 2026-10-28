@@ -69,14 +69,18 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
             using var client = await SshCommandConnection.ConnectAsync(
                 target, request.TrustFingerprint, User.GetUserId(), services.GetRequiredService<TrustedKeyStore>(), cancellationToken);
             var findings = await InternalScan.RunAsync(client, cancellationToken);
-            if (findings.Guests.Count > 0 || findings.Neighbors.Count > 0)
+            // A hypervisor with no VMs left can still have hosts linked to it that are gone.
+            var listsGuests = findings.IsKvmHost && !findings.GuestListIncomplete;
+            if (findings.Guests.Count > 0 || findings.Neighbors.Count > 0 || listsGuests)
             {
                 var candidates = await CandidatesAsync(cancellationToken);
                 var scannedName = candidates.FirstOrDefault(c => c.Id == id)?.Name ?? "the scanned host";
+                var guests = findings.Guests.Count > 0 ? GuestMatcher.Match(id, findings.Guests, candidates) : findings.Guests;
                 findings = findings with
                 {
-                    Guests = findings.Guests.Count > 0 ? GuestMatcher.Match(id, findings.Guests, candidates) : findings.Guests,
+                    Guests = guests,
                     Neighbors = findings.Neighbors.Count > 0 ? NeighborMatcher.Match(scannedName, findings.Neighbors, candidates) : findings.Neighbors,
+                    MissingGuests = listsGuests ? GuestMatcher.Missing(id, guests, candidates) : [],
                 };
             }
 

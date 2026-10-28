@@ -311,6 +311,16 @@ export interface ScannedGuest {
   namesake: string | null
 }
 
+/** A host NKeeper has running on the scanned hypervisor (or another node of its cluster) that the scan didn't find there. */
+export interface MissingGuest {
+  hostId: string
+  name: string
+  /** The host NKeeper has it running on. */
+  hypervisorHostId: string
+  hypervisorHostName: string
+  canManage: boolean
+}
+
 /** A host a scan could add for a VM or container NKeeper doesn't have yet. */
 export interface ProposedHost {
   name: string
@@ -362,6 +372,8 @@ export interface ScanFindings {
   guests: ScannedGuest[]
   /** Internal scans: machines in the host's neighbour (ARP/NDP) table. */
   neighbors: ScannedNeighbor[]
+  /** Internal scans of hypervisors: hosts linked to it that the scan didn't find (empty when its VM list couldn't be read). */
+  missingGuests?: MissingGuest[]
   /** Internal scans: logical processors. */
   cpuCores: number | null
   /** Internal scans: memory in MiB. */
