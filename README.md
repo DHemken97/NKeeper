@@ -18,6 +18,7 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
 - **Jump hosts**: reach hosts on networks the server can't see by tunnelling through an SSH bastion. SSH, Telnet, files, web, iDRAC, KVM and internal scans all go through it.
 - **Windows scans** over RPC (WMI): hostname, model, Windows version, adapters, listening ports and local accounts.
 - **Hardware inventory**: CPU cores, memory and serial numbers, filled in by scans (Linux, Windows, iDRAC), with each VM's vCPUs and memory read from its hypervisor.
+- **Zabbix**: link hosts to Zabbix 7.0+ through its API with an API token, and see each host's availability, problems, latest values and inventory in its details, copying its serial number, MAC address, CPUs and memory onto the host. A report compares Zabbix with NKeeper: link probable matches (by MAC, IP, hostname or name), add the hosts only Zabbix has, and see the ones it doesn't monitor.
 - **Health**: every service is checked from the server every few minutes, with status dots in the tree, a report of what's down and of TLS certificates about to expire, and **Wake-on-LAN** for hosts with a MAC address.
 - **Audit log**: who signed in, opened which session to which host, and changed what, searchable and exportable. SSH and Telnet sessions are recorded and can be played back.
 - **Reports**: an IP address map of every /24 subnet in use, and each VM host's capacity with what its VMs use. Both download as CSV.

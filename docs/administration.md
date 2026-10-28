@@ -3,6 +3,7 @@
 - [The first administrator](#the-first-administrator)
 - [Users and access](#users-and-access)
 - [Email and sign-in codes](#email-and-sign-in-codes)
+- [Zabbix](#zabbix)
 - [Active Directory sign-in](#active-directory-sign-in)
 - [Single sign-on](#single-sign-on)
 - [Moving to a new server](#moving-to-a-new-server)
@@ -72,6 +73,21 @@ With email set up, **Email 2FA challenge code** can be turned on for any user, w
 - **Email must stay working.** The option can't be turned on while email is off, and email can't be turned off while any user has it. If the server can't send the code, the sign-in fails with a message to contact an administrator. Keep one administrator without the option as a way in.
 - **Audit log.** Sign-ins completed with a code are recorded as *emailed code*. Wrong codes are recorded as failed sign-ins.
 - **Moving to a new server** carries the email settings (password included, inside the encrypted file) and each user's option.
+
+## Zabbix
+
+**Settings → Zabbix** connects NKeeper to a Zabbix 7.0 (or later) server, to show its information on hosts and compare its hosts with NKeeper's (see the [User guide](user-guide.md#zabbix)). NKeeper only reads from Zabbix.
+
+1. In Zabbix, create an **API token** (User settings ▸ API tokens, or Users ▸ API tokens) for a user that can read the hosts you want in NKeeper. A user with a read-only role on those host groups is enough. NKeeper sees only the hosts the token's user can see.
+2. In NKeeper, enter the address you open Zabbix at (e.g. `https://zabbix.example.com/zabbix`; a link to any Zabbix page works too) and the token.
+3. **Test connection.** If the server's certificate isn't publicly trusted, NKeeper shows it: compare the SHA-256 fingerprint with the server's certificate, then **Trust and test**. A different certificate later is refused until it's trusted again.
+4. Tick **Read host information from Zabbix** and **Save**.
+
+- **The token** is stored encrypted like host credentials and is never shown again: leave the field empty to keep it. Changing the address to another server forgets the trusted certificate.
+- **Use HTTPS.** With plain HTTP the token crosses the network unencrypted with every request.
+- **Who sees what:** anyone who can see a linked host sees its Zabbix section. Searching Zabbix (to link a host) needs Manage access to at least one host. The comparison report and adding hosts from Zabbix are for administrators.
+- **Audit log:** saving the settings, linking hosts and adding them from Zabbix are recorded.
+- **Moving to a new server** carries the settings (token included, inside the encrypted file) and every host's link.
 
 ## Moving to a new server
 
