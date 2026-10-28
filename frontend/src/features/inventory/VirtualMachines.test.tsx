@@ -222,6 +222,48 @@ describe('virtual machines', () => {
     expect(await screen.findByRole('button', { name: /^scratch/ })).toBeInTheDocument()
   })
 
+  it('linked to a scanned hypervisor that weren’t found there can be unlinked', async () => {
+    let bulk: unknown
+    const { user } = renderAt('/', {
+      'POST /api/hosts/h-node1/scan/internal': () =>
+        jsonResponse(200, {
+          status: 'ready',
+          hostKey: null,
+          findings: {
+            ...nodeScan,
+            guests: [],
+            missingGuests: [
+              { hostId: 'h-app01', name: 'app01', hypervisorHostId: 'h-node1', hypervisorHostName: 'node1', canManage: true },
+              { hostId: 'h-locked', name: 'locked', hypervisorHostId: 'h-node1', hypervisorHostName: 'node1', canManage: false },
+            ],
+          },
+        }),
+      'POST /api/hosts/bulk': (_url, init) => {
+        bulk = JSON.parse(String(init.body))
+        return jsonResponse(200, [{ ...app01, hypervisorId: null }])
+      },
+    })
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /node1/ }))
+    for (const item of ['Tasks', 'Scan', 'Internal']) {
+      await user.hover(screen.getByRole('menuitem', { name: new RegExp(`^${item}`) }))
+    }
+    await user.click(screen.getByRole('menuitem', { name: /^root/ }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Internal scan of node1' })
+    const unlink = await within(dialog).findByRole('checkbox', { name: 'Unlink app01 from node1' })
+    // The VM may only be hidden from this login, so nothing is unlinked unless asked.
+    expect(unlink).not.toBeChecked()
+    expect(within(dialog).queryByRole('checkbox', { name: /locked/ })).not.toBeInTheDocument()
+    expect(within(dialog).getByText(/not found there; you can’t change it/)).toBeInTheDocument()
+    await user.click(unlink)
+    await user.click(within(dialog).getByRole('button', { name: 'Apply 1 change' }))
+
+    // It stays a VM, with no host it runs on.
+    await waitFor(() => expect(bulk).toEqual({ hostIds: ['h-app01'], addTags: [], setTags: [], removeTags: [], hypervisor: { hypervisorId: null } }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
   it('found by a scan can all be ticked or unticked at once, and say why a host with their name isn’t them', async () => {
     const { user } = renderAt('/', {
       'POST /api/hosts/h-node1/scan/internal': () =>

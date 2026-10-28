@@ -51,7 +51,9 @@ internal static class InternalScan
         s libvirtvms
         if command -v virsh >/dev/null 2>&1; then
           v='virsh -r -c qemu:///system'; $v uri >/dev/null 2>&1 || v='virsh -c qemu:///system'
-          for u in $($v list --all --uuid 2>/dev/null); do
+          # A list that can't be read is marked, so VMs NKeeper links here aren't taken to be gone.
+          l=$($v list --all --uuid 2>/dev/null) || echo unreadable
+          for u in $l; do
             # Addresses come from the node's own DHCP leases and ARP table (local reads); vCPUs and
             # memory (KiB) are what the domain is given.
             printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$u" "$($v domname "$u" 2>/dev/null)" "$($v domstate "$u" 2>/dev/null | head -n 1)" \
@@ -182,12 +184,16 @@ internal static class InternalScan
 
         var virtualization = First(sections, "virt") is { } virt && virt != "none" ? virt : null;
         var guests = ParseGuests(sections, notes);
+        var guestListIncomplete = Lines(sections, "libvirtvms").Contains("unreadable") || Lines(sections, "proxmox").Contains("unreadable");
         var neighbors = ParseNeighbors(sections, OwnAddresses(sections, serverIp, clientIp), notes);
         var cpus = PositiveInt(First(sections, "cpus"));
         // A VM's "serial number" is made up by its hypervisor: only hardware's is worth recording.
         var serial = virtualization is null ? Serial(First(sections, "serial"), notes) : null;
         return new ScanFindings(
-            hostname, serverIp, mac, os, [.. ports.Select(ScanPorts.Describe)], isKvmHost, users, notes, virtualization, guests, neighbors, cpus, MemoryMiB(sections), serial);
+            hostname, serverIp, mac, os, [.. ports.Select(ScanPorts.Describe)], isKvmHost, users, notes, virtualization, guests, neighbors, cpus, MemoryMiB(sections), serial)
+        {
+            GuestListIncomplete = guestListIncomplete,
+        };
     }
 
     /// <summary>Installed memory (lsmem, bytes), else the kernel's MemTotal (KiB), else macOS's hw.memsize (bytes), in MiB.</summary>
@@ -245,6 +251,11 @@ internal static class InternalScan
                     MemoryMiB = memoryKib is >= 1024 ? memoryKib / 1024 : null,
                 });
             }
+        }
+
+        if (Lines(sections, "libvirtvms").Contains("unreadable"))
+        {
+            notes.Add("libvirt's list of VMs couldn't be read: scan as a user in the libvirt group (or root) to see them.");
         }
 
         var proxmox = Lines(sections, "proxmox");

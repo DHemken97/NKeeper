@@ -245,6 +245,14 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
     () => (canAddHosts ? uniqueGuests(guests.filter((g) => g.newHost && g.hypervisorHostId)) : []),
     [guests, canAddHosts],
   )
+  // Hosts linked to a scanned hypervisor that no scan found (one may have found it on another hypervisor).
+  const missing = useMemo(() => {
+    const found = new Set(guests.map((g) => g.guestHostId).filter(Boolean))
+    const seen = new Set<string>()
+    return scanned
+      .flatMap((i) => i.findings!.missingGuests ?? [])
+      .filter((m) => m.canManage && !found.has(m.hostId) && !seen.has(m.hostId) && seen.add(m.hostId))
+  }, [scanned, guests])
   // Two scanned hypervisors can each have a VM matching one host (every site's "zproxy"): let the user pick.
   const contested = useMemo(() => {
     const claims = new Map<string, number>()
@@ -339,6 +347,21 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
         failures.push(`New hosts: ${message(error)}`)
       }
     }
+    const pickedUnlinks = missing.filter((m) => chosen.has(`unlink:${m.hostId}`))
+    if (pickedUnlinks.length > 0) {
+      try {
+        const updated = await hostsApi.bulkUpdate({
+          hostIds: pickedUnlinks.map((m) => m.hostId),
+          addTags: [],
+          setTags: [],
+          removeTags: [],
+          hypervisor: { hypervisorId: null },
+        })
+        updated.forEach(onApplied)
+      } catch (error) {
+        failures.push(`Unlinking: ${message(error)}`)
+      }
+    }
     setSaving(false)
     setErrors(failures)
     if (failures.length === 0) {
@@ -346,7 +369,7 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
     }
   }
 
-  const anything = perHost.length + links.length + addable.length > 0
+  const anything = perHost.length + links.length + addable.length + missing.length > 0
   return (
     <Dialog
       title={`Scanned ${scanned.length} of ${items.length} hosts`}
@@ -441,6 +464,44 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
                   on {g.hypervisorHostName} · {g.newHost!.ipAddress ?? `hostname ${g.newHost!.hostname}`}
                   {g.namesake ? ` · ${g.namesake}` : ''}
                 </span>
+              </div>
+            ))}
+          </fieldset>
+        ) : null}
+
+        {missing.length > 0 ? (
+          <fieldset className={styles.group}>
+            <legend className={styles.heading}>No longer here</legend>
+            <p className={styles.muted}>
+              NKeeper has these running on a scanned host, but no scan found them. Unlinking keeps each as a virtual machine, with no host it
+              runs on.
+            </p>
+            {missing.length > 1 ? (
+              <div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    setChosen((current) => {
+                      const keys = missing.map((m) => `unlink:${m.hostId}`)
+                      const all = keys.every((k) => current.has(k))
+                      const next = new Set(current)
+                      keys.forEach((k) => (all ? next.delete(k) : next.add(k)))
+                      return next
+                    })
+                  }
+                >
+                  {missing.every((m) => chosen.has(`unlink:${m.hostId}`)) ? 'Select none' : `Select all ${missing.length}`}
+                </Button>
+              </div>
+            ) : null}
+            {missing.map((m) => (
+              <div key={m.hostId} className={styles.proposal}>
+                <Checkbox
+                  label={`Unlink ${m.name} from ${m.hypervisorHostName}`}
+                  checked={chosen.has(`unlink:${m.hostId}`)}
+                  onChange={(event) => toggle(`unlink:${m.hostId}`, event.target.checked)}
+                />
               </div>
             ))}
           </fieldset>

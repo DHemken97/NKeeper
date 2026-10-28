@@ -211,6 +211,55 @@ public sealed class VirtualMachineTests(PostgresServerFixture postgres, SshServe
     }
 
     [Fact]
+    public void HostsLinkedToTheHypervisor_ThatTheScanDidntFind_AreMissing()
+    {
+        var pve1 = Host("pve1");
+        var pve2 = Host("pve2");
+        var pve3 = Host("pve3");
+        var app = Host("app01", isVm: true, hypervisor: pve1.Id, vmId: "proxmox:lab/101");
+        var gone = Host("old-db", isVm: true, hypervisor: pve1.Id, vmId: "proxmox:lab/199");
+        var goneFromNode2 = Host("legacy", isVm: true, hypervisor: pve2.Id, canManage: false);
+        var renumbered = Host("web", isVm: true, hypervisor: pve1.Id, mac: "BC:24:11:00:00:09");
+        var elsewhere = Host("other-site", isVm: true, hypervisor: pve3.Id);
+        GuestMatcher.Candidate[] hosts = [pve1, pve2, pve3, app, gone, goneFromNode2, renumbered, elsewhere];
+
+        var guests = GuestMatcher.Match(pve1.Id, [
+            Guest("proxmox-qemu", "proxmox:lab/101", "app01", "pve1", true),
+            Guest("proxmox-lxc", "proxmox:lab/200", "dns01", "pve2", false),
+            // Several hosts have its MAC address, so none was matched; "web" may still be it.
+            Guest("proxmox-qemu", "proxmox:lab/300", "frontend", "pve1", true, mac: "BC:24:11:00:00:09"),
+        ], [.. hosts, Host("web-copy", mac: "BC:24:11:00:00:09")]);
+        var missing = GuestMatcher.Missing(pve1.Id, guests, hosts);
+
+        // pve2 is a node the scan listed; pve3 isn't, so what runs there is left alone.
+        Assert.Equal(
+            [(goneFromNode2.Id, "legacy", pve2.Id, "pve2", false), (gone.Id, "old-db", pve1.Id, "pve1", true)],
+            missing.Select(m => (m.HostId, m.Name, m.HypervisorHostId, m.HypervisorHostName, m.CanManage)));
+
+        // A hypervisor whose VMs are all gone still lists them.
+        Assert.Equal([gone.Id], GuestMatcher.Missing(pve1.Id, [], [pve1, gone]).Select(m => m.HostId));
+    }
+
+    [Fact]
+    public void AnUnreadableVmList_IsMarkedIncomplete()
+    {
+        const string output = """
+            @@libvirt
+            yes
+            @@libvirtvms
+            unreadable
+            @@end
+            """;
+
+        var findings = InternalScan.Parse(output);
+
+        Assert.True(findings.GuestListIncomplete);
+        Assert.Empty(findings.Guests);
+        Assert.Contains(findings.Notes, n => n.Contains("list of VMs couldn't be read", StringComparison.Ordinal));
+        Assert.False(InternalScan.Parse(output.Replace("unreadable", "", StringComparison.Ordinal)).GuestListIncomplete);
+    }
+
+    [Fact]
     public void NewHosts_AreOnlyProposed_WithAnAddress()
     {
         var node = Host("node1");
@@ -263,6 +312,7 @@ public sealed class VirtualMachineTests(PostgresServerFixture postgres, SshServe
         ssh.SkipIfUnavailable();
         var node = await CreateAsync("kvm-node", SshServerFixture.Address, sshPort: ssh.Port);
         var guest = await CreateAsync("web vm", "10.0.0.80");
+        var gone = await CreateAsync("deleted-vm", "10.0.0.81", isVirtualMachine: true, hypervisorId: node.Id);
         var trust = await ScanAsync(node);
         var scan = await ScanAsync(node, trust.HostKey!.Fingerprint);
 
@@ -272,6 +322,9 @@ public sealed class VirtualMachineTests(PostgresServerFixture postgres, SshServe
         var web = Assert.Single(guests, g => g.Name == "web vm");
         Assert.Equal(((Guid?)guest.Id, "name", (Guid?)node.Id, true, "running"), (web.GuestHostId, web.MatchedBy, web.HypervisorHostId, web.LinkProposed, web.State));
         Assert.Equal("libvirt:11111111-1111-1111-1111-111111111111", web.VirtualMachineId);
+        // Linked here, but not among the node's domains: it can be unlinked.
+        var missing = Assert.Single(scan.Findings.MissingGuests);
+        Assert.Equal((gone.Id, "deleted-vm", node.Id, true), (missing.HostId, missing.Name, missing.HypervisorHostId, missing.CanManage));
     }
 
     private async Task<ScanResponse> ScanAsync(HostResponse host, string? trust = null)

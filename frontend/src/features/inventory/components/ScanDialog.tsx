@@ -179,8 +179,12 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
   const addableNeighbors = canAddHosts ? neighbors.filter((n) => n.newHost) : []
   const knownNeighbors = neighbors.filter((n) => n.hostId)
   const [chosenNeighbors, setChosenNeighbors] = useState<ReadonlySet<string>>(new Set())
-  const changeCount = chosen.size + chosenLinks.size + chosenNew.size + chosenNeighbors.size
-  const anything = proposals.length + links.length + addable.length + addableNeighbors.length > 0
+  // Hosts linked here that the scan didn't find can be unlinked, unticked: the VM may only be hidden from this login.
+  const missing = findings.missingGuests ?? []
+  const unlinkable = missing.filter((m) => m.canManage)
+  const [chosenUnlinks, setChosenUnlinks] = useState<ReadonlySet<string>>(new Set())
+  const changeCount = chosen.size + chosenLinks.size + chosenNew.size + chosenNeighbors.size + chosenUnlinks.size
+  const anything = proposals.length + links.length + addable.length + addableNeighbors.length + unlinkable.length > 0
 
   function toggleLink(id: string, on: boolean) {
     setChosenLinks((current) => {
@@ -228,6 +232,12 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
           newGuests.map((g) => ({ ...g.newHost!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId, cpuCores: g.cpuCores, memoryMiB: g.memoryMiB })),
         )
         created.forEach(onApplied)
+      }
+      // Unlinked hosts stay virtual machines, just with no host they run on.
+      const unlinks = unlinkable.filter((m) => chosenUnlinks.has(m.hostId))
+      if (unlinks.length > 0) {
+        const updated = await hostsApi.bulkUpdate({ hostIds: unlinks.map((m) => m.hostId), addTags: [], setTags: [], removeTags: [], hypervisor: { hypervisorId: null } })
+        updated.forEach(onApplied)
       }
       // Neighbours become plain hosts (no hypervisor), one create each.
       for (const neighbor of addableNeighbors.filter((n) => chosenNeighbors.has(n.ipAddress))) {
@@ -351,6 +361,46 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
           </fieldset>
         ) : null}
 
+        {unlinkable.length > 0 ? (
+          <fieldset className={styles.group}>
+            <legend className={styles.heading}>No longer here</legend>
+            <p className={styles.muted}>
+              NKeeper has these running here, but the scan didn’t find them: the VM was deleted or moved. Unlinking keeps the host as a
+              virtual machine, with no host it runs on.
+            </p>
+            {unlinkable.length > 1 ? (
+              <div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setChosenUnlinks(chosenUnlinks.size === unlinkable.length ? new Set() : new Set(unlinkable.map((m) => m.hostId)))}
+                >
+                  {chosenUnlinks.size === unlinkable.length ? 'Select none' : `Select all ${unlinkable.length}`}
+                </Button>
+              </div>
+            ) : null}
+            {unlinkable.map((m) => (
+              <div key={m.hostId} className={styles.proposal}>
+                <Checkbox
+                  label={`Unlink ${m.name} from ${m.hypervisorHostName}`}
+                  checked={chosenUnlinks.has(m.hostId)}
+                  onChange={(event) =>
+                    setChosenUnlinks((current) => {
+                      const next = new Set(current)
+                      if (event.target.checked) {
+                        next.add(m.hostId)
+                      } else {
+                        next.delete(m.hostId)
+                      }
+                      return next
+                    })
+                  }
+                />
+              </div>
+            ))}
+          </fieldset>
+        ) : null}
+
         {addableNeighbors.length > 0 ? (
           <fieldset className={styles.group}>
             <legend className={styles.heading}>Neighbours on the network</legend>
@@ -404,7 +454,7 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
           </section>
         ) : null}
 
-        {unlinked.length > 0 ? (
+        {unlinked.length + missing.length > unlinkable.length ? (
           <section className={styles.group} aria-label="Other virtual machines">
             <h3 className={styles.heading}>{links.length + addable.length > 0 ? 'Other virtual machines' : 'Virtual machines'}</h3>
             <ul className={styles.notes}>
@@ -414,6 +464,13 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
                   {guest.node ? ` (on ${guest.node})` : ''}: {guest.note}
                 </li>
               ))}
+              {missing
+                .filter((m) => !m.canManage)
+                .map((m) => (
+                  <li key={m.hostId}>
+                    <strong>{m.name}</strong>: linked to {m.hypervisorHostName} but not found there; you can’t change it.
+                  </li>
+                ))}
             </ul>
           </section>
         ) : null}

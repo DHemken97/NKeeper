@@ -95,6 +95,28 @@ internal static class GuestMatcher
     }
 
     /// <summary>
+    /// The hosts NKeeper has running on the scanned host, or on another node the matched guests run on
+    /// (a Proxmox cluster lists every node's VMs), that no guest found there is, or might be: none
+    /// was matched to it, nor has its VM identity, a MAC address of it, or its name.
+    /// </summary>
+    public static List<MissingGuest> Missing(Guid scannedHostId, IReadOnlyList<ScannedGuest> matched, IReadOnlyList<Candidate> hosts)
+    {
+        var byId = hosts.ToDictionary(h => h.Id);
+        var nodes = matched.Select(g => g.HypervisorHostId).OfType<Guid>().Append(scannedHostId).ToHashSet();
+        var found = matched.Select(g => g.GuestHostId).OfType<Guid>().ToHashSet();
+        return [.. hosts
+            .Where(h => h.HypervisorId is { } node && nodes.Contains(node) && !found.Contains(h.Id))
+            .Where(h => !matched.Any(g => MightBe(h, g)))
+            .OrderBy(h => h.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(h => new MissingGuest(h.Id, h.Name, h.HypervisorId!.Value, byId.TryGetValue(h.HypervisorId.Value, out var node) ? node.Name : "another host", h.CanManage))];
+    }
+
+    private static bool MightBe(Candidate host, ScannedGuest guest) =>
+        string.Equals(host.VirtualMachineId, guest.VirtualMachineId, StringComparison.OrdinalIgnoreCase)
+        || (host.MacAddress is { } mac && guest.MacAddresses.Contains(mac, StringComparer.OrdinalIgnoreCase))
+        || HasName(host, guest.Name);
+
+    /// <summary>
     /// The host to add for a guest NKeeper doesn't have: its name, an IP address it was seen with
     /// (or its name, when that's a valid hostname), and its first MAC address. Null without an address.
     /// </summary>
