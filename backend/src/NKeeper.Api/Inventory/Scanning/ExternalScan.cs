@@ -101,7 +101,7 @@ internal sealed class ExternalScan(ILogger<ExternalScan> logger)
             notes.Add("No open ports were found. The host may be down, or a firewall drops connections.");
         }
 
-        return new ScanFindings(hostname, address.ToString(), mac, os, [.. open.Select(ScanPorts.Describe)], false, [], notes, null, []);
+        return new ScanFindings(hostname, address.ToString(), mac, os, [.. open.Select(ScanPorts.Describe)], false, [], notes, null, [], []);
     }
 
     private static async Task<IPAddress> ResolveAsync(Host host, CancellationToken cancellationToken)

@@ -80,6 +80,9 @@ internal static class InternalScan
             printf 'vm\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$kind" "$n" "$id" "$name" "$macs" "$ips" "$cores" "$sockets" "$mem"
           done
         fi
+        s neighbors
+        # The host's existing neighbour (ARP/NDP) table: machines it has talked to, read locally.
+        ip neigh show 2>/dev/null || arp -an 2>/dev/null
         s end
         """;
 
@@ -121,6 +124,7 @@ internal static class InternalScan
         // SSH_CONNECTION is "client_ip client_port server_ip server_port": the address we reached.
         var connection = First(sections, "connection")?.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var serverIp = connection is { Length: 4 } ? NormalizeIp(connection[2]) : null;
+        var clientIp = connection is { Length: 4 } ? NormalizeIp(connection[0]) : null;
         var sshPort = connection is { Length: 4 } && int.TryParse(connection[3], CultureInfo.InvariantCulture, out var p) ? p : (int?)null;
 
         var mac = FindMac(sections, serverIp, notes);
@@ -178,11 +182,12 @@ internal static class InternalScan
 
         var virtualization = First(sections, "virt") is { } virt && virt != "none" ? virt : null;
         var guests = ParseGuests(sections, notes);
+        var neighbors = ParseNeighbors(sections, OwnAddresses(sections, serverIp, clientIp), notes);
         var cpus = PositiveInt(First(sections, "cpus"));
         // A VM's "serial number" is made up by its hypervisor: only hardware's is worth recording.
         var serial = virtualization is null ? Serial(First(sections, "serial"), notes) : null;
         return new ScanFindings(
-            hostname, serverIp, mac, os, [.. ports.Select(ScanPorts.Describe)], isKvmHost, users, notes, virtualization, guests, cpus, MemoryMiB(sections), serial);
+            hostname, serverIp, mac, os, [.. ports.Select(ScanPorts.Describe)], isKvmHost, users, notes, virtualization, guests, neighbors, cpus, MemoryMiB(sections), serial);
     }
 
     /// <summary>Installed memory (lsmem, bytes), else the kernel's MemTotal (KiB), else macOS's hw.memsize (bytes), in MiB.</summary>
@@ -275,6 +280,109 @@ internal static class InternalScan
 
         return guests;
     }
+
+    /// <summary>The most neighbour entries recorded, so a host with a huge table can't flood the findings.</summary>
+    private const int MaxNeighbors = 512;
+
+    private static readonly char[] Whitespace = [' ', '\t'];
+
+    /// <summary>
+    /// The host's own addresses, which shouldn't be reported as discovered neighbours: every address
+    /// on its interfaces, plus the address NKeeper reached it on and NKeeper's own (both ends of the
+    /// SSH connection, which the host's neighbour table always holds).
+    /// </summary>
+    private static HashSet<string> OwnAddresses(Dictionary<string, List<string>> sections, string? serverIp, string? clientIp)
+    {
+        var own = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var address in new[] { serverIp, clientIp })
+        {
+            if (address is not null)
+            {
+                own.Add(address);
+            }
+        }
+
+        // "2: eth0    inet 10.0.0.5/24 brd 10.0.0.255 scope global eth0 ..." (inet6 for IPv6).
+        foreach (var line in Lines(sections, "addresses"))
+        {
+            var columns = line.Split(Whitespace, StringSplitOptions.RemoveEmptyEntries);
+            var index = Array.FindIndex(columns, c => c is "inet" or "inet6");
+            if (index >= 0 && index + 1 < columns.Length && NormalizeIp(columns[index + 1].Split('/')[0]) is { } ip)
+            {
+                own.Add(ip);
+            }
+        }
+
+        return own;
+    }
+
+    /// <summary>
+    /// The neighbour (ARP/NDP) table: machines the host has talked to recently. Only complete entries
+    /// with a real MAC are kept, deduplicated by address and without the host's own addresses; these
+    /// become candidate hosts to match or add. Nothing was probed — the table was already there.
+    /// </summary>
+    private static List<ScannedNeighbor> ParseNeighbors(Dictionary<string, List<string>> sections, HashSet<string> own, List<string> notes)
+    {
+        var neighbors = new List<ScannedNeighbor>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in Lines(sections, "neighbors"))
+        {
+            var (ip, mac) = ParseNeighborLine(line);
+            if (ip is null || mac is null || own.Contains(ip) || !seen.Add(ip))
+            {
+                continue;
+            }
+
+            if (neighbors.Count >= MaxNeighbors)
+            {
+                notes.Add($"The neighbour table had more than {MaxNeighbors} entries; only the first {MaxNeighbors} were read.");
+                break;
+            }
+
+            neighbors.Add(new ScannedNeighbor(ip, mac));
+        }
+
+        return neighbors;
+    }
+
+    /// <summary>
+    /// One neighbour line, from `ip neigh show` ("IP dev IF lladdr MAC STATE") or `arp -an`
+    /// ("? (IP) at MAC [ether] on IF"), as (IP, MAC). Null when it has no usable unicast entry
+    /// (an incomplete or failed lookup, loopback, link-local, or a multicast/broadcast address).
+    /// </summary>
+    internal static (string? Ip, string? Mac) ParseNeighborLine(string line)
+    {
+        var tokens = line.Split(Whitespace, StringSplitOptions.RemoveEmptyEntries);
+        string? rawMac = null;
+        for (var i = 0; i + 1 < tokens.Length; i++)
+        {
+            if (tokens[i] is "lladdr" or "at")
+            {
+                rawMac = tokens[i + 1];
+            }
+        }
+
+        // arp -an wraps the IP in parentheses; ip neigh puts it first.
+        var parenthesized = Array.Find(tokens, t => t.StartsWith('(') && t.EndsWith(')'));
+        var rawIp = parenthesized?.Trim('(', ')') ?? (tokens.Length > 0 ? tokens[0] : null);
+        if (rawIp is null || rawMac is null
+            || NormalizeIp(rawIp) is not { } ip
+            || !NetworkAddress.TryNormalizeMac(rawMac, out var mac) || mac == "00:00:00:00:00:00"
+            || !IPAddress.TryParse(ip, out var address)
+            || IPAddress.IsLoopback(address) || address.IsIPv6LinkLocal
+            || ip.StartsWith("169.254.", StringComparison.Ordinal) || IsNonUnicast(address))
+        {
+            return (null, null);
+        }
+
+        return (ip, mac);
+    }
+
+    /// <summary>Multicast or broadcast addresses, which aren't a single machine.</summary>
+    private static bool IsNonUnicast(IPAddress address) =>
+        address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+            ? address.IsIPv6Multicast
+            : address.GetAddressBytes()[0] >= 224; // 224.0.0.0 and up: multicast, reserved, and 255.255.255.255.
 
     /// <summary>Addresses a host could be reached on: IPv4 first, without loopback or link-local ones.</summary>
     private static List<string> Ips(string? list) =>

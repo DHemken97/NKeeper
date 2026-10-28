@@ -9,7 +9,7 @@ import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
 import { toHostDraft, toHostInput } from '../drafts'
 import { scanProposals, type ScanProposal } from '../scanProposals'
-import { formatMemory, PROTOCOL_INFO, primaryAddress, type Host, type InternalScanLogin, type ScanFindings, type ScannedGuest } from '../types'
+import { formatMemory, PROTOCOL_INFO, primaryAddress, type Host, type HostInput, type InternalScanLogin, type ProposedHost, type ScanFindings, type ScannedGuest } from '../types'
 import styles from './ScanDialog.module.css'
 
 interface ScanDialogProps {
@@ -174,8 +174,13 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
   const addable = canAddHosts ? findings.guests.filter((g) => g.newHost && g.hypervisorHostId) : []
   const [chosenNew, setChosenNew] = useState<ReadonlySet<string>>(new Set())
   const unlinked = findings.guests.filter((g) => !links.includes(g) && !addable.includes(g))
-  const changeCount = chosen.size + chosenLinks.size + chosenNew.size
-  const anything = proposals.length + links.length + addable.length > 0
+  const neighbors = findings.neighbors ?? []
+  // Neighbours NKeeper doesn't have can be added (administrators only), unticked by default.
+  const addableNeighbors = canAddHosts ? neighbors.filter((n) => n.newHost) : []
+  const knownNeighbors = neighbors.filter((n) => n.hostId)
+  const [chosenNeighbors, setChosenNeighbors] = useState<ReadonlySet<string>>(new Set())
+  const changeCount = chosen.size + chosenLinks.size + chosenNew.size + chosenNeighbors.size
+  const anything = proposals.length + links.length + addable.length + addableNeighbors.length > 0
 
   function toggleLink(id: string, on: boolean) {
     setChosenLinks((current) => {
@@ -223,6 +228,10 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
           newGuests.map((g) => ({ ...g.newHost!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId, cpuCores: g.cpuCores, memoryMiB: g.memoryMiB })),
         )
         created.forEach(onApplied)
+      }
+      // Neighbours become plain hosts (no hypervisor), one create each.
+      for (const neighbor of addableNeighbors.filter((n) => chosenNeighbors.has(n.ipAddress))) {
+        onApplied(await hostsApi.create(neighborToInput(neighbor.newHost!)))
       }
       onClose()
     } catch (failure) {
@@ -274,6 +283,17 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
         {links.length > 0 ? (
           <fieldset className={styles.group}>
             <legend className={styles.heading}>Virtual machines</legend>
+            {links.length > 1 ? (
+              <div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setChosenLinks(chosenLinks.size === links.length ? new Set() : new Set(links.map((g) => g.virtualMachineId)))}
+                >
+                  {chosenLinks.size === links.length ? 'Select none' : `Select all ${links.length}`}
+                </Button>
+              </div>
+            ) : null}
             {links.map((guest) => (
               <div key={guest.virtualMachineId} className={styles.proposal}>
                 <Checkbox
@@ -331,6 +351,59 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
           </fieldset>
         ) : null}
 
+        {addableNeighbors.length > 0 ? (
+          <fieldset className={styles.group}>
+            <legend className={styles.heading}>Neighbours on the network</legend>
+            <p className={styles.muted}>
+              Seen in this host’s neighbour (ARP) table — machines it has talked to. Each becomes a plain host with the IP and MAC address
+              found; add services and logins afterwards.
+            </p>
+            {addableNeighbors.length > 1 ? (
+              <div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    setChosenNeighbors(chosenNeighbors.size === addableNeighbors.length ? new Set() : new Set(addableNeighbors.map((n) => n.ipAddress)))
+                  }
+                >
+                  {chosenNeighbors.size === addableNeighbors.length ? 'Select none' : `Select all ${addableNeighbors.length}`}
+                </Button>
+              </div>
+            ) : null}
+            {addableNeighbors.map((neighbor) => (
+              <div key={neighbor.ipAddress} className={styles.proposal}>
+                <Checkbox
+                  label={`Add ${neighbor.ipAddress}`}
+                  checked={chosenNeighbors.has(neighbor.ipAddress)}
+                  onChange={(event) =>
+                    setChosenNeighbors((current) => {
+                      const next = new Set(current)
+                      if (event.target.checked) {
+                        next.add(neighbor.ipAddress)
+                      } else {
+                        next.delete(neighbor.ipAddress)
+                      }
+                      return next
+                    })
+                  }
+                />
+                <span className={styles.detail}>{neighbor.macAddress ?? 'unknown MAC'}</span>
+              </div>
+            ))}
+          </fieldset>
+        ) : null}
+
+        {knownNeighbors.length > 0 ? (
+          <section className={styles.group} aria-label="Known neighbours">
+            <h3 className={styles.heading}>Known neighbours</h3>
+            <p className={styles.muted}>
+              {knownNeighbors.length === 1 ? '1 neighbour is' : `${knownNeighbors.length} neighbours are`} already in NKeeper:{' '}
+              {knownNeighbors.map((n) => `${n.hostName} (${n.ipAddress})`).join(', ')}.
+            </p>
+          </section>
+        ) : null}
+
         {unlinked.length > 0 ? (
           <section className={styles.group} aria-label="Other virtual machines">
             <h3 className={styles.heading}>{links.length + addable.length > 0 ? 'Other virtual machines' : 'Virtual machines'}</h3>
@@ -367,6 +440,27 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
   )
 }
 
+/** A plain host (no hypervisor) built from a neighbour NKeeper doesn't have yet. */
+function neighborToInput(proposed: ProposedHost): HostInput {
+  return {
+    name: proposed.name,
+    hostname: proposed.hostname,
+    ipAddress: proposed.ipAddress,
+    macAddress: proposed.macAddress,
+    description: proposed.description,
+    isVirtualMachine: false,
+    hypervisorId: null,
+    cpuCores: null,
+    memoryMiB: null,
+    serialNumber: null,
+    jumpHostId: null,
+    jumpCredentialId: null,
+    tags: [],
+    services: [],
+    credentials: [],
+  }
+}
+
 const PLATFORMS: Record<ScannedGuest['platform'], string> = { libvirt: 'libvirt VM', 'proxmox-qemu': 'Proxmox VM', 'proxmox-lxc': 'Proxmox container' }
 const MATCHED_BY = { id: 'its VM identity', mac: 'its MAC address', name: 'its name' } as const
 
@@ -390,7 +484,7 @@ function guestResources(guest: ScannedGuest): string | null {
   return parts.length > 0 ? parts.join(', ') : null
 }
 
-/** What a new host would get: its address, MAC address, and where it runs. */
+/** What a new host would get: its address, MAC address, and where it runs; and why a host with its name isn't it. */
 function newHostDetail(guest: ScannedGuest): string {
   const host = guest.newHost!
   return [
@@ -398,6 +492,7 @@ function newHostDetail(guest: ScannedGuest): string {
     host.ipAddress ?? `hostname ${host.hostname}`,
     host.macAddress,
     guestResources(guest),
+    guest.namesake,
   ]
     .filter(Boolean)
     .join(' · ')

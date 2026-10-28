@@ -69,9 +69,15 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
             using var client = await SshCommandConnection.ConnectAsync(
                 target, request.TrustFingerprint, User.GetUserId(), services.GetRequiredService<TrustedKeyStore>(), cancellationToken);
             var findings = await InternalScan.RunAsync(client, cancellationToken);
-            if (findings.Guests.Count > 0)
+            if (findings.Guests.Count > 0 || findings.Neighbors.Count > 0)
             {
-                findings = findings with { Guests = GuestMatcher.Match(id, findings.Guests, await CandidatesAsync(cancellationToken)) };
+                var candidates = await CandidatesAsync(cancellationToken);
+                var scannedName = candidates.FirstOrDefault(c => c.Id == id)?.Name ?? "the scanned host";
+                findings = findings with
+                {
+                    Guests = findings.Guests.Count > 0 ? GuestMatcher.Match(id, findings.Guests, candidates) : findings.Guests,
+                    Neighbors = findings.Neighbors.Count > 0 ? NeighborMatcher.Match(scannedName, findings.Neighbors, candidates) : findings.Neighbors,
+                };
             }
 
             return new ScanResponse("ready", findings, null);
@@ -123,10 +129,10 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
         var user = RequestUser.From(User);
         var manageable = await access.ManageableAsync(user, cancellationToken);
         var hosts = await access.Visible(user).AsNoTracking()
-            .Select(h => new { h.Id, h.Name, h.Hostname, h.MacAddress, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId, h.CpuCores, h.MemoryMiB })
+            .Select(h => new { h.Id, h.Name, h.Hostname, h.IpAddress, h.MacAddress, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId, h.CpuCores, h.MemoryMiB })
             .ToListAsync(cancellationToken);
         return [.. hosts.Select(h => new GuestMatcher.Candidate(
-            h.Id, h.Name, h.Hostname, h.MacAddress, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId, manageable?.Contains(h.Id) ?? true, h.CpuCores, h.MemoryMiB))];
+            h.Id, h.Name, h.Hostname, h.MacAddress, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId, manageable?.Contains(h.Id) ?? true, h.CpuCores, h.MemoryMiB, h.IpAddress))];
     }
 
     /// <returns>Null when the user may manage the host; otherwise the response to send.</returns>

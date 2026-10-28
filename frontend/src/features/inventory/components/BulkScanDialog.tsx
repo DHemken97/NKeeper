@@ -245,12 +245,18 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
     () => (canAddHosts ? uniqueGuests(guests.filter((g) => g.newHost && g.hypervisorHostId)) : []),
     [guests, canAddHosts],
   )
+  // Two scanned hypervisors can each have a VM matching one host (every site's "zproxy"): let the user pick.
+  const contested = useMemo(() => {
+    const claims = new Map<string, number>()
+    links.forEach((g) => claims.set(g.guestHostId!, (claims.get(g.guestHostId!) ?? 0) + 1))
+    return new Set([...claims].filter(([, count]) => count > 1).map(([id]) => id))
+  }, [links])
 
   const [chosen, setChosen] = useState<ReadonlySet<string>>(
     () =>
       new Set([
         ...perHost.flatMap(({ item, proposals }) => proposals.filter((p) => p.checked).map((p) => `${item.host.id}:${p.key}`)),
-        ...links.map((g) => `link:${g.virtualMachineId}`),
+        ...links.filter((g) => !contested.has(g.guestHostId!)).map((g) => `link:${g.virtualMachineId}`),
       ]),
   )
   const [saving, setSaving] = useState(false)
@@ -266,6 +272,29 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
       }
       return next
     })
+  }
+
+  /** A "Select all / none" button for a list of guests, keyed by prefix. */
+  function selectAll(prefix: string, list: ScannedGuest[]) {
+    const keys = list.map((g) => `${prefix}:${g.virtualMachineId}`)
+    const all = keys.every((k) => chosen.has(k))
+    return list.length > 1 ? (
+      <div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() =>
+            setChosen((current) => {
+              const next = new Set(current)
+              keys.forEach((k) => (all ? next.delete(k) : next.add(k)))
+              return next
+            })
+          }
+        >
+          {all ? 'Select none' : `Select all ${list.length}`}
+        </Button>
+      </div>
+    ) : null
   }
 
   async function apply() {
@@ -377,6 +406,7 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
         {links.length > 0 ? (
           <fieldset className={styles.group}>
             <legend className={styles.heading}>Virtual machines</legend>
+            {selectAll('link', links)}
             {links.map((g) => (
               <div key={g.virtualMachineId} className={styles.proposal}>
                 <Checkbox
@@ -384,7 +414,13 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
                   checked={chosen.has(`link:${g.virtualMachineId}`)}
                   onChange={(event) => toggle(`link:${g.virtualMachineId}`, event.target.checked)}
                 />
-                {g.note ? <span className={styles.detail}>{g.note}</span> : null}
+                {contested.has(g.guestHostId!) ? (
+                  <span className={styles.detail}>
+                    VMs on more than one hypervisor match it, so none is ticked: pick the one it really is.
+                  </span>
+                ) : g.note ? (
+                  <span className={styles.detail}>{g.note}</span>
+                ) : null}
               </div>
             ))}
           </fieldset>
@@ -393,6 +429,7 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
         {addable.length > 0 ? (
           <fieldset className={styles.group}>
             <legend className={styles.heading}>Add to NKeeper</legend>
+            {selectAll('new', addable)}
             {addable.map((g) => (
               <div key={g.virtualMachineId} className={styles.proposal}>
                 <Checkbox
@@ -402,6 +439,7 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
                 />
                 <span className={styles.detail}>
                   on {g.hypervisorHostName} · {g.newHost!.ipAddress ?? `hostname ${g.newHost!.hostname}`}
+                  {g.namesake ? ` · ${g.namesake}` : ''}
                 </span>
               </div>
             ))}
