@@ -4,6 +4,9 @@ import { formatMemory, PROTOCOL_INFO, type Host, type ScanFindings, type Scanned
 /** The tag a scan records the operating system in, e.g. `os: Ubuntu 24.04.1 LTS`. */
 export const OS_TAG = 'os'
 
+/** The tag a scan records a Proxmox node's cluster in, e.g. `cluster: lab`. */
+export const CLUSTER_TAG = 'cluster'
+
 /** A change a scan suggests. Applying it edits the host's draft; nothing is saved until the user applies. */
 export interface ScanProposal {
   key: string
@@ -128,6 +131,21 @@ export function scanProposals(host: Host, findings: ScanFindings, sshPort: numbe
       checked: true,
       apply: (draft) => {
         draft.tags = [...draft.tags.filter((t) => !sameText(t.name, OS_TAG)), newTagDraft(OS_TAG, os)]
+      },
+    })
+  }
+
+  const cluster = findings.proxmoxCluster
+  if (cluster && !host.tags.some((t) => sameText(t.name, CLUSTER_TAG) && t.value === cluster)) {
+    const current = host.tags.find((t) => sameText(t.name, CLUSTER_TAG))?.value ?? null
+    proposals.push({
+      key: 'cluster',
+      group: 'Host',
+      label: 'Proxmox cluster',
+      detail: `${CLUSTER_TAG}: ${cluster}${now(current)}`,
+      checked: true,
+      apply: (draft) => {
+        draft.tags = [...draft.tags.filter((t) => !sameText(t.name, CLUSTER_TAG)), newTagDraft(CLUSTER_TAG, cluster)]
       },
     })
   }

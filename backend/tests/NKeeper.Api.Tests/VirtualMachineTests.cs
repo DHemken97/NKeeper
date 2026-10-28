@@ -260,6 +260,66 @@ public sealed class VirtualMachineTests(PostgresServerFixture postgres, SshServe
     }
 
     [Fact]
+    public void AProxmoxClustersNodes_AreParsed_WithTheirAddressesAndMacs()
+    {
+        const string output = """
+            @@proxmox
+            cluster	lab
+            node	pve1
+            member	pve1	10.0.0.11
+            member	pve2	10.0.0.12
+            member	pve3	pve3.lab.example
+            member	pve4
+            @@neighbors
+            10.0.0.12 dev vmbr0 lladdr aa:bb:cc:00:00:12 REACHABLE
+            @@end
+            """;
+
+        var findings = InternalScan.Parse(output);
+
+        Assert.Equal("lab", findings.ProxmoxCluster);
+        // The scanned node itself is left out.
+        Assert.Equal(
+            [new ScannedClusterNode("pve2", "10.0.0.12", "AA:BB:CC:00:00:12"), new ScannedClusterNode("pve3", "pve3.lab.example", null), new ScannedClusterNode("pve4", null, null)],
+            findings.ClusterNodes);
+
+        // A node on its own isn't a cluster.
+        Assert.Empty(InternalScan.Parse("@@proxmox\nnode\tpve1\nmember\tpve1\t10.0.0.11\n@@end\n").ClusterNodes);
+    }
+
+    [Fact]
+    public void ClusterNodes_MatchByMacIpOrName_AndTheRestCanBeAdded()
+    {
+        var pve1 = Host("pve1");
+        var pve2 = Host("pve2", mac: "AA:BB:CC:00:00:12") with { IpAddress = "10.0.0.99" };
+        var pve3 = Host("hypervisor-3") with { IpAddress = "10.0.0.13" };
+        var otherSite = Host("pve4") with { IpAddress = "192.168.1.4" };
+        var locked = Host("pve5", canManage: false);
+        GuestMatcher.Candidate[] hosts = [pve1, pve2, pve3, otherSite, locked];
+
+        var matched = ClusterNodeMatcher.Match(pve1.Id, "pve1", [
+            new ScannedClusterNode("pve2", "10.0.0.12", "AA:BB:CC:00:00:12"),
+            new ScannedClusterNode("pve3", "10.0.0.13", null),
+            new ScannedClusterNode("pve4", "10.0.0.14", null),
+            new ScannedClusterNode("pve5", null, null),
+            new ScannedClusterNode("pve6", "pve6.lab.example", null),
+            new ScannedClusterNode("pve 7", null, null),
+        ], hosts, new HashSet<Guid> { pve3.Id });
+
+        // MAC beats a stale IP address; pve3 already has the tag; pve5 can't be changed.
+        Assert.Equal((pve2.Id, "mac", true), (matched[0].HostId, matched[0].MatchedBy, matched[0].TagProposed));
+        Assert.Equal((pve3.Id, "ip", false), (matched[1].HostId, matched[1].MatchedBy, matched[1].TagProposed));
+        Assert.Equal((locked.Id, "name", false), (matched[3].HostId, matched[3].MatchedBy, matched[3].TagProposed));
+        // Another site's pve4 has a different address, so this one is added.
+        Assert.Null(matched[2].HostId);
+        Assert.Equal(new ProposedHost("pve4", "pve4", "10.0.0.14", null, "Added from a scan of pve1: a node of its Proxmox cluster."), matched[2].NewHost);
+        Assert.Contains("different IP address", matched[2].Note, StringComparison.Ordinal);
+        Assert.Equal(("pve6.lab.example", (string?)null), (matched[4].NewHost?.Hostname, matched[4].NewHost?.IpAddress));
+        Assert.Null(matched[5].NewHost);
+        Assert.Contains("no address", matched[5].Note, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NewHosts_AreOnlyProposed_WithAnAddress()
     {
         var node = Host("node1");

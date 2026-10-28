@@ -24,6 +24,9 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
 {
     private const int DefaultSshPort = 22;
 
+    /// <summary>The tag a Proxmox node's cluster is recorded in, e.g. <c>cluster: lab</c> (as the client applies it).</summary>
+    private const string ClusterTag = "cluster";
+
     /// <summary>
     /// Internal scan: logs in over SSH and reads the host's own state (hostname, OS, MAC address,
     /// listening ports, local users). On the network it is a single SSH connection.
@@ -71,7 +74,7 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
             var findings = await InternalScan.RunAsync(client, cancellationToken);
             // A hypervisor with no VMs left can still have hosts linked to it that are gone.
             var listsGuests = findings.IsKvmHost && !findings.GuestListIncomplete;
-            if (findings.Guests.Count > 0 || findings.Neighbors.Count > 0 || listsGuests)
+            if (findings.Guests.Count > 0 || findings.Neighbors.Count > 0 || findings.ClusterNodes.Count > 0 || listsGuests)
             {
                 var candidates = await CandidatesAsync(cancellationToken);
                 var scannedName = candidates.FirstOrDefault(c => c.Id == id)?.Name ?? "the scanned host";
@@ -81,6 +84,9 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
                     Guests = guests,
                     Neighbors = findings.Neighbors.Count > 0 ? NeighborMatcher.Match(scannedName, findings.Neighbors, candidates) : findings.Neighbors,
                     MissingGuests = listsGuests ? GuestMatcher.Missing(id, guests, candidates) : [],
+                    ClusterNodes = findings.ClusterNodes.Count > 0
+                        ? ClusterNodeMatcher.Match(id, scannedName, findings.ClusterNodes, candidates, await TaggedAsync(ClusterTag, findings.ProxmoxCluster, cancellationToken))
+                        : findings.ClusterNodes,
                 };
             }
 
@@ -138,6 +144,16 @@ public sealed class HostScanController(HostAccess access) : ControllerBase
         return [.. hosts.Select(h => new GuestMatcher.Candidate(
             h.Id, h.Name, h.Hostname, h.MacAddress, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId, manageable?.Contains(h.Id) ?? true, h.CpuCores, h.MemoryMiB, h.IpAddress))];
     }
+
+    /// <summary>The visible hosts with the tag <paramref name="name"/>: <paramref name="value"/>; none without a value.</summary>
+    // Runs as SQL: ToUpper() becomes upper(), whereas string.Equals(..., StringComparison) can't be translated.
+#pragma warning disable CA1862
+    private async Task<HashSet<Guid>> TaggedAsync(string name, string? value, CancellationToken cancellationToken) =>
+        value is null ? [] : [.. await access.Visible(RequestUser.From(User)).AsNoTracking()
+            .Where(h => h.Tags.Any(t => t.Name.ToUpper() == name.ToUpper() && t.Value == value))
+            .Select(h => h.Id)
+            .ToListAsync(cancellationToken)];
+#pragma warning restore CA1862
 
     /// <returns>Null when the user may manage the host; otherwise the response to send.</returns>
     private async Task<ActionResult?> RequireManageAsync(Guid id, CancellationToken cancellationToken) =>

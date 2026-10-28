@@ -321,6 +321,23 @@ export interface MissingGuest {
   canManage: boolean
 }
 
+/** Another node of the scanned Proxmox node's cluster (from corosync), with what NKeeper matched it to. */
+export interface ScannedClusterNode {
+  name: string
+  /** The address corosync reaches it on: an IP address or a hostname. */
+  address: string | null
+  /** From the scanned node's neighbour table, when it has the node's address. */
+  macAddress: string | null
+  hostId: string | null
+  hostName: string | null
+  matchedBy: 'mac' | 'ip' | 'hostname' | 'name' | null
+  /** For a node that isn't in NKeeper: the host that could be added for it. */
+  newHost: ProposedHost | null
+  note: string | null
+  /** A node NKeeper has that lacks the cluster tag, and the user may add it. */
+  tagProposed: boolean
+}
+
 /** A host a scan could add for a VM or container NKeeper doesn't have yet. */
 export interface ProposedHost {
   name: string
@@ -374,6 +391,10 @@ export interface ScanFindings {
   neighbors: ScannedNeighbor[]
   /** Internal scans of hypervisors: hosts linked to it that the scan didn't find (empty when its VM list couldn't be read). */
   missingGuests?: MissingGuest[]
+  /** Internal scans of Proxmox nodes in a cluster: its other nodes. */
+  clusterNodes?: ScannedClusterNode[]
+  /** Internal scans of Proxmox nodes in a cluster: the cluster's name. */
+  proxmoxCluster?: string | null
   /** Internal scans: logical processors. */
   cpuCores: number | null
   /** Internal scans: memory in MiB. */

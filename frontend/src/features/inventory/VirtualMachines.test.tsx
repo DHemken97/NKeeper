@@ -220,6 +220,67 @@ describe('virtual machines', () => {
     expect(await screen.findByRole('button', { name: /^scratch/ })).toBeInTheDocument()
   })
 
+  it('on a Proxmox node: the cluster’s other nodes are added or tagged, and the node gets the cluster’s tag', async () => {
+    let created: Record<string, unknown> | undefined
+    let bulk: unknown
+    let saved: Record<string, unknown> | undefined
+    const { user } = renderAt('/', {
+      'POST /api/hosts/h-node1/scan/internal': () =>
+        jsonResponse(200, {
+          status: 'ready',
+          hostKey: null,
+          findings: {
+            ...nodeScan,
+            guests: [],
+            proxmoxCluster: 'lab',
+            neighbors: [
+              { ipAddress: '10.0.0.12', macAddress: 'AA:BB:CC:00:00:12', hostId: null, hostName: null, matchedBy: null, note: null,
+                newHost: { name: '10.0.0.12', hostname: null, ipAddress: '10.0.0.12', macAddress: 'AA:BB:CC:00:00:12', description: 'Seen.' } },
+            ],
+            clusterNodes: [
+              { name: 'pve2', address: '10.0.0.12', macAddress: 'AA:BB:CC:00:00:12', hostId: null, hostName: null, matchedBy: null, note: null, tagProposed: false,
+                newHost: { name: 'pve2', hostname: 'pve2', ipAddress: '10.0.0.12', macAddress: 'AA:BB:CC:00:00:12', description: 'Added from a scan of node1: a node of its Proxmox cluster.' } },
+              { name: 'node2', address: '10.0.0.2', macAddress: null, hostId: 'h-node2', hostName: 'node2', matchedBy: 'ip', newHost: null, note: null, tagProposed: true },
+            ],
+          },
+        }),
+      'PUT /api/hosts/h-node1': (_url, init) => {
+        saved = JSON.parse(String(init.body)) as Record<string, unknown>
+        return jsonResponse(200, { ...node1, version: 2 })
+      },
+      'POST /api/hosts': (_url, init) => {
+        created = JSON.parse(String(init.body)) as Record<string, unknown>
+        return jsonResponse(201, makeHost({ id: 'h-pve2', name: 'pve2' }))
+      },
+      'POST /api/hosts/bulk': (_url, init) => {
+        bulk = JSON.parse(String(init.body))
+        return jsonResponse(200, [node2])
+      },
+    })
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /node1/ }))
+    for (const item of ['Tasks', 'Scan', 'Internal']) {
+      await user.hover(screen.getByRole('menuitem', { name: new RegExp(`^${item}`) }))
+    }
+    await user.click(screen.getByRole('menuitem', { name: /^root/ }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Internal scan of node1' })
+    expect(await within(dialog).findByRole('checkbox', { name: 'Proxmox cluster' })).toBeChecked()
+    const nodes = within(dialog).getByRole('group', { name: 'Proxmox cluster “lab”' })
+    expect(within(nodes).getByRole('checkbox', { name: 'Add pve2' })).toBeChecked()
+    expect(within(nodes).getByRole('checkbox', { name: 'Tag node2 cluster: lab' })).toBeChecked()
+    // The node's address isn't offered again as a plain neighbour.
+    expect(within(dialog).queryByRole('checkbox', { name: 'Add 10.0.0.12' })).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: /^Apply 3 changes/ }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(saved?.tags).toEqual(expect.arrayContaining([{ name: 'cluster', value: 'lab' }]))
+    // A new node gets the scanned node's services and the cluster's tag.
+    expect(created).toMatchObject({ name: 'pve2', ipAddress: '10.0.0.12', tags: [{ name: 'cluster', value: 'lab' }], services: node1.services })
+    expect(bulk).toEqual({ hostIds: ['h-node2'], addTags: [], setTags: [{ name: 'cluster', value: 'lab' }], removeTags: [] })
+  })
+
   it('linked to a scanned hypervisor that weren’t found there can be unlinked', async () => {
     let bulk: unknown
     const { user } = renderAt('/', {
