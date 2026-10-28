@@ -632,6 +632,10 @@ namespace NKeeper.Infrastructure.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<string>("ZabbixHostId")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByUserId");
@@ -892,6 +896,42 @@ namespace NKeeper.Infrastructure.Migrations
                     b.ToTable("ServiceChecks", (string)null);
                 });
 
+            modelBuilder.Entity("NKeeper.Infrastructure.Zabbix.ZabbixSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<byte[]>("ProtectedApiToken")
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("TrustedCertificateFingerprint")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.ToTable("ZabbixSettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ZabbixSettings_Singleton", "\"Id\" = 1");
+                        });
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
                 {
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationRole", null)
@@ -1072,6 +1112,14 @@ namespace NKeeper.Infrastructure.Migrations
                         .HasForeignKey("HostId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Zabbix.ZabbixSettings", b =>
+                {
+                    b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.Host", b =>
