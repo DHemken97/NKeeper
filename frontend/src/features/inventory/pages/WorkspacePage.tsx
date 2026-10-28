@@ -38,7 +38,6 @@ import {
   defaultConnection,
   directWebUrl,
   hostMenuEntries,
-  IDRAC_MODES,
   guestId,
   serviceLabel,
   serviceLoginEntries,
@@ -48,7 +47,6 @@ import {
   type GuestTask,
   type GuestVia,
   type ConnectMode,
-  type IdracMode,
 } from '../hostMenu'
 import { matchesSearch, parseSearch, tagSearchTerm } from '../search'
 import {
@@ -87,7 +85,6 @@ const VncConsole = lazy(() => import('../../terminal/components/VncConsole').the
 const KvmVmConsole = lazy(() => import('../../terminal/components/KvmVmConsole').then((m) => ({ default: m.KvmVmConsole })))
 const FileBrowser = lazy(() => import('../../terminal/components/FileBrowser').then((m) => ({ default: m.FileBrowser })))
 const StorageView = lazy(() => import('../../terminal/components/StorageView').then((m) => ({ default: m.StorageView })))
-const IdracView = lazy(() => import('../../terminal/components/IdracView').then((m) => ({ default: m.IdracView })))
 const RpcSession = lazy(() => import('../../terminal/components/RpcSession').then((m) => ({ default: m.RpcSession })))
 const SORTS: { value: HostSort; label: string }[] = [
   { value: 'name', label: 'Name' },
@@ -116,8 +113,8 @@ function sessionProtocol(protocol: ServiceProtocol, mode?: OpenMode): RemoteSess
     return 'storage'
   }
   if (protocol === 'Idrac') {
-    // RACADM is the iDRAC's SSH command line.
-    return mode === 'overview' ? 'idrac' : mode === 'racadm' ? 'ssh' : 'idracconsole'
+    // Without the iDRAC plugin: RACADM (SSH to the iDRAC), else its web interface.
+    return mode === 'racadm' ? 'ssh' : 'web'
   }
   return protocol === 'Telnet' ? 'telnet' : protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : protocol === 'Rpc' ? 'rpc' : 'ssh'
 }
@@ -387,7 +384,7 @@ export function WorkspacePage() {
     const sameHost = sessions.filter((s) => s.hostId === host.id).length
     const service = host.services[serviceIndex]
     const modeLabel =
-      mode === 'files' ? 'Files' : mode === 'storage' ? 'Storage' : service.protocol !== 'Idrac' ? null : mode === 'web' ? 'Web interface' : IDRAC_MODES[(mode as IdracMode | undefined) ?? 'console'].label
+      mode === 'files' ? 'Files' : mode === 'storage' ? 'Storage' : service.protocol !== 'Idrac' ? null : mode === 'racadm' ? 'RACADM' : 'Web interface'
     setSessions((current) => [
       ...current,
       {
@@ -461,16 +458,6 @@ export function WorkspacePage() {
       },
     ])
     setActiveTab(id)
-  }
-
-  /** Opens an iDRAC's console, RACADM or web interface from its status tab, with the same login. */
-  function openFromIdrac(source: RemoteSession, mode: OpenMode) {
-    const host = allHosts?.find((h) => h.id === source.hostId)
-    if (!host) {
-      return
-    }
-    const credential = host.credentials.find((c) => c.id === source.request.credentialId)
-    openSession(host, source.request.serviceIndex, credential, source.request.oneOff, mode)
   }
 
   function closeSession(id: string) {
@@ -555,9 +542,18 @@ export function WorkspacePage() {
   /** Double-click: connect with the first SSH service and credential, or ask for one. */
   function connectWithDefaults(hostId: string) {
     const host = allHosts?.find((h) => h.id === hostId)
-    const connection = host ? defaultConnection(host) : null
+    const connection = host ? defaultConnection(host, plugins) : null
+    const pluginOpen = host && connection ? plugins.find((p) => p.serviceMenus?.[host.services[connection.serviceIndex].protocol])?.serviceMenus?.[host.services[connection.serviceIndex].protocol]?.open : undefined
     if (!host || !connection) {
       showHost(hostId)
+    } else if (pluginOpen) {
+      // A plugin's service: it opens what it opens, with the credential (asking for the password when none is stored).
+      const { serviceIndex, credential } = connection
+      if (credential && !credentialNeedsPassword(credential, host.services[serviceIndex].protocol)) {
+        pluginOpen(host, serviceIndex, { credential }, pluginContext)
+      } else {
+        setPrompt({ host, serviceIndex, account: credential ?? undefined, purpose: 'connect', then: (login) => pluginOpen(host, serviceIndex, login, pluginContext) })
+      }
     } else if (WEB_PROTOCOLS.has(host.services[connection.serviceIndex].protocol)) {
       openSession(host, connection.serviceIndex)
     } else if (connection.credential && !credentialNeedsPassword(connection.credential, host.services[connection.serviceIndex].protocol)) {
@@ -900,7 +896,7 @@ export function WorkspacePage() {
                 openSession={openPluginSession}
                 updateSession={(changes) => setSessions((current) => current.map((s) => (s.id === session.id ? { ...s, ...changes } : s)))}
               />
-            ) : session.protocol === 'web' || session.protocol === 'idracconsole' ? (
+            ) : session.protocol === 'web' ? (
               <WebSession
                 key={session.id}
                 session={session}
@@ -920,16 +916,6 @@ export function WorkspacePage() {
               <FileBrowser key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'storage' ? (
               <StorageView key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
-            ) : session.protocol === 'idrac' ? (
-              <IdracView
-                key={session.id}
-                session={session}
-                active={activeTab === session.id}
-                onShowHost={(id) => showHost(id)}
-                onOpen={(mode) => openFromIdrac(session, mode)}
-                host={allHosts?.find((h) => h.id === session.hostId)}
-                onHostChanged={handleChanged}
-              />
             ) : session.protocol === 'kvmvm' ? (
               <KvmVmConsole
                 key={session.id}

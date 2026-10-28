@@ -28,14 +28,6 @@ public sealed record OpenWebSessionRequest
 }
 
 /// <summary>
-/// Either the session is ready (open <see cref="LaunchPath"/> on the session's own origin,
-/// <c>nkw-&lt;SessionId&gt;.&lt;BaseDomain or web.&lt;NKeeper host&gt;&gt;</c>), or the target's
-/// certificate needs to be trusted first.
-/// </summary>
-public sealed record OpenWebSessionResponse(
-    string Status, string? SessionId, string? LaunchPath, string? BaseDomain, string? Target, WebCertificateResponse? Certificate);
-
-/// <summary>
 /// Web (HTTP/HTTPS) sessions: NKeeper itself connects to the host's web interface (or its iDRAC's)
 /// and relays it to the browser on an isolated origin, so the browser never contacts the host directly.
 /// </summary>
@@ -135,11 +127,9 @@ public sealed class WebSessionsController(HostAccess access, WebSessionStore ses
     public IActionResult Close(string id) => sessions.EndOwned(id, User.GetUserId()) ? NoContent() : NotFound();
 
     /// <summary>The target's URL, e.g. https://10.0.0.5:8443/ (IPv6 addresses bracketed).</summary>
-    internal static Uri TargetUri(bool https, string address, int port) =>
-        new UriBuilder(https ? "https" : "http", address.Contains(':', StringComparison.Ordinal) ? $"[{address}]" : address, port).Uri;
+    internal static Uri TargetUri(bool https, string address, int port) => IWebSessions.TargetUri(https, address, port);
 
-    internal static OpenWebSessionResponse TrustRequired(Uri target, WebCertificate certificate) =>
-        new("trustRequired", null, null, null, target.ToString(), new WebCertificateResponse(certificate.Fingerprint, certificate.Subject, certificate.Issuer, certificate.NotAfter));
+    internal static OpenWebSessionResponse TrustRequired(Uri target, WebCertificate certificate) => OpenWebSessionResponse.TrustRequired(target, certificate);
 
     /// <summary>
     /// The page asking is NKeeper itself (antiforgery and SameSite cookies ensure it), so its

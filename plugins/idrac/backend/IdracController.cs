@@ -1,19 +1,14 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
-using NKeeper.Sdk.Access;
-using NKeeper.Api.Configuration;
-using NKeeper.Api.Idrac;
-using NKeeper.Api.RemoteSessions;
-using NKeeper.Sdk.Sessions;
-using NKeeper.Api.Security;
-using NKeeper.Sdk.Security;
-using NKeeper.Api.Web;
-using NKeeper.Sdk.Web;
 using NKeeper.Infrastructure.Inventory;
+using NKeeper.Sdk.Access;
+using NKeeper.Sdk.Auditing;
+using NKeeper.Sdk.Sessions;
+using NKeeper.Sdk.Security;
+using NKeeper.Sdk.Web;
 
-namespace NKeeper.Api.Controllers;
+namespace NKeeper.Plugins.Idrac;
 
 /// <summary>An iDRAC request: which host/service/credential, and optionally a certificate to trust.</summary>
 public record IdracRequest : SessionStartMessage
@@ -41,11 +36,11 @@ public sealed record IdracOverviewResponse(string Status, IdracOverview? Overvie
 /// </summary>
 [ApiController]
 [Authorize]
-public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxySettings> settings) : ControllerBase
+public sealed class IdracController(IWebSessions webSessions) : ControllerBase
 {
     private const int DefaultHttpsPort = 443;
 
-    [HttpPost("api/idrac/overview")]
+    [HttpPost("overview")]
     [ProducesResponseType<IdracOverviewResponse>(StatusCodes.Status200OK)]
     public Task<ActionResult<IdracOverviewResponse>> Overview(IdracRequest request, CancellationToken cancellationToken) =>
         WithRedfishAsync(request, async (client, target) =>
@@ -53,13 +48,13 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
             cancellationToken);
 
     /// <summary>Presses one of the server's power buttons (Redfish ComputerSystem.Reset).</summary>
-    [HttpPost("api/idrac/power")]
+    [HttpPost("power")]
     [ProducesResponseType<IdracOverviewResponse>(StatusCodes.Status200OK)]
     public Task<ActionResult<IdracOverviewResponse>> Power(IdracPowerRequest request, CancellationToken cancellationToken) =>
         WithRedfishAsync(request, async (client, target) =>
         {
             await IdracRedfish.ResetAsync(client, request.ResetType, cancellationToken);
-            await Audit.RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry("idrac.power", target.HostId, $"{request.ResetType} · {target.Display}"));
+            await Audit.RecordAsync(new AuditEntry("idrac.power", target.HostId, $"{request.ResetType} · {target.Display}"));
             return new IdracOverviewResponse("ready", null, Display(target), null);
         }, cancellationToken);
 
@@ -67,7 +62,7 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
     /// Opens the HTML5 virtual console: one-time console credentials from the iDRAC, then a web session
     /// to the iDRAC whose launch link lands on the console page. Answers like <c>POST /api/web/sessions</c>.
     /// </summary>
-    [HttpPost("api/idrac/console")]
+    [HttpPost("console")]
     [ProducesResponseType<OpenWebSessionResponse>(StatusCodes.Status200OK)]
     public async Task<ActionResult<OpenWebSessionResponse>> OpenConsole(IdracRequest request, CancellationToken cancellationToken)
     {
@@ -76,13 +71,13 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
         try
         {
             var target = await Resolver.ResolveAsync(request, user, ServiceProtocol.Idrac, DefaultHttpsPort, cancellationToken);
-            var uri = WebSessionsController.TargetUri(https: true, target.Address, target.Port);
+            var uri = IWebSessions.TargetUri(https: true, target.Address, target.Port);
             tunnel = await JumpTunnel.OpenAsync(target.Jump, target.Address, target.Port, cancellationToken);
             var trust = await CheckCertificateAsync(target, request, tunnel, cancellationToken);
             if (trust.Prompt is { } certificate)
             {
                 tunnel.Dispose();
-                return WebSessionsController.TrustRequired(uri, certificate);
+                return OpenWebSessionResponse.TrustRequired(uri, certificate);
             }
 
             string startPath;
@@ -92,17 +87,9 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
             }
 
             // The console's web session owns the tunnel from here on.
-            var session = sessions.TryCreate(user.Id, target.HostId, uri, trust.PinnedFingerprint, WebSessionsController.EmbedderOrigin(Request), startPath, tunnel);
+            var owned = tunnel;
             tunnel = null;
-            if (session is null)
-            {
-                throw new SessionException(
-                    SessionErrorCodes.TooManySessions, $"You already have {WebSessionStore.MaxSessionsPerUser} open web sessions. Close one and try again.");
-            }
-
-            await Audit.RecordAsync(new NKeeper.Sdk.Auditing.AuditEntry(NKeeper.Sdk.Auditing.AuditActions.SessionStart, target.HostId, $"iDRAC console · {target.Display}", session.Id));
-            return new OpenWebSessionResponse(
-                "ready", session.Id, $"{WebProxyMiddleware.LaunchPath}?t={session.LaunchToken}", settings.Value.BaseDomain, uri.ToString(), null);
+            return await webSessions.OpenAsync(HttpContext, target.HostId, uri, trust.PinnedFingerprint, startPath, owned, $"iDRAC console · {target.Display}");
         }
         catch (CertificateChangedException ex)
         {
@@ -156,9 +143,9 @@ public sealed class IdracController(WebSessionStore sessions, IOptions<WebProxyS
             target.HostId, target.Address, target.Port, target.KeyProtocol, target.KnownKeys, request.TrustFingerprint, User.GetUserId(), HttpContext.RequestServices.GetRequiredService<TrustedKeyStore>(), cancellationToken, tunnel);
     }
 
-    private NKeeper.Sdk.Auditing.AuditLog Audit => HttpContext.RequestServices.GetRequiredService<NKeeper.Sdk.Auditing.AuditLog>();
+    private AuditLog Audit => HttpContext.RequestServices.GetRequiredService<AuditLog>();
 
     private SessionTargetResolver Resolver => HttpContext.RequestServices.GetRequiredService<SessionTargetResolver>();
 
-    private static string Display(SessionTarget target) => WebSessionsController.TargetUri(https: true, target.Address, target.Port).ToString();
+    private static string Display(SessionTarget target) => IWebSessions.TargetUri(https: true, target.Address, target.Port).ToString();
 }

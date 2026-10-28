@@ -73,11 +73,11 @@ public sealed class IdracTests(PostgresServerFixture postgres, RedfishTargetFixt
     {
         var host = await CreateHostAsync();
 
-        var first = await PostAsync("/api/idrac/overview", Request(host));
+        var first = await PostAsync("/api/plugins/idrac/overview", Request(host));
         Assert.Equal("trustRequired", first.GetProperty("status").GetString());
         Assert.Equal(idrac.CertificateFingerprint, first.GetProperty("certificate").GetProperty("fingerprint").GetString());
 
-        var ready = await PostAsync("/api/idrac/overview", Request(host, trust: idrac.CertificateFingerprint));
+        var ready = await PostAsync("/api/plugins/idrac/overview", Request(host, trust: idrac.CertificateFingerprint));
         Assert.Equal("ready", ready.GetProperty("status").GetString());
         var overview = ready.GetProperty("overview");
         Assert.Equal("PowerEdge R750", overview.GetProperty("model").GetString());
@@ -97,7 +97,7 @@ public sealed class IdracTests(PostgresServerFixture postgres, RedfishTargetFixt
         var key = Assert.Single(saved!.TrustedKeys);
         Assert.Equal(ServiceProtocol.Idrac, key.Protocol);
         Assert.Equal(idrac.Port, key.Port);
-        Assert.Equal("ready", (await PostAsync("/api/idrac/overview", Request(host))).GetProperty("status").GetString());
+        Assert.Equal("ready", (await PostAsync("/api/plugins/idrac/overview", Request(host))).GetProperty("status").GetString());
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public sealed class IdracTests(PostgresServerFixture postgres, RedfishTargetFixt
         var host = await CreateHostAsync();
         await TrustAsync(host);
 
-        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/idrac/overview", Request(host, credential: host.Credentials[1].Id), Ct);
+        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/plugins/idrac/overview", Request(host, credential: host.Credentials[1].Id), Ct);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync(Ct);
@@ -123,11 +123,11 @@ public sealed class IdracTests(PostgresServerFixture postgres, RedfishTargetFixt
         {
         }
 
-        var restart = await _admin.SendJsonAsync(HttpMethod.Post, "/api/idrac/power", Request(host, resetType: "ForceRestart"), Ct);
+        var restart = await _admin.SendJsonAsync(HttpMethod.Post, "/api/plugins/idrac/power", Request(host, resetType: "ForceRestart"), Ct);
         Assert.True(restart.StatusCode == HttpStatusCode.OK, await restart.Content.ReadAsStringAsync(Ct));
         Assert.Equal(["ForceRestart"], idrac.Resets.ToArray());
 
-        var unsupported = await _admin.SendJsonAsync(HttpMethod.Post, "/api/idrac/power", Request(host, resetType: "GracefulRestart"), Ct);
+        var unsupported = await _admin.SendJsonAsync(HttpMethod.Post, "/api/plugins/idrac/power", Request(host, resetType: "GracefulRestart"), Ct);
         Assert.Equal(HttpStatusCode.BadRequest, unsupported.StatusCode);
         Assert.Equal(["ForceRestart"], idrac.Resets.ToArray());
     }
@@ -138,7 +138,7 @@ public sealed class IdracTests(PostgresServerFixture postgres, RedfishTargetFixt
         var host = await CreateHostAsync();
         await TrustAsync(host);
 
-        var session = await PostAsync("/api/idrac/console", Request(host));
+        var session = await PostAsync("/api/plugins/idrac/console", Request(host));
         Assert.Equal("ready", session.GetProperty("status").GetString());
         Assert.DoesNotContain(RedfishTargetFixture.TempPassword, session.GetRawText(), StringComparison.Ordinal);
 
@@ -162,10 +162,10 @@ public sealed class IdracTests(PostgresServerFixture postgres, RedfishTargetFixt
         await TrustAsync(host);
         idrac.PluginType = "Java";
 
-        var overview = await PostAsync("/api/idrac/overview", Request(host));
+        var overview = await PostAsync("/api/plugins/idrac/overview", Request(host));
         Assert.False(overview.GetProperty("overview").GetProperty("console").GetProperty("available").GetBoolean());
 
-        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/idrac/console", Request(host), Ct);
+        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/plugins/idrac/console", Request(host), Ct);
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
         Assert.Contains("HTML5", await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
     }
@@ -231,7 +231,7 @@ public sealed class IdracTests(PostgresServerFixture postgres, RedfishTargetFixt
     {
         var host = await CreateHostAsync();
 
-        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/idrac/overview", Request(host, serviceIndex: 1), Ct);
+        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/plugins/idrac/overview", Request(host, serviceIndex: 1), Ct);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("wrong_service", await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
@@ -265,7 +265,7 @@ public sealed class IdracTests(PostgresServerFixture postgres, RedfishTargetFixt
     };
 
     private async Task TrustAsync(HostResponse host) =>
-        Assert.Equal("ready", (await PostAsync("/api/idrac/overview", Request(host, trust: idrac.CertificateFingerprint))).GetProperty("status").GetString());
+        Assert.Equal("ready", (await PostAsync("/api/plugins/idrac/overview", Request(host, trust: idrac.CertificateFingerprint))).GetProperty("status").GetString());
 
     private async Task<JsonElement> PostAsync(string path, object body)
     {

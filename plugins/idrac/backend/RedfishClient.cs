@@ -5,13 +5,10 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
-using NKeeper.Api.Controllers;
-using NKeeper.Api.RemoteSessions;
 using NKeeper.Sdk.Sessions;
-using NKeeper.Api.Web;
 using NKeeper.Sdk.Web;
 
-namespace NKeeper.Api.Idrac;
+namespace NKeeper.Plugins.Idrac;
 
 /// <summary>
 /// A Redfish API client for one BMC (an iDRAC), authenticating with HTTP Basic on every request.
@@ -54,7 +51,7 @@ internal sealed class RedfishClient : IDisposable
         };
         _http = new HttpClient(handler, disposeHandler: true)
         {
-            BaseAddress = WebSessionsController.TargetUri(https: true, target.Address, target.Port),
+            BaseAddress = IWebSessions.TargetUri(https: true, target.Address, target.Port),
             Timeout = RequestTimeout,
         };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(

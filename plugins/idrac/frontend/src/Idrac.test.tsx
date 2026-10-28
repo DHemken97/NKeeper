@@ -2,12 +2,11 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { routes } from '../../app/router'
-import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
-import { AuthProvider } from '../auth/components/AuthProvider'
-import { directWebUrl } from '../inventory/hostMenu'
-import type { Host } from '../inventory/types'
+import { antiforgeryRoute, AuthProvider, jsonResponse, mockFetch, routes } from '@nkeeper/plugin-sdk/testing'
+import { directWebUrl, type Host } from '@nkeeper/plugin-sdk'
 import type { IdracOverview } from './idrac'
+// Registers the plugin, as loading its script does.
+import '.'
 
 // RACADM opens an SSH terminal: xterm.js needs a real browser, so a fake stands in.
 const fakes = vi.hoisted(() => {
@@ -177,7 +176,7 @@ describe('iDRAC services', () => {
   it('opens the HTML5 virtual console in a tab, through NKeeper, like an RDP or VNC session', async () => {
     let body: unknown
     const { user } = renderWorkspace({
-      'POST /api/idrac/console': (_url, init) => {
+      'POST /api/plugins/idrac/console': (_url, init) => {
         body = JSON.parse(String(init.body))
         return jsonResponse(200, {
           status: 'ready',
@@ -200,7 +199,7 @@ describe('iDRAC services', () => {
 
   it('explains why the console can’t open', async () => {
     const { user } = renderWorkspace({
-      'POST /api/idrac/console': () =>
+      'POST /api/plugins/idrac/console': () =>
         jsonResponse(502, { status: 502, code: 'connection_failed', detail: 'This iDRAC’s virtual console type is Java. Set the plug-in type to HTML5.' }),
     })
 
@@ -212,7 +211,7 @@ describe('iDRAC services', () => {
   it('trusts the iDRAC’s certificate, then shows the server with its power buttons', async () => {
     const bodies: Record<string, unknown>[] = []
     const { user } = renderWorkspace({
-      'POST /api/idrac/overview': (_url, init) => {
+      'POST /api/plugins/idrac/overview': (_url, init) => {
         bodies.push(JSON.parse(String(init.body)))
         return bodies.length === 1
           ? jsonResponse(200, {
@@ -242,8 +241,8 @@ describe('iDRAC services', () => {
   it('confirms a power action before pressing it', async () => {
     let power: unknown
     const { user } = renderWorkspace({
-      'POST /api/idrac/overview': () => jsonResponse(200, ready('https://10.0.10.20/')),
-      'POST /api/idrac/power': (_url, init) => {
+      'POST /api/plugins/idrac/overview': () => jsonResponse(200, ready('https://10.0.10.20/')),
+      'POST /api/plugins/idrac/power': (_url, init) => {
         power = JSON.parse(String(init.body))
         return jsonResponse(200, { status: 'ready', overview: null, target: 'https://10.0.10.20/', certificate: null })
       },
@@ -262,7 +261,7 @@ describe('iDRAC services', () => {
   it('saves the service tag, threads and memory the iDRAC reports to the host', async () => {
     let body: Record<string, unknown> | undefined
     const { user } = renderWorkspace({
-      'POST /api/idrac/overview': () => jsonResponse(200, ready('https://10.0.10.20/')),
+      'POST /api/plugins/idrac/overview': () => jsonResponse(200, ready('https://10.0.10.20/')),
       'PUT /api/hosts/h-r750': (_url, init) => {
         body = JSON.parse(String(init.body))
         return jsonResponse(200, { ...r750, serialNumber: 'ABC1234', cpuCores: 128, memoryMiB: 524288, version: 2 })
@@ -282,7 +281,7 @@ describe('iDRAC services', () => {
 
   it('opens RACADM as an SSH session to the iDRAC service, from the menu or the status tab', async () => {
     const { user } = renderWorkspace({
-      'POST /api/idrac/overview': () => jsonResponse(200, ready('https://10.0.10.20/')),
+      'POST /api/plugins/idrac/overview': () => jsonResponse(200, ready('https://10.0.10.20/')),
     })
 
     await connect(user, 'Status & power')

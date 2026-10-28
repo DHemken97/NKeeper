@@ -55,5 +55,10 @@ export {
   type ServiceProtocol,
 } from '../features/inventory/types'
 
-// Sessions.
+export { directWebUrl, serviceLabel } from '../features/inventory/hostMenu'
+
+// Sessions: the parts of NKeeper's own session tabs, to build a plugin's from.
 export type { HostKeyMessage, RemoteSession, SessionPhase, SessionRequest } from '../features/terminal/types'
+export { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from '../features/terminal/components/SessionChrome'
+export { WebSession as WebSessionView, type OpenWebSessionResponse } from '../features/terminal/components/WebSession'
+export { loginBody, sessionDetail } from './sessions'

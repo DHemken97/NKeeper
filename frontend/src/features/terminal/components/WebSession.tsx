@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { api, ApiError } from '../../../lib/api'
-import { idracRequestBody } from '../idrac'
 import type { HostKeyMessage, RemoteSession, SessionPhase } from '../types'
 import { sessionOrigin } from '../webSessionOrigin'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
@@ -13,9 +12,18 @@ interface WebSessionProps {
   onShowHost: (hostId: string) => void
   /** The user ended the session; the tab closes. */
   onEnded: () => void
+  /**
+   * How a plugin opens the session (e.g. an iDRAC's console, with one-time credentials), instead of
+   * a host's web service; answers like POST /api/web/sessions. Its launch link works once, so
+   * Reload opens a new session.
+   */
+  open?: (trustFingerprint: string | undefined) => Promise<OpenWebSessionResponse>
+  /** What the tab shows, for its name and errors, e.g. "virtual console"; "web session" by default. */
+  what?: string
 }
 
-interface OpenResponse {
+/** A web session that's ready, or a certificate to trust first (POST /api/web/sessions). */
+export interface OpenWebSessionResponse {
   status: 'ready' | 'trustRequired'
   sessionId: string | null
   launchPath: string | null
@@ -27,18 +35,20 @@ interface OpenResponse {
 /**
  * A web (HTTP/HTTPS) session proxied by NKeeper's server and shown inside this tab. The page runs
  * on its own origin in a sandboxed frame: it can't reach NKeeper, navigate NKeeper away, or be
- * framed by anything but NKeeper. An iDRAC's virtual console (`idracconsole`) is such a session,
- * opened on the console page with one-time console credentials the server gets from the iDRAC.
+ * framed by anything but NKeeper. Plugins open their own pages this way (an iDRAC's virtual
+ * console, with one-time credentials the server gets from the iDRAC) through `open`.
  */
-export function WebSession({ session, active, onShowHost, onEnded }: WebSessionProps) {
+export function WebSession({ session, active, onShowHost, onEnded, open: openSession, what = 'web session' }: WebSessionProps) {
   const [phase, setPhase] = useState<SessionPhase>({ kind: 'connecting' })
   const [url, setUrl] = useState<string | null>(null)
   const [frameKey, setFrameKey] = useState(0)
   const [attempt, setAttempt] = useState(0)
   const sessionIdRef = useRef<string | null>(null)
   const trustRef = useRef<string | undefined>(undefined)
-
-  const idracConsole = session.protocol === 'idracconsole'
+  // The latest way to open, without reopening when the parent re-renders.
+  const openRef = useRef(openSession)
+  openRef.current = openSession
+  const oneTimeLaunch = openSession !== undefined
 
   useEffect(() => {
     let cancelled = false
@@ -46,10 +56,9 @@ export function WebSession({ session, active, onShowHost, onEnded }: WebSessionP
 
     async function open() {
       try {
-        const response = await api.post<OpenResponse>(
-          idracConsole ? '/api/idrac/console' : '/api/web/sessions',
-          { body: idracConsole ? idracRequestBody(session.request, trustRef.current) : { hostId, serviceIndex, trustFingerprint: trustRef.current } },
-        )
+        const response = openRef.current
+          ? await openRef.current(trustRef.current)
+          : await api.post<OpenWebSessionResponse>('/api/web/sessions', { body: { hostId, serviceIndex, trustFingerprint: trustRef.current } })
         if (cancelled) {
           if (response.sessionId) {
             void api.delete(`/api/web/sessions/${response.sessionId}`).catch(() => {})
@@ -93,7 +102,7 @@ export function WebSession({ session, active, onShowHost, onEnded }: WebSessionP
           setPhase({
             kind: 'ended',
             code: error instanceof ApiError ? error.code : undefined,
-            message: error instanceof ApiError ? error.message : idracConsole ? 'Couldn’t open the virtual console.' : 'Couldn’t start the web session.',
+            message: error instanceof ApiError ? error.message : `Couldn’t open the ${what}.`,
           })
         }
       }
@@ -103,7 +112,7 @@ export function WebSession({ session, active, onShowHost, onEnded }: WebSessionP
     return () => {
       cancelled = true
     }
-  }, [session.request, idracConsole, attempt])
+  }, [session.request, what, attempt])
 
   // Closing the tab (or NKeeper) ends the session on the server.
   useEffect(
@@ -144,12 +153,12 @@ export function WebSession({ session, active, onShowHost, onEnded }: WebSessionP
   }
 
   return (
-    <div className={styles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} ${idracConsole ? 'virtual console' : 'web session'}`}>
+    <div className={styles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} ${what}`}>
       <SessionStatusBar phase={phase}>
         {phase.kind === 'connected' ? (
           <>
-            {/* The console's one-time credentials are used up: reloading asks the iDRAC for new ones. */}
-            <Button variant="ghost" size="sm" onClick={idracConsole ? reopen : () => setFrameKey((n) => n + 1)}>
+            {/* A one-time launch (a console's credentials) is used up: reloading opens a new session. */}
+            <Button variant="ghost" size="sm" onClick={oneTimeLaunch ? reopen : () => setFrameKey((n) => n + 1)}>
               Reload
             </Button>
             <Button variant="ghost" size="sm" onClick={onEnded}>

@@ -1,4 +1,4 @@
-import type { SessionRequest } from './types'
+import { loginBody, type SessionRequest } from '@nkeeper/plugin-sdk'
 
 /** A server as its iDRAC reports it over Redfish; any field may be missing on some models or firmware. */
 export interface IdracOverview {
@@ -60,12 +60,15 @@ export function idracHardware(overview: IdracOverview): { serialNumber: string |
 
 /** The body of iDRAC requests: which host, service and login, plus a certificate the user chose to trust. */
 export function idracRequestBody(request: SessionRequest, trustFingerprint?: string) {
-  return {
-    hostId: request.hostId,
-    serviceIndex: request.serviceIndex,
-    credentialId: request.credentialId,
-    username: request.oneOff?.username,
-    password: request.oneOff?.password,
-    trustFingerprint,
-  }
+  return { ...loginBody(request), trustFingerprint }
+}
+
+/** What an iDRAC service opens: its HTML5 virtual console, the server's status and power, or RACADM (its SSH command line). */
+export type IdracMode = 'console' | 'overview' | 'racadm'
+
+export const IDRAC_MODES: Record<IdracMode, { label: string; detail: string; view: string }> = {
+  console: { label: 'Virtual console', detail: 'HTML5', view: 'idracconsole' },
+  overview: { label: 'Status & power', detail: 'Redfish', view: 'idrac' },
+  // RACADM is NKeeper's own SSH session: the server connects to port 22 of the iDRAC's address.
+  racadm: { label: 'RACADM', detail: 'SSH', view: 'ssh' },
 }

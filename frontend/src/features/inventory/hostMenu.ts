@@ -20,20 +20,11 @@ const CONNECTABLE = new Set<ServiceProtocol>(SUPPORTED_PROTOCOLS)
  */
 export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https', 'Proxmox'])
 
-/** What an iDRAC service opens: its HTML5 virtual console, the server's status and power, or RACADM (its SSH command line). */
-export type IdracMode = 'console' | 'overview' | 'racadm'
-
-/** What a connection opens: an iDRAC's console, status or RACADM, or an SSH service's files (SFTP) or storage (iSCSI, multipath, DRBD). */
-export type ConnectMode = IdracMode | 'files' | 'storage'
+/** What a connection opens: an iDRAC's RACADM (its SSH command line), or an SSH service's files (SFTP) or storage (iSCSI, multipath, DRBD). */
+export type ConnectMode = 'racadm' | 'files' | 'storage'
 
 /** Session types that can't be tunnelled through a jump host yet (guacd and RPC dial hosts themselves). */
 const NOT_THROUGH_JUMP = new Set<ServiceProtocol>(['Rdp', 'Vnc', 'Rpc'])
-
-export const IDRAC_MODES: Record<IdracMode, { label: string; detail: string }> = {
-  console: { label: 'Virtual console', detail: 'HTML5' },
-  overview: { label: 'Status & power', detail: 'Redfish' },
-  racadm: { label: 'RACADM', detail: 'SSH' },
-}
 
 export interface HostMenuActions {
   /** Open a session with a saved credential. `mode` says what an iDRAC service opens. */
@@ -296,17 +287,13 @@ export function connectMenuEntries(
     }
 
     if (service.protocol === 'Idrac') {
+      // Without the iDRAC plugin (its console and status): RACADM, its SSH command line, and its web interface.
       return {
         kind: 'item',
         label: serviceLabel(service),
         detail: serviceDetail(service),
         submenu: [
-          ...(Object.keys(IDRAC_MODES) as IdracMode[]).map((mode): MenuEntry => ({
-            kind: 'item',
-            label: IDRAC_MODES[mode].label,
-            detail: IDRAC_MODES[mode].detail,
-            submenu: loginEntries(host, index, actions, mode),
-          })),
+          { kind: 'item', label: 'RACADM', detail: 'SSH', submenu: loginEntries(host, index, actions, 'racadm') },
           { kind: 'separator' },
           { kind: 'item', label: 'Web interface', submenu: web },
         ],
@@ -431,9 +418,18 @@ export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scan
   ]
 }
 
-/** The first connectable service with the first usable credential, for double-click connect. */
-export function defaultConnection(host: Host): { serviceIndex: number; credential: HostCredential | null } | null {
-  const serviceIndex = host.services.findIndex((s) => CONNECTABLE.has(s.protocol))
+/** Service types only plugins open (NKeeper itself has nothing to open for them). */
+const PLUGIN_ONLY = new Set<ServiceProtocol>(['Kvm'])
+
+/**
+ * The first service double-click can open, with the first usable credential: one NKeeper opens
+ * itself, or whose plugin says what it opens.
+ */
+export function defaultConnection(host: Host, plugins: readonly NKeeperPlugin[] = []): { serviceIndex: number; credential: HostCredential | null } | null {
+  const serviceIndex = host.services.findIndex((s) => {
+    const menu = plugins.find((p) => p.serviceMenus?.[s.protocol])?.serviceMenus?.[s.protocol]
+    return CONNECTABLE.has(s.protocol) && (menu ? menu.open !== undefined : !PLUGIN_ONLY.has(s.protocol))
+  })
   if (serviceIndex === -1) {
     return null
   }

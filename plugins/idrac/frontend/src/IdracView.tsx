@@ -1,16 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button } from '../../../components/ui/Button'
-import { Dialog } from '../../../components/ui/Dialog'
-import { api, ApiError } from '../../../lib/api'
-import { hostsApi } from '../../inventory/api/inventoryApi'
-import { toHostDraft, toHostInput } from '../../inventory/drafts'
-import type { IdracMode } from '../../inventory/hostMenu'
-import { formatMemory, type Host } from '../../inventory/types'
-import { idracHardware, idracRequestBody, POWER_ACTIONS, type IdracOverview, type IdracOverviewResponse } from '../idrac'
-import type { HostKeyMessage, RemoteSession, SessionPhase } from '../types'
-import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
-import sessionStyles from './Session.module.css'
+import {
+  api,
+  ApiError,
+  Button,
+  Dialog,
+  EndedCard,
+  formatMemory,
+  hostsApi,
+  OpeningCard,
+  SessionStatusBar,
+  styles as nkeeper,
+  toHostDraft,
+  toHostInput,
+  TrustCard,
+  type Host,
+  type HostKeyMessage,
+  type RemoteSession,
+  type SessionPhase,
+} from '@nkeeper/plugin-sdk'
+import { idracHardware, idracRequestBody, POWER_ACTIONS, type IdracMode, type IdracOverview, type IdracOverviewResponse } from './idrac'
 import styles from './IdracView.module.css'
+
+const sessionStyles = nkeeper.session
 
 interface IdracViewProps {
   session: RemoteSession
@@ -42,7 +53,7 @@ export function IdracView({ session, active, onShowHost, onOpen, host, onHostCha
   useEffect(() => {
     let cancelled = false
     api
-      .post<IdracOverviewResponse>('/api/idrac/overview', { body: idracRequestBody(session.request, trustRef.current) })
+      .post<IdracOverviewResponse>('/api/plugins/idrac/overview', { body: idracRequestBody(session.request, trustRef.current) })
       .then(
         (response) => {
           if (cancelled) {
@@ -112,7 +123,7 @@ export function IdracView({ session, active, onShowHost, onOpen, host, onHostCha
     setConfirming(null)
     setPower({ busy: true })
     try {
-      await api.post('/api/idrac/power', { body: { ...idracRequestBody(session.request), resetType: action.type } })
+      await api.post('/api/plugins/idrac/power', { body: { ...idracRequestBody(session.request), resetType: action.type } })
       setPower({ busy: false, message: `${action.label}: sent to the server.` })
       refresh()
     } catch (error) {

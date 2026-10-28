@@ -102,6 +102,7 @@ internal static class ApiServiceCollectionExtensions
             .ValidateOnStart();
         services.AddHttpForwarder();
         services.AddSingleton<NKeeper.Api.Web.WebSessionStore>();
+        services.AddScoped<NKeeper.Sdk.Web.IWebSessions, NKeeper.Api.Web.WebSessionLauncher>();
         services.AddHostedService<NKeeper.Api.Web.WebSessionSweeper>();
         services.AddSingleton<NKeeper.Sdk.Consoles.ConsoleSessionStore>();
         services.AddHostedService<NKeeper.Sdk.Consoles.ConsoleSessionSweeper>();

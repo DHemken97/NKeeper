@@ -17,5 +17,5 @@
     },
     "typeRoots": ["./node_modules/@types"]
   },
-  "include": ["../plugins/*/frontend/src", "src/vite-env.d.ts", "src/test/setup.ts"]
+  "include": ["../plugins/*/frontend/src", "src/**/*.d.ts", "src/test/setup.ts"]
 }

@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>NKeeper's Dell iDRAC plugin: the server's status and power over Redfish, and the iDRAC's HTML5 virtual console.</Description>
+  </PropertyGroup>
+
+</Project>

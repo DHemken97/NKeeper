@@ -1,8 +1,7 @@
 using System.Text.Json;
-using NKeeper.Api.RemoteSessions;
 using NKeeper.Sdk.Sessions;
 
-namespace NKeeper.Api.Idrac;
+namespace NKeeper.Plugins.Idrac;
 
 /// <summary>A server as its iDRAC reports it over Redfish. Every field may be missing on some models or firmware.</summary>
 /// <param name="ServiceTag">Dell's service tag (Redfish SKU).</param>

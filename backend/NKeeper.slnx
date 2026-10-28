@@ -6,6 +6,7 @@
     <Project Path="src/NKeeper.Sdk/NKeeper.Sdk.csproj" />
   </Folder>
   <Folder Name="/plugins/">
+    <Project Path="../plugins/idrac/backend/NKeeper.Plugins.Idrac.csproj" />
     <Project Path="../plugins/zabbix/backend/NKeeper.Plugins.Zabbix.csproj" />
   </Folder>
   <Folder Name="/tools/">

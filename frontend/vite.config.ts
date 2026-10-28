@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
         { find: /^@nkeeper\/plugin-sdk\/testing$/, replacement: source('./src/sdk/testing.ts') },
         { find: /^@nkeeper\/plugin-sdk$/, replacement: source('./src/sdk/index.ts') },
       ],
-      dedupe: ['react', 'react-dom', 'react-router', '@testing-library/react', '@testing-library/user-event'],
+      dedupe: ['react', 'react-dom', 'react-router', '@testing-library/react', '@testing-library/user-event', '@xterm/xterm', '@xterm/addon-fit', '@novnc/novnc'],
     },
     server: {
       port: 5173,

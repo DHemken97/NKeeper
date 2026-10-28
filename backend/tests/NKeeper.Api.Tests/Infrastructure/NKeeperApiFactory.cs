@@ -25,7 +25,7 @@ public sealed class NKeeperApiFactory(
     public const string SessionCookieName = "NKeeper.Session";
 
     /// <summary>NKeeper's own plugins, referenced by the test project and loaded from its own files, unsigned.</summary>
-    private static readonly string[] BuiltInPlugins = ["NKeeper.Plugins.Zabbix"];
+    private static readonly string[] BuiltInPlugins = ["NKeeper.Plugins.Idrac", "NKeeper.Plugins.Zabbix"];
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
