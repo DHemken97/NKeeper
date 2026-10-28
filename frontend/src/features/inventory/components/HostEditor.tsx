@@ -11,6 +11,7 @@ import { isSupportedProtocol, type Host } from '../types'
 import { CredentialsEditor } from './CredentialsEditor'
 import { HypervisorField } from './HypervisorField'
 import { JumpHostField } from './JumpHostField'
+import { ZabbixHostField } from '../../zabbix/components/ZabbixHostField'
 import styles from './HostPanel.module.css'
 import { ServicesEditor } from './ServicesEditor'
 import { TagEditor } from './TagEditor'
@@ -42,6 +43,7 @@ const FIELDS = [
   'hypervisorId',
   'jumpHostId',
   'jumpCredentialId',
+  'zabbixHostId',
   'tags',
   'services',
   'credentials',
@@ -236,6 +238,12 @@ export function HostEditor({ host, cloneOf, onClone, knownTagNames, knownTagValu
               onChange={(jumpHostId, jumpCredentialId) => setDraft((current) => ({ ...current, jumpHostId, jumpCredentialId }))}
               error={fieldErrors.jumpHostId}
               credentialError={fieldErrors.jumpCredentialId}
+            />
+            <ZabbixHostField
+              value={draft.zabbixHostId}
+              onChange={(id) => set('zabbixHostId', id)}
+              error={fieldErrors.zabbixHostId}
+              suggestion={draft.name.trim() || draft.ipAddress.trim() || draft.hostname.trim()}
             />
           </div>
         </section>

@@ -81,6 +81,7 @@ const r750: Host = {
   serialNumber: null,
   jumpHostId: null,
   jumpCredentialId: null,
+  zabbixHostId: null,
   tags: [],
   services: [
     { protocol: 'Ssh', port: null, label: null },

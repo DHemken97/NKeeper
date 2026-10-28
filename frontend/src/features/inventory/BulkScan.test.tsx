@@ -26,6 +26,7 @@ function makeHost(name: string, overrides: Partial<Host> = {}): Host {
     serialNumber: null,
     jumpHostId: null,
     jumpCredentialId: null,
+    zabbixHostId: null,
     tags: [],
     services: [{ protocol: 'Ssh', port: null, label: null, rdpSecurity: null }],
     credentials: [{ id: `c-${name}`, label: null, username: 'root', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],

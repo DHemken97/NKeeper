@@ -58,6 +58,8 @@ export interface HostDraft {
   jumpHostId: string
   /** The jump host's credential, or empty for its first usable one. */
   jumpCredentialId: string
+  /** The Zabbix host it's linked to, or empty. */
+  zabbixHostId: string
   tags: TagDraft[]
   services: ServiceDraft[]
   credentials: CredentialDraft[]
@@ -118,6 +120,7 @@ export function toHostDraft(host: Host | null): HostDraft {
     serialNumber: host?.serialNumber ?? '',
     jumpHostId: host?.jumpHostId ?? '',
     jumpCredentialId: host?.jumpCredentialId ?? '',
+    zabbixHostId: host?.zabbixHostId ?? '',
     tags: host?.tags.map((t) => newTagDraft(t.name, t.value)) ?? [],
     // Services of types NKeeper can't connect with can't be saved; the editor says they'll go.
     services:
@@ -133,8 +136,9 @@ export function toCloneDraft(source: Host): HostDraft {
   return {
     ...draft,
     name: `${source.name} (copy)`,
-    // A serial number belongs to one machine.
+    // A serial number and a Zabbix host belong to one machine.
     serialNumber: '',
+    zabbixHostId: '',
     credentials: source.credentials.map((c) => ({ ...newCredentialDraft(c), id: undefined, copyFrom: c.id })),
   }
 }
@@ -161,6 +165,7 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
     serialNumber: blankToNull(draft.serialNumber),
     jumpHostId: draft.jumpHostId || null,
     jumpCredentialId: draft.jumpHostId && draft.jumpCredentialId ? draft.jumpCredentialId : null,
+    zabbixHostId: blankToNull(draft.zabbixHostId),
     // Rows left completely empty are ignored rather than rejected.
     tags: draft.tags
       .filter((t) => t.name.trim() || t.value.trim())
