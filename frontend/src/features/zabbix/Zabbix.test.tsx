@@ -1,12 +1,14 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
+import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
 import type { Host } from '../inventory/types'
 import { ZabbixHostField } from './components/ZabbixHostField'
 import { ZabbixSection } from './components/ZabbixSection'
-import type { ZabbixHostOverview } from './zabbixApi'
+import { ZabbixReport } from './pages/ZabbixReport'
+import type { ZabbixComparison, ZabbixHostOverview } from './zabbixApi'
 
 const host: Host = {
   id: 'h1',
@@ -138,5 +140,64 @@ describe('Zabbix host field', () => {
     expect(screen.getByLabelText('Zabbix host ID')).toHaveValue('10085')
     await user.click(screen.getByRole('button', { name: 'Unlink' }))
     expect(screen.getByLabelText('Zabbix host ID')).toHaveValue('')
+  })
+})
+
+const compared = (id: string, name: string, ipAddress: string | null) => ({ id, name, hostname: null, ipAddress, macAddress: null, canManage: true })
+const zabbixHost = (hostId: string, name: string, ip: string) => ({ ...overview.host, hostId, host: name, name, ipAddresses: [ip], macAddresses: [], tags: [] })
+
+const comparison: ZabbixComparison = {
+  linked: [{ host: compared('h1', 'pve1', '192.168.42.2'), zabbix: overview.host, matchedBy: null }],
+  probableMatches: [{ host: compared('h2', 'web server', '10.0.0.20'), zabbix: zabbixHost('10085', 'Web 01', '10.0.0.20'), matchedBy: 'ip' }],
+  zabbixOnly: [zabbixHost('10086', 'Core switch', '10.0.0.250'), zabbixHost('10087', 'PBX1', '10.0.0.13')],
+  nKeeperOnly: [compared('h3', 'lonely', '10.9.9.9')],
+  brokenLinks: [],
+}
+
+function renderReport() {
+  render(
+    <MemoryRouter>
+      <ZabbixReport />
+    </MemoryRouter>,
+  )
+  return userEvent.setup()
+}
+
+describe('Zabbix report', () => {
+  it('links probable matches and adds Zabbix-only hosts', async () => {
+    const posts: Record<string, unknown>[] = []
+    mockFetch({
+      ...antiforgeryRoute,
+      'GET /api/zabbix/comparison': () => jsonResponse(200, comparison),
+      'POST /api/zabbix/links': (_url, init) => {
+        posts.push(JSON.parse(String(init.body)))
+        return jsonResponse(200, [])
+      },
+      'POST /api/zabbix/import': (_url, init) => {
+        posts.push(JSON.parse(String(init.body)))
+        return jsonResponse(200, { created: [host], skipped: [{ zabbixHostId: '10087', name: 'PBX1', reason: 'Zabbix has no IP address or DNS name for it.' }] })
+      },
+    })
+    const user = renderReport()
+
+    expect(await screen.findByText(/1 linked · 1 probable match · 2 only in Zabbix · 1 only in NKeeper/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'lonely' })).toHaveAttribute('href', '/?host=h3')
+
+    await user.click(screen.getByRole('button', { name: 'Link 1 host' }))
+    expect(await screen.findByText('Linked 1 host to Zabbix.')).toBeInTheDocument()
+    expect(posts[0]).toEqual({ links: [{ hostId: 'h2', zabbixHostId: '10085' }] })
+
+    await user.click(screen.getByLabelText('Select every Zabbix host'))
+    await user.click(screen.getByRole('button', { name: 'Add 2 hosts to NKeeper' }))
+    expect(await screen.findByText(/Added 1 host to NKeeper\./)).toBeInTheDocument()
+    expect(screen.getByText('PBX1: Zabbix has no IP address or DNS name for it.')).toBeInTheDocument()
+    expect(posts[1]).toEqual({ zabbixHostIds: ['10086', '10087'], groupsAsTags: true })
+  })
+
+  it('points to Settings when Zabbix isn’t set up', async () => {
+    mockFetch({ 'GET /api/zabbix/comparison': () => jsonResponse(409, { status: 409, code: 'zabbix_disabled', detail: 'Zabbix isn’t set up.' }) })
+    renderReport()
+
+    expect(await screen.findByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings')
   })
 })
