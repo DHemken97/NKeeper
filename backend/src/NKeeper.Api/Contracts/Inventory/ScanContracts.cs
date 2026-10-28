@@ -72,6 +72,26 @@ public sealed record ScannedGuest(
 public sealed record ProposedHost(string Name, string? Hostname, string? IpAddress, string? MacAddress, string Description);
 
 /// <summary>
+/// A machine seen in the scanned host's neighbour (ARP/NDP) table: an IP address, the MAC it
+/// resolved to, and what NKeeper matched it to. These are learned passively — the scan reads the
+/// host's existing table and probes nothing — so they fill in the network without a loud scan.
+/// </summary>
+/// <param name="IpAddress">The neighbour's IP address.</param>
+/// <param name="MacAddress">The MAC address it resolved to.</param>
+/// <param name="HostId">The NKeeper host it already is, when one matched.</param>
+/// <param name="MatchedBy">"mac" or "ip".</param>
+/// <param name="NewHost">For a neighbour that isn't in NKeeper: the host that could be added for it.</param>
+/// <param name="Note">Why it can't be added, when it can't.</param>
+public sealed record ScannedNeighbor(
+    string IpAddress,
+    string? MacAddress,
+    Guid? HostId = null,
+    string? HostName = null,
+    string? MatchedBy = null,
+    ProposedHost? NewHost = null,
+    string? Note = null);
+
+/// <summary>
 /// What a scan found. Nothing is saved: the client shows the findings and applies the ones the user
 /// picks with an ordinary host update.
 /// </summary>
@@ -80,6 +100,7 @@ public sealed record ProposedHost(string Name, string? Hostname, string? IpAddre
 /// <param name="Users">Internal scans only.</param>
 /// <param name="Virtualization">Internal scans: what the host itself runs under (e.g. "kvm", "vmware", "lxc"), or null for physical hardware.</param>
 /// <param name="Guests">Internal scans of hypervisors: the VMs and containers found there.</param>
+/// <param name="Neighbors">Internal scans: machines in the host's neighbour (ARP/NDP) table, matched to NKeeper hosts.</param>
 /// <param name="Notes">How values were found, and what couldn't be (e.g. no MAC address across a router).</param>
 /// <param name="CpuCores">Internal scans: logical processors.</param>
 /// <param name="MemoryMiB">Internal scans: memory in MiB.</param>
@@ -95,6 +116,7 @@ public sealed record ScanFindings(
     IReadOnlyList<string> Notes,
     string? Virtualization,
     IReadOnlyList<ScannedGuest> Guests,
+    IReadOnlyList<ScannedNeighbor> Neighbors,
     int? CpuCores = null,
     int? MemoryMiB = null,
     string? SerialNumber = null);

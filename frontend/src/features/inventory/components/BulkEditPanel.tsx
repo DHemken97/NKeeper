@@ -4,8 +4,12 @@ import { Button } from '../../../components/ui/Button'
 import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
 import { BulkScanDialog } from './BulkScanDialog'
+import { BulkCredentialChanges } from './BulkCredentialChanges'
+import { isReady, toCredentialInputs, type CredentialChange } from '../bulkCredentials'
+import { ServicesEditor } from './ServicesEditor'
+import type { ServiceDraft } from '../drafts'
 import { hypervisorChoices } from '../hypervisors'
-import type { Host, HostTag } from '../types'
+import { PROTOCOL_INFO, SUPPORTED_PROTOCOLS, type Host, type HostService, type HostTag, type ServiceProtocol } from '../types'
 import listStyles from './ListEditor.module.css'
 import styles from './HostPanel.module.css'
 
@@ -38,6 +42,39 @@ const KEEP = '__keep'
 const CLEAR = '__clear'
 let nextKey = 1
 
+// Each iDRAC has its own address, so iDRAC services are added one host at a time.
+const BULK_PROTOCOLS = SUPPORTED_PROTOCOLS.filter((p) => p !== 'Idrac')
+
+const toService = (draft: ServiceDraft): HostService => ({
+  protocol: draft.protocol,
+  port: draft.port === '' ? null : Number(draft.port),
+  label: draft.label.trim() || null,
+  ...(draft.protocol === 'Rdp' ? { rdpSecurity: draft.rdpSecurity } : {}),
+})
+
+/** How many hosts a new service would be added to, in words: hosts with the same type and port keep theirs. */
+function serviceImpact(draft: ServiceDraft, hosts: Host[]): string {
+  const { protocol, port } = toService(draft)
+  const count = hosts.filter((h) => !h.services.some((s) => s.protocol === protocol && s.port === port)).length
+  const name = PROTOCOL_INFO[protocol].label
+  return count === 0 ? `All selected hosts already have ${name}${port ? ` on port ${port}` : ''}` : `Adds it to ${count === 1 ? '1 host' : `${count} hosts`}`
+}
+
+/** A service to take off every selected host: the one on that port, or every one of the type. */
+interface ServiceRemoval {
+  key: number
+  protocol: ServiceProtocol
+  port: string
+}
+
+const toRemoval = (removal: ServiceRemoval) => ({ protocol: removal.protocol, port: removal.port === '' ? null : Number(removal.port) })
+
+function removalImpact(removal: ServiceRemoval, hosts: Host[]): string {
+  const { protocol, port } = toRemoval(removal)
+  const count = hosts.filter((h) => h.services.some((s) => s.protocol === protocol && (port === null || s.port === port))).length
+  return count === 0 ? 'No selected host has it' : count === 1 ? '1 host has it' : `${count} hosts have it`
+}
+
 const same = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'accent' }) === 0
 const hasTag = (host: Host, name: string, value: string | null) =>
   host.tags.some((t) => same(t.name, name) && (value === null || same(t.value ?? '', value)))
@@ -64,7 +101,8 @@ function impact(change: TagChange, hosts: Host[]): string | null {
 
 /**
  * Changes for several hosts at once (Ctrl/⌘+click, Shift+click, or a group's "Select hosts"):
- * add, set or remove tags, and set or clear the host they run on. Applied in one request; hosts the
+ * add, set or remove tags, set or clear the host they run on, add or remove services, and add, change
+ * or remove credentials. Applied in one request; hosts the
  * user can't manage are left out.
  */
 export function BulkEditPanel({
@@ -81,6 +119,9 @@ export function BulkEditPanel({
   const id = useId()
   const [changes, setChanges] = useState<TagChange[]>([{ key: nextKey++, action: 'add', name: '', value: '' }])
   const [hypervisor, setHypervisor] = useState(KEEP)
+  const [services, setServices] = useState<ServiceDraft[]>([])
+  const [removals, setRemovals] = useState<ServiceRemoval[]>([])
+  const [credentials, setCredentials] = useState<CredentialChange[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
@@ -91,7 +132,12 @@ export function BulkEditPanel({
   const selectedIds = useMemo(() => new Set(selected.map((h) => h.id)), [selected])
   const choices = useMemo(() => hypervisorChoices(allHosts.filter((h) => !selectedIds.has(h.id))), [allHosts, selectedIds])
   const filled = changes.filter((c) => c.name.trim())
-  const nothing = filled.length === 0 && hypervisor === KEEP
+  const nothing = filled.length === 0 && hypervisor === KEEP && services.length === 0 && removals.length === 0 && !credentials.some(isReady)
+  // Types to remove: any NKeeper supports, and any the selected hosts have.
+  const removableProtocols = useMemo(
+    () => [...new Set([...SUPPORTED_PROTOCOLS, ...manageable.flatMap((h) => h.services.map((s) => s.protocol))])],
+    [manageable],
+  )
 
   function update(key: number, patch: Partial<TagChange>) {
     setChanges((current) => current.map((c) => (c.key === key ? { ...c, ...patch } : c)))
@@ -114,10 +160,16 @@ export function BulkEditPanel({
         setTags: tags('set'),
         removeTags: tags('remove'),
         ...(hypervisor === KEEP ? {} : { hypervisor: { hypervisorId: hypervisor === CLEAR ? null : hypervisor } }),
+        ...(removals.length > 0 ? { removeServices: removals.map(toRemoval) } : {}),
+        ...(services.length > 0 ? { addServices: services.map(toService) } : {}),
+        ...Object.fromEntries(Object.entries(toCredentialInputs(credentials)).filter(([, list]) => list.length > 0)),
       })
       onApplied(updated)
       setChanges([{ key: nextKey++, action: 'add', name: '', value: '' }])
       setHypervisor(KEEP)
+      setServices([])
+      setRemovals([])
+      setCredentials([])
       setDone(`Updated ${updated.length === 1 ? '1 host' : `${updated.length} hosts`}.`)
     } catch (failure) {
       const errors = toFormErrors(failure)
@@ -274,6 +326,87 @@ export function BulkEditPanel({
           </select>
           <p className={styles.fieldHint}>Choosing a host also marks the selected hosts as virtual machines.</p>
         </div>
+
+        <ServicesEditor
+          value={services}
+          onChange={(next) => {
+            setServices(next)
+            setDone(null)
+          }}
+          errors={{}}
+          protocols={BULK_PROTOCOLS}
+          hint="Added after each host’s own services. Hosts that already have the same type on the same port keep theirs. Leave the port empty to use the default."
+          emptyText="No services to add."
+          reorderable={false}
+          note={(service) => serviceImpact(service, manageable)}
+        />
+
+        <fieldset className={listStyles.fieldset}>
+          <legend className={listStyles.legend}>Remove services</legend>
+          <p className={listStyles.hint}>Leave the port empty to remove every service of the type.</p>
+          {removals.length === 0 ? <p className={listStyles.empty}>No services to remove.</p> : null}
+          <ol className={listStyles.list}>
+            {removals.map((removal, index) => {
+              const position = `service removal ${index + 1}`
+              const change = (patch: Partial<ServiceRemoval>) => {
+                setRemovals((current) => current.map((r) => (r.key === removal.key ? { ...r, ...patch } : r)))
+                setDone(null)
+              }
+              return (
+                <li key={removal.key} className={styles.bulkRow}>
+                  <select
+                    className={listStyles.input}
+                    value={removal.protocol}
+                    onChange={(event) => change({ protocol: event.target.value as ServiceProtocol })}
+                    aria-label={`Type for ${position}`}
+                  >
+                    {removableProtocols.map((protocol) => (
+                      <option key={protocol} value={protocol}>
+                        {PROTOCOL_INFO[protocol].label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className={listStyles.input}
+                    inputMode="numeric"
+                    value={removal.port}
+                    onChange={(event) => change({ port: event.target.value.replace(/\D/g, '').slice(0, 5) })}
+                    placeholder="Any port"
+                    aria-label={`Port for ${position}`}
+                  />
+                  <span />
+                  <button
+                    type="button"
+                    className={listStyles.iconButton}
+                    onClick={() => setRemovals((current) => current.filter((r) => r.key !== removal.key))}
+                    aria-label={`Remove ${position}`}
+                  >
+                    ×
+                  </button>
+                  <p className={`${styles.fieldHint} ${styles.bulkEffect}`}>{removalImpact(removal, manageable)}</p>
+                </li>
+              )
+            })}
+          </ol>
+          <div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setRemovals((current) => [...current, { key: nextKey++, protocol: removableProtocols[0], port: '' }])}
+            >
+              Remove a service
+            </Button>
+          </div>
+        </fieldset>
+
+        <BulkCredentialChanges
+          value={credentials}
+          onChange={(next) => {
+            setCredentials(next)
+            setDone(null)
+          }}
+          hosts={manageable}
+        />
       </div>
 
       <footer className={styles.footer}>

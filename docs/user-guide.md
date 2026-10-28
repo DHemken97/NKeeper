@@ -143,6 +143,8 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
 
     Add services and logins afterwards. Addresses come from the node itself: libvirt's DHCP leases and the node's ARP table (running VMs), and Proxmox containers' and cloud-init VMs' static addresses. A VM with no address and a name that isn't a hostname is listed but can't be added from the scan.
 
+- **Neighbours on the network** (internal scans): the scan reads the host's own neighbour (ARP/NDP) table — the machines it has recently talked to — and matches each to an NKeeper host by its **MAC address**, else its **IP address**. This fills in network segments the NKeeper server can't see without a loud scan of its own; nothing is probed, as the table is already there. Each neighbour that's already a host is summarised under **Known neighbours**. Each one that isn't can be added (administrators): tick **Add …** for the addresses you want, start unticked, with **Select all**. A new host gets the neighbour's IP and MAC address; add a name, services and logins afterwards. The host's own addresses and NKeeper's are left out, as are incomplete, loopback, link-local and multicast entries. A neighbour table only holds recent contacts and expires quickly, so it shows who's been active lately, not the whole network.
+
 Changing a host's hostname or IP address forgets its trusted keys too, for the same reason.
 
 ## Connecting

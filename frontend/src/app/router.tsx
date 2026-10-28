@@ -8,6 +8,7 @@ import { IpAddressReport } from '../features/reports/pages/IpAddressReport'
 import { ReportsLayout } from '../features/reports/pages/ReportsLayout'
 import { VmResourcesReport } from '../features/reports/pages/VmResourcesReport'
 import { HealthReport } from '../features/reports/pages/HealthReport'
+import { InventoryReport } from '../features/reports/pages/InventoryReport'
 import { AuditLogReport } from '../features/audit/pages/AuditLogReport'
 import { RecordingPlayer } from '../features/audit/pages/RecordingPlayer'
 import { TransferPage } from '../features/transfer/pages/TransferPage'
@@ -39,6 +40,7 @@ export const routes: RouteObject[] = [
               { path: 'ip-addresses', element: <IpAddressReport /> },
               { path: 'vm-resources', element: <VmResourcesReport /> },
               { path: 'health', element: <HealthReport /> },
+              { path: 'inventory', element: <InventoryReport /> },
               {
                 element: <AdminRoute />,
                 children: [

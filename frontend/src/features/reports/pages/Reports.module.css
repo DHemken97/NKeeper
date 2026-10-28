@@ -293,3 +293,68 @@
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
+
+/* Inventory: the chosen fields, then one row per combination of their values. */
+.toolbar {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.inventory tbody th,
+.inventory tfoot th {
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+.inventory .repeat {
+  color: var(--color-text-subtle);
+}
+
+.inventory .missing {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.inventory .count {
+  min-width: 5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.inventory tfoot th,
+.inventory tfoot td {
+  position: sticky;
+  bottom: 0;
+  background: var(--color-surface);
+  font-weight: 600;
+}
+
+.shareBar {
+  display: inline-block;
+  width: 5rem;
+  height: 0.5rem;
+  margin-right: var(--space-2);
+  overflow: hidden;
+  vertical-align: middle;
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-sm);
+}
+
+.shareBar span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+
+/* Inventory columns can be widened (drag a header's corner) to show long values in full. */
+.inventory th,
+.inventory td {
+  max-width: none;
+}
+
+.resizable {
+  min-width: 4rem;
+  overflow: hidden;
+  resize: horizontal;
+  text-overflow: ellipsis;
+}

@@ -1,4 +1,5 @@
-import { decodeGroupKey, encodeGroupKey, groupKeyLabel, type GroupKey } from '../grouping'
+import { decodeGroupKey, encodeGroupKey, FIELD_KEYS, groupKeyLabel, type GroupKey } from '../grouping'
+import { OS_TAG } from '../scanProposals'
 import styles from './GroupByPicker.module.css'
 
 interface GroupByPickerProps {
@@ -6,14 +7,15 @@ interface GroupByPickerProps {
   onChange: (keys: GroupKey[]) => void
   /** Tag names in use across the inventory. */
   tagNames: string[]
+  maxLevels?: number
 }
 
-const MAX_LEVELS = 3
-
-/** Choose up to three nested grouping levels, e.g. site → role. */
-export function GroupByPicker({ value, onChange, tagNames }: GroupByPickerProps) {
+/** Choose up to three (or `maxLevels`) nested grouping levels, e.g. site → role. */
+export function GroupByPicker({ value, onChange, tagNames, maxLevels = 3 }: GroupByPickerProps) {
   const used = new Set(value.map((k) => encodeGroupKey(k).toLowerCase()))
-  const candidates: GroupKey[] = [{ kind: 'service' }, { kind: 'hypervisor' }, ...tagNames.map((name): GroupKey => ({ kind: 'tag', name }))]
+  // The os tag is offered as "Operating system".
+  const tags = tagNames.filter((name) => name.toLowerCase() !== OS_TAG).map((name): GroupKey => ({ kind: 'tag', name }))
+  const candidates: GroupKey[] = [...FIELD_KEYS, ...tags]
   const options = candidates.filter((k) => !used.has(encodeGroupKey(k).toLowerCase()))
 
   return (
@@ -43,7 +45,7 @@ export function GroupByPicker({ value, onChange, tagNames }: GroupByPickerProps)
           </li>
         ))}
       </ol>
-      {value.length < MAX_LEVELS && options.length > 0 ? (
+      {value.length < maxLevels && options.length > 0 ? (
         <select
           className={styles.add}
           value=""
@@ -57,7 +59,7 @@ export function GroupByPicker({ value, onChange, tagNames }: GroupByPickerProps)
           <option value="">{value.length === 0 ? 'None' : '+ Level'}</option>
           {options.map((key) => (
             <option key={encodeGroupKey(key)} value={encodeGroupKey(key)}>
-              {key.kind === 'service' ? 'Service' : key.kind === 'hypervisor' ? 'Runs on (hypervisor)' : `Tag: ${key.name}`}
+              {key.kind === 'tag' ? `Tag: ${key.name}` : key.kind === 'hypervisor' ? 'Runs on (hypervisor)' : groupKeyLabel(key)}
             </option>
           ))}
         </select>

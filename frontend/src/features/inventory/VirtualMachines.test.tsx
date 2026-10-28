@@ -119,6 +119,7 @@ const nodeScan: ScanFindings = {
     }),
     guest({ virtualMachineId: 'libvirt:3', name: 'Windows 11', note: 'Not in NKeeper, and the scan found no address for it.' }),
   ],
+  neighbors: [],
 }
 
 describe('virtual machines', () => {

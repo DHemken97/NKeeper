@@ -99,7 +99,7 @@ internal static class WindowsInternalScan
         var modules = Select(cimv2, "SELECT Capacity FROM Win32_PhysicalMemory").Select(m => m["Capacity"] is ulong capacity ? capacity : 0UL);
         var bios = Select(cimv2, "SELECT SerialNumber FROM Win32_BIOS").FirstOrDefault();
         return new ScanFindings(
-            hostname, ip, mac, osName, [.. ports.Select(ScanPorts.Describe)], false, users, notes, virtualization, [],
+            hostname, ip, mac, osName, [.. ports.Select(ScanPorts.Describe)], false, users, notes, virtualization, [], [],
             WmiMapping.Cpus(system?["NumberOfLogicalProcessors"] is uint cpus ? cpus : null),
             WmiMapping.MemoryMiB(modules, system?["TotalPhysicalMemory"] is ulong total ? total : null),
             WmiMapping.Serial(Text(bios, "SerialNumber"), virtualization));

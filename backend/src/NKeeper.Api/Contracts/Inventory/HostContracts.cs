@@ -297,6 +297,67 @@ public sealed record BulkTagRemoval
     public string? Value { get; init; }
 }
 
+/// <summary>A service to take off: the one on that port, or (without <see cref="Port"/>) every one of that type.</summary>
+public sealed record BulkServiceRemoval
+{
+    [Required(ErrorMessage = "Choose the service type to remove.")]
+    public ServiceProtocol? Protocol { get; init; }
+
+    [Range(1, 65535, ErrorMessage = "Port must be between 1 and 65535.")]
+    public int? Port { get; init; }
+}
+
+/// <summary>
+/// Which credentials of a host: by <see cref="Username"/> (and <see cref="Domain"/>, any domain when
+/// omitted) and/or <see cref="Label"/>, compared without regard to case.
+/// </summary>
+public record BulkCredentialMatch : IValidatableObject
+{
+    [StringLength(256)]
+    public string? Username { get; init; }
+
+    [StringLength(256)]
+    public string? Domain { get; init; }
+
+    [StringLength(100)]
+    public string? Label { get; init; }
+
+    public virtual IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (string.IsNullOrWhiteSpace(Username) && string.IsNullOrWhiteSpace(Label))
+        {
+            yield return new ValidationResult("Enter the username or label of the credential.", ["username"]);
+        }
+    }
+}
+
+/// <summary>New secrets for the matching credentials: set (or clear) the password and/or private key.</summary>
+public sealed record BulkCredentialUpdate : BulkCredentialMatch
+{
+    [StringLength(1024)]
+    public string? Password { get; init; }
+
+    public bool ClearPassword { get; init; }
+
+    [StringLength(16_384)]
+    public string? PrivateKey { get; init; }
+
+    public bool ClearPrivateKey { get; init; }
+
+    public override IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        foreach (var result in base.Validate(validationContext))
+        {
+            yield return result;
+        }
+
+        if (string.IsNullOrEmpty(Password) && !ClearPassword && string.IsNullOrEmpty(PrivateKey) && !ClearPrivateKey)
+        {
+            yield return new ValidationResult("Enter a new password or private key, or clear one.", ["password"]);
+        }
+    }
+}
+
 /// <summary>Set (or, with no id, clear) the host the selected VMs run on.</summary>
 public sealed record BulkHypervisorChange
 {
@@ -305,8 +366,10 @@ public sealed record BulkHypervisorChange
 
 /// <summary>
 /// The same changes to many hosts at once, applied in this order: <see cref="RemoveTags"/>,
-/// <see cref="SetTags"/> (which replace every value of their names), <see cref="AddTags"/>, then
-/// <see cref="Hypervisor"/>. Other details are left as they are.
+/// <see cref="SetTags"/> (which replace every value of their names), <see cref="AddTags"/>,
+/// <see cref="Hypervisor"/>, <see cref="RemoveServices"/>, <see cref="AddServices"/>, then
+/// <see cref="RemoveCredentials"/>, <see cref="UpdateCredentials"/> and <see cref="AddCredentials"/>.
+/// Other details are left as they are.
 /// </summary>
 public sealed record BulkHostUpdateRequest : IValidatableObject
 {
@@ -327,11 +390,55 @@ public sealed record BulkHostUpdateRequest : IValidatableObject
     /// <summary>Set: the hosts become virtual machines running on it. Null leaves them unchanged.</summary>
     public BulkHypervisorChange? Hypervisor { get; init; }
 
+    [MaxLength(20)]
+    public BulkServiceRemoval[] RemoveServices { get; init; } = [];
+
+    /// <summary>Services each host gets, after its own; a host that already has one (same type and port) keeps it as it is.</summary>
+    [MaxLength(20)]
+    public HostServiceRequest[] AddServices { get; init; } = [];
+
+    [MaxLength(20)]
+    public BulkCredentialMatch[] RemoveCredentials { get; init; } = [];
+
+    [MaxLength(20)]
+    public BulkCredentialUpdate[] UpdateCredentials { get; init; } = [];
+
+    /// <summary>Credentials each host gets, after its own; a host that already has the account (or label) keeps its own.</summary>
+    [MaxLength(20)]
+    public HostCredentialRequest[] AddCredentials { get; init; } = [];
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        if (AddTags.Length + SetTags.Length + RemoveTags.Length == 0 && Hypervisor is null)
+        var credentialChanges = RemoveCredentials.Length + UpdateCredentials.Length + AddCredentials.Length;
+        if (AddTags.Length + SetTags.Length + RemoveTags.Length + AddServices.Length + RemoveServices.Length + credentialChanges == 0 && Hypervisor is null)
         {
             yield return new ValidationResult("Choose a change to make.", ["addTags"]);
+        }
+
+        for (var index = 0; index < AddServices.Length; index++)
+        {
+            if (AddServices[index].Protocol is not { } protocol)
+            {
+                continue;
+            }
+
+            if (!SupportedServices.IsSupported(protocol))
+            {
+                yield return new ValidationResult($"NKeeper can't connect with {protocol} services, so they can't be added.", [$"addServices[{index}].protocol"]);
+            }
+            else if (protocol == ServiceProtocol.Idrac)
+            {
+                // Each iDRAC has its own address, so one can't be given to many hosts.
+                yield return new ValidationResult("Add iDRAC services one host at a time: each has its own address.", [$"addServices[{index}].protocol"]);
+            }
+        }
+
+        for (var index = 0; index < AddCredentials.Length; index++)
+        {
+            if (AddCredentials[index].Id is not null || AddCredentials[index].CopyFromCredentialId is not null)
+            {
+                yield return new ValidationResult("New credentials can't name or copy an existing one.", [$"addCredentials[{index}]"]);
+            }
         }
     }
 }

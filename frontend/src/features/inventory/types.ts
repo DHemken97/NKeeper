@@ -320,6 +320,22 @@ export interface ProposedHost {
   description: string
 }
 
+/**
+ * A machine seen in the scanned host's neighbour (ARP/NDP) table, matched to an NKeeper host.
+ * Learned passively — nothing was probed — so it fills in the network without a loud scan.
+ */
+export interface ScannedNeighbor {
+  ipAddress: string
+  macAddress: string | null
+  /** The NKeeper host it already is, when one matched. */
+  hostId: string | null
+  hostName: string | null
+  matchedBy: 'mac' | 'ip' | null
+  /** For a neighbour that isn't in NKeeper: the host that could be added for it. */
+  newHost: ProposedHost | null
+  note: string | null
+}
+
 /** A host to add from a scan, linked to the host it runs on. */
 export interface ScannedHostInput extends ProposedHost {
   hypervisorId: string
@@ -344,6 +360,8 @@ export interface ScanFindings {
   virtualization: string | null
   /** Internal scans of hypervisors: their VMs and containers. */
   guests: ScannedGuest[]
+  /** Internal scans: machines in the host's neighbour (ARP/NDP) table. */
+  neighbors: ScannedNeighbor[]
   /** Internal scans: logical processors. */
   cpuCores: number | null
   /** Internal scans: memory in MiB. */
@@ -378,7 +396,10 @@ export interface InternalScanLogin {
   domain?: string
 }
 
-/** The same changes to many hosts: tags are removed, then set (replacing every value of the name), then added. */
+/**
+ * The same changes to many hosts: tags are removed, then set (replacing every value of the name), then added;
+ * then the host they run on, services (a host that already has one, same type and port, keeps its own), and credentials.
+ */
 export interface BulkHostUpdateInput {
   hostIds: string[]
   addTags: HostTag[]
@@ -387,4 +408,27 @@ export interface BulkHostUpdateInput {
   removeTags: HostTag[]
   /** Set or (with a null id) clear the host the VMs run on; omit to leave it. */
   hypervisor?: { hypervisorId: string | null }
+  /** Without a port, every service of the type. Removed before services are added. */
+  removeServices?: { protocol: ServiceProtocol; port: number | null }[]
+  addServices?: HostService[]
+  /** Credentials are removed, then changed, then added. */
+  removeCredentials?: BulkCredentialMatch[]
+  updateCredentials?: BulkCredentialUpdate[]
+  /** A host that already has the account keeps its own. */
+  addCredentials?: HostCredentialInput[]
+}
+
+/** Credentials of a host by username (and domain; any when null) and/or label, ignoring case. */
+export interface BulkCredentialMatch {
+  username?: string | null
+  domain?: string | null
+  label?: string | null
+}
+
+/** New secrets for the matching credentials. */
+export interface BulkCredentialUpdate extends BulkCredentialMatch {
+  password?: string
+  clearPassword?: boolean
+  privateKey?: string
+  clearPrivateKey?: boolean
 }

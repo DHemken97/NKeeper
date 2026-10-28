@@ -19,7 +19,8 @@ internal static class GuestMatcher
         string? VirtualMachineId,
         bool CanManage,
         int? CpuCores = null,
-        int? MemoryMiB = null);
+        int? MemoryMiB = null,
+        string? IpAddress = null);
 
     /// <summary>
     /// A guest is the host with its stored VM identity, else the one with one of its MAC addresses,

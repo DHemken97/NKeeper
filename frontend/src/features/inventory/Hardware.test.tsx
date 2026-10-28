@@ -106,6 +106,7 @@ describe('host hardware', () => {
       notes: [],
       virtualization: null,
       guests: [],
+      neighbors: [],
       cpuCores: 128,
       memoryMiB: 524288,
       serialNumber: 'ABC1234',

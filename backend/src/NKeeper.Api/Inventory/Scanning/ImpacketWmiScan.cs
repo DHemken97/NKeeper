@@ -104,7 +104,7 @@ internal static class ImpacketWmiScan
         var virtualization = WmiMapping.Virtualization(Text(system, "Manufacturer"), Text(system, "Model"));
         var memory = WmiMapping.MemoryMiB(Rows(root, "memory").Select(m => Number(m, "Capacity")).OfType<ulong>(), Number(system, "TotalPhysicalMemory"));
         return new ScanFindings(
-            hostname, ip, mac, osName, [.. ports.Select(ScanPorts.Describe)], false, users, notes, virtualization, [],
+            hostname, ip, mac, osName, [.. ports.Select(ScanPorts.Describe)], false, users, notes, virtualization, [], [],
             WmiMapping.Cpus((long?)Number(system, "NumberOfLogicalProcessors")),
             memory,
             WmiMapping.Serial(Text(Rows(root, "bios").FirstOrDefault(), "SerialNumber"), virtualization));

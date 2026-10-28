@@ -66,6 +66,8 @@ import styles from './WorkspacePage.module.css'
 const NEW_HOST = 'new'
 const DETAILS_TAB = 'details'
 const EMPTY_GROUP_BY: string[] = []
+/** How long typing must pause before the tree is searched. */
+const SEARCH_DELAY_MS = 1000
 let nextSessionId = 1
 
 // xterm.js is large; load it on the first connection rather than with the page.
@@ -231,6 +233,14 @@ export function WorkspacePage() {
 
   const allHosts = local.basedOn !== undefined && local.basedOn === resource.data ? local.hosts : resource.data
   const query = params.get('q') ?? ''
+  // What's typed in the search box; it reaches the URL (and filters the tree) once typing pauses.
+  const [search, setSearch] = useState({ text: query, seen: query })
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  if (search.seen !== query) {
+    // The URL's search changed (typing paused, a tag chip, Clear, back and forward): show it.
+    setSearch({ text: query, seen: query })
+  }
+  useEffect(() => () => clearTimeout(searchTimer.current), [])
   const savedGroupBy =
     savedPreferences && savedPreferences.userId === user?.id ? savedPreferences.groupBy : user?.workspaceGroupBy ?? EMPTY_GROUP_BY
   const savedSort =
@@ -257,8 +267,21 @@ export function WorkspacePage() {
   // Only administrators add hosts, and only hosts the user may manage can be edited.
   const editing = editRequested && (selectedId === NEW_HOST ? admin : selectedHost?.canManage === true)
 
+  /**
+   * Shows what's typed at once, and searches with it after a pause: updating the URL on every
+   * keystroke re-renders the whole workspace, and fast typing lost characters.
+   */
+  function typeSearch(text: string) {
+    setSearch((current) => ({ ...current, text }))
+    clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => update({ q: text || null }), SEARCH_DELAY_MS)
+  }
+
   /** Updates URL view state. `null` removes a parameter; arrays set repeated parameters. */
   function update(changes: Record<string, string | string[] | null>) {
+    if ('q' in changes) {
+      clearTimeout(searchTimer.current)
+    }
     setParams(
       (current) => {
         const next = new URLSearchParams(current)
@@ -623,8 +646,8 @@ export function WorkspacePage() {
           <input
             className={styles.search}
             type="search"
-            value={query}
-            onChange={(event) => update({ q: event.target.value || null })}
+            value={search.text}
+            onChange={(event) => typeSearch(event.target.value)}
             placeholder="Search, or env:prod site:&quot;DC A&quot;"
             aria-label="Search hosts"
             spellCheck={false}

@@ -181,7 +181,7 @@ describe('iDRAC services', () => {
         return jsonResponse(200, {
           status: 'ready',
           sessionId: '0123456789abcdef0123456789abcdef',
-          launchPath: '/.nkeeper/launch?t=token',
+          launchPath: '/nkeeper/launch?t=token',
           baseDomain: null,
           target: 'https://10.0.10.20/',
           certificate: null,
@@ -193,7 +193,7 @@ describe('iDRAC services', () => {
 
     const frame = await screen.findByTitle(/r750 — https:\/\/10\.0\.10\.20/)
     expect(body).toEqual({ hostId: 'h-r750', serviceIndex: 1, credentialId: 'c-root' })
-    expect(frame).toHaveAttribute('src', 'http://nkw-0123456789abcdef0123456789abcdef.web.localhost:3000/.nkeeper/launch?t=token')
+    expect(frame).toHaveAttribute('src', 'http://nkw-0123456789abcdef0123456789abcdef.web.localhost:3000/nkeeper/launch?t=token')
     expect(screen.getByRole('tab', { name: /r750.*iDRAC · Virtual console · root/, selected: true })).toBeInTheDocument()
   })
 
