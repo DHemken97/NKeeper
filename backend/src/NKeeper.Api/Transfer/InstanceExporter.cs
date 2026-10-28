@@ -66,6 +66,7 @@ internal sealed class InstanceExporter(NKeeperDbContext db, CredentialProtector 
         var users = await db.Users.AsNoTracking().OrderBy(u => u.CreatedAtUtc).ToListAsync(cancellationToken);
         var grants = await db.HostAccessGrants.AsNoTracking().ToListAsync(cancellationToken);
         var email = await db.EmailSettings.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
+        var zabbix = await db.ZabbixSettings.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
         var hosts = await db.Hosts.AsNoTracking()
             .Include(h => h.Services)
             .Include(h => h.Tags)
@@ -93,13 +94,20 @@ internal sealed class InstanceExporter(NKeeperDbContext db, CredentialProtector 
                     c.Notes, c.Position))],
                 [.. h.TrustedKeys.Select(k => new BundleTrustedKey(k.Id, k.Protocol, k.Port, k.Algorithm, k.Fingerprint, k.TrustedAtUtc, k.TrustedByUserId))],
                 h.JumpHostId,
-                h.JumpCredentialId))],
+                h.JumpCredentialId,
+                h.ZabbixHostId))],
             email is null
                 ? null
                 : new BundleEmail(
                     email.Enabled, email.Host, email.Port, email.Security, email.UserName,
                     email.ProtectedPassword is null ? null : protector.Unprotect(email.ProtectedPassword),
-                    email.FromAddress, email.FromName));
+                    email.FromAddress, email.FromName),
+            zabbix is null
+                ? null
+                : new BundleZabbix(
+                    zabbix.Enabled, zabbix.Url,
+                    zabbix.ProtectedApiToken is null ? null : protector.Unprotect(zabbix.ProtectedApiToken),
+                    zabbix.TrustedCertificateFingerprint));
     }
 }
 

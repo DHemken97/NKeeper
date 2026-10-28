@@ -25,6 +25,7 @@ const app01: Host = {
   serialNumber: null,
   jumpHostId: null,
   jumpCredentialId: null,
+  zabbixHostId: null,
   tags: [],
   services: [{ protocol: 'Ssh', port: null, label: null }],
   credentials: [{ id: 'c-root', label: null, username: 'root', domain: null, notes: null, hasPassword: true, hasPrivateKey: false }],

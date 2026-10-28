@@ -20,6 +20,7 @@
 - [Dell iDRAC (virtual console, status and power, RACADM)](#dell-idrac-virtual-console-status-and-power-racadm)
 - [Trusting servers](#trusting-servers)
 - [Health and Wake-on-LAN](#health-and-wake-on-lan)
+- [Zabbix](#zabbix)
 - [Reports](#reports)
 - [Your account](#your-account)
 
@@ -375,6 +376,21 @@ The checks come from the server, so a host can be up for you but down for NKeepe
 - **Routed networks:** the router must forward directed broadcasts.
 - **Docker:** a container's default network doesn't carry broadcasts onto your LAN. Run the backend with host networking, or wake hosts across a router that forwards directed broadcasts.
 
+## Zabbix
+
+When an administrator has set up Zabbix (see [Administration](administration.md#zabbix)), NKeeper can show what Zabbix knows about a host. NKeeper only reads from Zabbix; it never changes anything there.
+
+**Linking a host:** edit the host and fill in **Zabbix host ID**, or click **Find in Zabbix…** and search by name, IP address or DNS name, then pick the host. **Unlink** clears it. The ID is the number Zabbix shows in a host's address (`hostid=10084`). Administrators can also link many hosts at once from **Reports ▸ Zabbix**.
+
+**In the host's details**, a **Zabbix** section shows:
+- **Status:** whether Zabbix can reach the host's interfaces (available, unavailable, partly), whether it's monitored or in maintenance, its host groups and tags;
+- **Problems:** the host's unresolved problems, with their severity and since when;
+- **Latest values:** the common ones the host's templates collect, such as OS, uptime, CPU count and utilization, load, memory, swap, root disk usage, agent version and ping;
+- **Inventory:** every inventory field that has a value. Turn host inventory on in Zabbix (manual or automatic) for it to have any;
+- **Interfaces:** each agent, SNMP, IPMI or JMX interface and its last error.
+
+**Open in Zabbix** opens the host's latest data in Zabbix, and **Refresh** reads it again. For a host you can manage, NKeeper also offers to **copy** the serial number, MAC address, CPU count and memory Zabbix has onto the host, when they differ. Values the host doesn't have yet are ticked; ones that would replace a value aren't.
+
 ## Reports
 
 **Reports** in the top bar lists NKeeper's reports. Each one covers only the hosts you can see.
@@ -388,6 +404,13 @@ The checks come from the server, so a host can be up for you but down for NKeepe
 - **Download CSV** saves one row per host.
 
 The figures come from the hosts' hardware fields: scan the hypervisors (internal scan) to fill in each VM's allocation, and scan the hosts themselves, or use the iDRAC's **Save to host**, for their cores, memory and serial number.
+
+**Zabbix** (administrators) compares Zabbix's hosts with NKeeper's:
+- **Probable matches:** NKeeper hosts that aren't linked yet but look like a Zabbix host, matched by MAC address (from the Zabbix inventory), then IP address, then hostname (a DNS name or technical name, with or without the domain), then name. Tick them and **Link**.
+- **Only in Zabbix:** tick the hosts and **Add to NKeeper**. Each new host gets Zabbix's visible name, the main interface's IP address and DNS name, the inventory's MAC address and serial number, the description and the tags (tags whose name has a colon are left out), optionally the host groups as `group` tags, and is linked to its Zabbix host. Hosts without any address are skipped, and the reason is shown.
+- **Only in NKeeper:** hosts Zabbix doesn't seem to monitor.
+- **Linked to a missing Zabbix host:** links to a Zabbix host that was deleted, or that the API token can't see. **Unlink** clears them.
+- **Linked:** every pair, folded away.
 
 **IP address map** is a spreadsheet of your address space:
 - **Columns** are /24 subnets, one for each subnet that has at least one host (e.g. `10.0.1.x`, `192.168.1.x`, `192.168.42.x`), in numeric order. Each header shows how many of the subnet's addresses are used.

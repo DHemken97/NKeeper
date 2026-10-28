@@ -27,6 +27,7 @@ function host(id: string, name: string, ipAddress: string | null, hostname: stri
     serialNumber: null,
     jumpHostId: null,
     jumpCredentialId: null,
+    zabbixHostId: null,
     tags: [],
     services: [],
     credentials: [],

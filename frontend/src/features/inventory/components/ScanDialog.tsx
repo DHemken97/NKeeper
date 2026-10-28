@@ -455,6 +455,7 @@ function neighborToInput(proposed: ProposedHost): HostInput {
     serialNumber: null,
     jumpHostId: null,
     jumpCredentialId: null,
+    zabbixHostId: null,
     tags: [],
     services: [],
     credentials: [],

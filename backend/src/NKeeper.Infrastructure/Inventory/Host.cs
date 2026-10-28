@@ -8,6 +8,9 @@ namespace NKeeper.Infrastructure.Inventory;
 /// </summary>
 public sealed class Host
 {
+    /// <summary>Zabbix IDs are unsigned 64-bit numbers: at most 20 digits.</summary>
+    public const int ZabbixHostIdMaxLength = 20;
+
     public Guid Id { get; set; }
 
     public string Name { get; set; } = string.Empty;
@@ -59,6 +62,12 @@ public sealed class Host
 
     /// <summary>The jump host's credential to sign in to it with; null means its first usable one.</summary>
     public Guid? JumpCredentialId { get; set; }
+
+    /// <summary>
+    /// The host's ID in Zabbix (<c>hostid</c>), to read its monitoring information, inventory and
+    /// problems from the Zabbix API. Null when it isn't linked.
+    /// </summary>
+    public string? ZabbixHostId { get; set; }
 
     public List<HostService> Services { get; set; } = [];
 

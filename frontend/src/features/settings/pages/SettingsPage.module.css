@@ -3,3 +3,26 @@
   flex-wrap: wrap;
   gap: var(--space-3);
 }
+
+/* A certificate to trust: its details as a small table. */
+.certificate {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-2) 0;
+  font-size: 0.875rem;
+}
+
+.certificate dt {
+  color: var(--color-text-muted);
+}
+
+.certificate dd {
+  margin: 0;
+}
+
+.fingerprint {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
