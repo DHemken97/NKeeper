@@ -5,7 +5,7 @@ import { Dialog } from '../../../components/ui/Dialog'
 import { TextField } from '../../../components/ui/TextField'
 import { api, ApiError } from '../../../lib/api'
 import { hostKeyPrompt, kvmRequestBody } from '../kvm'
-import { CONFIRM, iscsiRows, type DrbdResource, type StorageActionRequest, type StorageResponse, type StorageStatus } from '../storage'
+import { CONFIRM, iscsiRows, multipathTargets, type DrbdResource, type StorageActionRequest, type StorageResponse, type StorageStatus } from '../storage'
 import type { RemoteSession, SessionPhase } from '../types'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
 import styles from './Session.module.css'
@@ -252,6 +252,7 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
                       <tr>
                         <th scope="col">Map</th>
                         <th scope="col">Device</th>
+                        <th scope="col">iSCSI target</th>
                         <th scope="col">Size</th>
                         <th scope="col">Paths</th>
                         <th scope="col">
@@ -262,6 +263,7 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
                     <tbody>
                       {storage.multipath.map((map) => {
                         const healthy = map.paths.filter((p) => p.dmState === 'active' && p.pathState === 'ready').length
+                        const targets = multipathTargets(map, storage.iscsi)
                         return (
                           <tr key={map.name}>
                             <td className={styles.vmName}>
@@ -271,6 +273,16 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
                             <td>
                               {map.dmDevice}
                               {map.product ? <div className={styles.hint}>{map.product}</div> : null}
+                            </td>
+                            <td>
+                              {targets.length === 0
+                                ? '—'
+                                : targets.map((t) => (
+                                    <div key={t.target}>
+                                      {t.target}
+                                      <div className={styles.hint}>via {t.portals.join(', ')}</div>
+                                    </div>
+                                  ))}
                             </td>
                             <td>{map.size ?? '—'}</td>
                             <td>
