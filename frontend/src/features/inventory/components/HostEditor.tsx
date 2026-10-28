@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
 import { Checkbox } from '../../../components/ui/Checkbox'
@@ -13,6 +13,7 @@ import { HypervisorField } from './HypervisorField'
 import { JumpHostField } from './JumpHostField'
 import styles from './HostPanel.module.css'
 import { ServicesEditor } from './ServicesEditor'
+import { inheritedTags } from '../inheritance'
 import { TagEditor } from './TagEditor'
 
 interface HostEditorProps {
@@ -53,6 +54,17 @@ export function HostEditor({ host, cloneOf, onClone, knownTagNames, knownTagValu
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // What the host would inherit with the tags and "runs on" as edited.
+  const inherited = useMemo(
+    () =>
+      inheritedTags(
+        draft.tags.filter((t) => t.name.trim()).map((t) => ({ name: t.name.trim(), value: t.value })),
+        draft.isVirtualMachine ? draft.hypervisorId || null : null,
+        new Map(allHosts.map((h) => [h.id, h])),
+        host?.id,
+      ),
+    [draft.tags, draft.isVirtualMachine, draft.hypervisorId, allHosts, host?.id],
+  )
 
   function set<K extends keyof HostDraft>(key: K, value: HostDraft[K]) {
     setDraft((current) => ({ ...current, [key]: value }))
@@ -247,6 +259,7 @@ export function HostEditor({ host, cloneOf, onClone, knownTagNames, knownTagValu
             knownNames={knownTagNames}
             knownValues={knownTagValues}
             errors={fieldErrors}
+            inherited={inherited}
           />
         </section>
 

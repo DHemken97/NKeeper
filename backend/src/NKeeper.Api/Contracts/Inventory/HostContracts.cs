@@ -33,6 +33,9 @@ public sealed record HostTagRequest : IValidatableObject
     [StringLength(HostTag.ValueMaxLength, ErrorMessage = "Tag values can be at most 255 characters.")]
     public string? Value { get; init; }
 
+    /// <summary>Whether VMs running on the host inherit the tag; defaults to true.</summary>
+    public bool Inheritable { get; init; } = true;
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         // "name:value" is the search syntax, so a colon in a name would be ambiguous.
@@ -235,7 +238,8 @@ public sealed record HypervisorLinksRequest
     public HypervisorLinkRequest[] Links { get; init; } = [];
 }
 
-public sealed record HostTagResponse(string Name, string? Value);
+/// <param name="Inheritable">Whether VMs running on the host inherit the tag.</param>
+public sealed record HostTagResponse(string Name, string? Value, bool Inheritable = true);
 
 /// <summary>
 /// A connection method. <see cref="RdpSecurity"/> is set for RDP services only, <see cref="Address"/>

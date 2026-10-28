@@ -144,6 +144,17 @@
   padding: 0 var(--space-2);
 }
 
+/* Inherited from the host a VM runs on: dashed and muted, so it reads as not the host's own. */
+.chipInherited {
+  border-style: dashed;
+  color: var(--color-text-muted);
+}
+
+.chipInherited .chipName {
+  background: transparent;
+  font-style: italic;
+}
+
 .rows {
   display: flex;
   flex-direction: column;

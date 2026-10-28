@@ -1,3 +1,4 @@
+import { effectiveTags } from './inheritance'
 import { OS_TAG } from './scanProposals'
 import { formatAccount, PROTOCOL_INFO, primaryAddress, type Host } from './types'
 
@@ -118,7 +119,7 @@ function valuesFor(host: Host, key: GroupKey, { names, hypervisors }: Context): 
     ]
   }
   const name = (key.kind === 'os' ? OS_TAG : key.name).toLowerCase()
-  return host.tags
+  return effectiveTags(host)
     .filter((t) => t.name.toLowerCase() === name)
     .map((t) => ({ key: (t.value ?? '').toLowerCase(), label: t.value || '(no value)' }))
 }

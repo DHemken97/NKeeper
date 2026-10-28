@@ -188,7 +188,7 @@ internal sealed class InstanceImporter(
                 {
                     Id = s.Id, Protocol = s.Protocol, Port = s.Port, Label = s.Label, Position = s.Position, RdpSecurity = s.RdpSecurity, Address = s.Address,
                 })],
-                Tags = [.. host.Tags.Select(t => new HostTag { Id = t.Id, Name = t.Name, Value = t.Value })],
+                Tags = [.. host.Tags.Select(t => new HostTag { Id = t.Id, Name = t.Name, Value = t.Value, Inheritable = t.Inheritable })],
                 Credentials = [.. host.Credentials.Select(c => new HostCredential
                 {
                     Id = c.Id,

@@ -752,6 +752,9 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<Guid>("HostId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("Inheritable")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(64)

@@ -1,3 +1,4 @@
+import { effectiveTags } from './inheritance'
 import { formatAccount, PROTOCOL_INFO, type Host } from './types'
 
 export type SearchTerm = { kind: 'text'; text: string } | { kind: 'tag'; name: string; value: string }
@@ -10,6 +11,8 @@ const TOKEN = /([^\s:"]+):"([^"]*)"?|([^\s:"]+):(\S*)|"([^"]*)"?|(\S+)/g
  * - `sql prod` — free text, matched against names, addresses, descriptions, tags, services and accounts
  * - `env:production` / `site:"Datacenter A"` — a tag with that name whose value contains the text
  * - `env:` — any host that has an `env` tag
+ *
+ * Tags include the ones a VM inherits from the host it runs on.
  */
 export function parseSearch(query: string): SearchTerm[] {
   const terms: SearchTerm[] = []
@@ -36,7 +39,7 @@ function searchableText(host: Host): string {
     host.ipAddress,
     host.macAddress,
     host.description,
-    ...host.tags.flatMap((t) => [t.name, t.value]),
+    ...effectiveTags(host).flatMap((t) => [t.name, t.value]),
     ...host.services.flatMap((s) => [PROTOCOL_INFO[s.protocol].label, s.label, s.port?.toString(), s.address]),
     ...host.credentials.flatMap((c) => [c.label, formatAccount(c)]),
   ]
@@ -53,7 +56,7 @@ export function matchesSearch(host: Host, terms: SearchTerm[]): boolean {
   return terms.every((term) =>
     term.kind === 'text'
       ? text.includes(term.text)
-      : host.tags.some((tag) => tag.name.toLowerCase() === term.name && (tag.value ?? '').toLowerCase().includes(term.value)),
+      : effectiveTags(host).some((tag) => tag.name.toLowerCase() === term.name && (tag.value ?? '').toLowerCase().includes(term.value)),
   )
 }
 

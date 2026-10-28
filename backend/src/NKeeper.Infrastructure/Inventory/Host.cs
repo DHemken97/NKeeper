@@ -146,6 +146,13 @@ public sealed class HostTag
 
     /// <summary>Empty string when the tag has no value.</summary>
     public string Value { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the virtual machines running on this host inherit the tag (unless they have a tag of
+    /// that name themselves). Inheritance is worked out by clients from the hosts a user can see;
+    /// access grants by tag match only a host's own tags.
+    /// </summary>
+    public bool Inheritable { get; set; } = true;
 }
 
 /// <summary>

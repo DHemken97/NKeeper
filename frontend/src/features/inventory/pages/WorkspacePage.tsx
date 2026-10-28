@@ -32,6 +32,7 @@ import { CredentialPromptDialog } from '../../terminal/components/CredentialProm
 import type { VirtualMachine } from '../../terminal/kvm'
 import type { RemoteSession } from '../../terminal/types'
 import { useResource } from '../hooks/useResource'
+import { withInheritedTags } from '../inheritance'
 import {
   connectMenuEntries,
   credentialNeedsPassword,
@@ -231,7 +232,9 @@ export function WorkspacePage() {
   const [preferencesError, setPreferencesError] = useState<string | null>(null)
   const preferenceSave = useRef<Promise<void>>(Promise.resolve())
 
-  const allHosts = local.basedOn !== undefined && local.basedOn === resource.data ? local.hosts : resource.data
+  const loadedHosts = local.basedOn !== undefined && local.basedOn === resource.data ? local.hosts : resource.data
+  // VMs inherit tags from the hosts they run on: worked out again whenever a host changes.
+  const allHosts = useMemo(() => (loadedHosts ? withInheritedTags(loadedHosts) : loadedHosts), [loadedHosts])
   const query = params.get('q') ?? ''
   // What's typed in the search box; it reaches the URL (and filters the tree) once typing pauses.
   const [search, setSearch] = useState({ text: query, seen: query })

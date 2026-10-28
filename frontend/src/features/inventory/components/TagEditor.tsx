@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { newTagDraft, type TagDraft } from '../drafts'
+import type { InheritedTag } from '../types'
 import styles from './ListEditor.module.css'
 
 interface TagEditorProps {
@@ -12,12 +13,14 @@ interface TagEditorProps {
   knownValues: (name: string) => string[]
   /** Field errors from the server, keyed like "tags[0].name". */
   errors: Record<string, string>
+  /** What the host inherits from the host it runs on, given the tags as edited. */
+  inherited?: InheritedTag[]
 }
 
 const MAX_TAGS = 50
 
 /** Zabbix-style `name: value` tags. Tags drive the tree's "group by", e.g. site → role. */
-export function TagEditor({ value, onChange, knownNames, knownValues, errors }: TagEditorProps) {
+export function TagEditor({ value, onChange, knownNames, knownValues, errors, inherited = [] }: TagEditorProps) {
   const id = useId()
   const namesListId = `${id}-names`
 
@@ -30,6 +33,7 @@ export function TagEditor({ value, onChange, knownNames, knownValues, errors }: 
       <legend className={styles.legend}>Tags</legend>
       <p className={styles.hint}>
         Name and optional value, e.g. <code>site: Datacenter A</code> or <code>env: production</code>. Group the host tree by any tag name.
+        VMs running on this host inherit its tags, unless you untick <em>VMs inherit</em> or the VM has a tag of that name.
       </p>
 
       <datalist id={namesListId}>
@@ -81,6 +85,15 @@ export function TagEditor({ value, onChange, knownNames, knownValues, errors }: 
                   ))}
                 </datalist>
               ) : null}
+              <label className={styles.inheritToggle} title="VMs running on this host inherit the tag">
+                <input
+                  type="checkbox"
+                  checked={tag.inheritable}
+                  onChange={(event) => update(tag.key, { inheritable: event.target.checked })}
+                  aria-label={`VMs inherit ${position}`}
+                />
+                <span aria-hidden="true">VMs inherit</span>
+              </label>
               <button
                 type="button"
                 className={styles.iconButton}
@@ -96,6 +109,20 @@ export function TagEditor({ value, onChange, knownNames, knownValues, errors }: 
       </ol>
 
       {errors.tags ? <p className={styles.error}>{errors.tags}</p> : null}
+
+      {inherited.length > 0 ? (
+        <div>
+          <p className={styles.hint}>Inherited (add a tag of the same name to replace one):</p>
+          <ul className={styles.inheritedList}>
+            {inherited.map((t) => (
+              <li key={`${t.name}=${t.value ?? ''}`}>
+                <span aria-hidden="true">↳ </span>
+                <code>{t.value ? `${t.name}: ${t.value}` : t.name}</code> from {t.fromHostName}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div>
         <Button variant="secondary" size="sm" onClick={() => onChange([...value, newTagDraft()])} disabled={value.length >= MAX_TAGS}>

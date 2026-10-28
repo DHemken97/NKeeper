@@ -18,6 +18,8 @@ export interface TagDraft {
   key: number
   name: string
   value: string
+  /** Whether VMs running on the host inherit it. */
+  inheritable: boolean
 }
 
 export interface CredentialDraft {
@@ -83,8 +85,8 @@ export function newServiceDraft(
   }
 }
 
-export function newTagDraft(name = '', value: string | null = ''): TagDraft {
-  return { key: key(), name, value: value ?? '' }
+export function newTagDraft(name = '', value: string | null = '', inheritable = true): TagDraft {
+  return { key: key(), name, value: value ?? '', inheritable }
 }
 
 export function newCredentialDraft(existing?: HostCredential): CredentialDraft {
@@ -118,7 +120,7 @@ export function toHostDraft(host: Host | null): HostDraft {
     serialNumber: host?.serialNumber ?? '',
     jumpHostId: host?.jumpHostId ?? '',
     jumpCredentialId: host?.jumpCredentialId ?? '',
-    tags: host?.tags.map((t) => newTagDraft(t.name, t.value)) ?? [],
+    tags: host?.tags.map((t) => newTagDraft(t.name, t.value, t.inheritable ?? true)) ?? [],
     // Services of types NKeeper can't connect with can't be saved; the editor says they'll go.
     services:
       host?.services.filter((s) => isSupportedProtocol(s.protocol)).map((s) => newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity, s.address)) ?? [],
@@ -164,7 +166,7 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
     // Rows left completely empty are ignored rather than rejected.
     tags: draft.tags
       .filter((t) => t.name.trim() || t.value.trim())
-      .map((t) => ({ name: t.name.trim(), value: blankToNull(t.value) })),
+      .map((t) => ({ name: t.name.trim(), value: blankToNull(t.value), inheritable: t.inheritable })),
     services: draft.services.map((s) => ({
       protocol: s.protocol,
       port: s.port === '' ? null : Number(s.port),
