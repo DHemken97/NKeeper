@@ -120,3 +120,18 @@ export function iscsiRows(status: NonNullable<StorageStatus['iscsi']>) {
   }
   return rows
 }
+
+/**
+ * The iSCSI targets a multipath map's paths come from: the sessions that attached its path
+ * devices (e.g. sdb), with the portals they reach them through. Empty for local or FC disks.
+ */
+export function multipathTargets(map: MultipathMap, iscsi: StorageStatus['iscsi']): { target: string; portals: string[] }[] {
+  const devices = new Set(map.paths.map((p) => p.device))
+  const targets = new Map<string, string[]>()
+  for (const session of iscsi?.sessions ?? []) {
+    if (session.disks.some((d) => devices.has(d))) {
+      targets.set(session.target, [...(targets.get(session.target) ?? []), session.portal])
+    }
+  }
+  return [...targets].map(([target, portals]) => ({ target, portals }))
+}

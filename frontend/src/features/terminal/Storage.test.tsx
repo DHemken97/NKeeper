@@ -124,6 +124,9 @@ describe('storage (iSCSI, multipath, DRBD)', () => {
     const multipath = within(panel).getByRole('region', { name: 'Multipath' })
     expect(within(multipath).getByRole('row', { name: /mpatha/ })).toHaveTextContent('1 of 2 ready')
     expect(within(multipath).getByText(/sdc \(4:0:0:0\) failed · faulty · offline/)).toBeInTheDocument()
+    // The map's paths come from the session that attached sdb.
+    const target = within(within(multipath).getByRole('row', { name: /mpatha/ })).getAllByRole('cell')[2]
+    expect(target).toHaveTextContent('iqn.2003-01.org.example.san:disk1via 10.0.0.5:3260')
 
     const drbd = within(panel).getByRole('region', { name: 'DRBD' })
     const r0 = within(drbd).getByRole('row', { name: /r0/ })
