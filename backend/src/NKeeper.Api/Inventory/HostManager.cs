@@ -2,6 +2,8 @@ using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using NKeeper.Api.Access;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Api.Contracts.Zabbix;
+using NKeeper.Api.Zabbix;
 using NKeeper.Infrastructure.Inventory;
 using NKeeper.Infrastructure.Persistence;
 using Host = NKeeper.Infrastructure.Inventory.Host;
@@ -30,6 +32,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         h.SerialNumber,
         h.JumpHostId,
         h.JumpCredentialId,
+        h.ZabbixHostId,
         h.Tags
             .OrderBy(t => t.Name.ToUpper()).ThenBy(t => t.Value.ToUpper())
             .Select(t => new HostTagResponse(t.Name, t.Value == "" ? null : t.Value, t.Inheritable))
@@ -254,6 +257,115 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             .Select(Projection).AsSplitQuery().ToListAsync(cancellationToken);
         return [.. created.Select(h => h with { CanManage = true })];
     }
+
+    /// <summary>Links hosts to Zabbix hosts (or, with no Zabbix host ID, unlinks them).</summary>
+    /// <returns>The updated hosts.</returns>
+    /// <exception cref="HostAccessDeniedException">A host is missing or the user can't manage it.</exception>
+    public async Task<List<HostResponse>> LinkZabbixAsync(IReadOnlyList<ZabbixLinkRequest> links, RequestUser user, CancellationToken cancellationToken)
+    {
+        var ids = links.Select(l => l.HostId).Distinct().ToList();
+        var hosts = await access.Manageable(user).Where(h => ids.Contains(h.Id)).ToDictionaryAsync(h => h.Id, cancellationToken);
+        if (hosts.Count != ids.Count)
+        {
+            throw new HostAccessDeniedException();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        foreach (var link in links)
+        {
+            var host = hosts[link.HostId];
+            var zabbixHostId = InventoryText.TrimToNull(link.ZabbixHostId);
+            if (host.ZabbixHostId != zabbixHostId)
+            {
+                host.ZabbixHostId = zabbixHostId;
+                host.UpdatedAtUtc = now;
+                host.UpdatedByUserId = user.Id;
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        var manageable = await access.ManageableAsync(user, cancellationToken);
+        var updated = await access.Visible(user).AsNoTracking().Where(h => ids.Contains(h.Id))
+            .OrderBy(h => h.Name.ToUpper()).ThenBy(h => h.Id)
+            .Select(Projection).AsSplitQuery().ToListAsync(cancellationToken);
+        return [.. updated.Select(h => h with { CanManage = manageable?.Contains(h.Id) ?? true })];
+    }
+
+    /// <summary>
+    /// Adds hosts for Zabbix hosts, from what Zabbix knows: the visible name, the main interface's IP
+    /// address and DNS name, the inventory's MAC address and serial number, the description and tags
+    /// (and, if asked, the host groups as <c>group</c> tags), each linked to its Zabbix host. Zabbix
+    /// hosts already linked to an NKeeper host, or without an address, are skipped. Administrators
+    /// only (enforced by the controller).
+    /// </summary>
+    internal async Task<ZabbixImportResponse> CreateFromZabbixAsync(
+        IReadOnlyList<ZabbixHostRecord> records, bool groupsAsTags, RequestUser user, CancellationToken cancellationToken)
+    {
+        var ids = records.Select(r => r.Summary.HostId).ToList();
+        var existing = await db.Hosts.AsNoTracking()
+            .Where(h => h.ZabbixHostId != null && ids.Contains(h.ZabbixHostId))
+            .Select(h => new { h.ZabbixHostId, h.Name })
+            .ToListAsync(cancellationToken);
+        var linkedTo = existing.GroupBy(h => h.ZabbixHostId!).ToDictionary(g => g.Key, g => g.First().Name);
+
+        var now = timeProvider.GetUtcNow();
+        var hosts = new List<Host>();
+        var skipped = new List<ZabbixImportSkipped>();
+        foreach (var record in records)
+        {
+            var zabbix = record.Summary;
+            if (linkedTo.TryGetValue(zabbix.HostId, out var nkeeperName))
+            {
+                skipped.Add(new ZabbixImportSkipped(zabbix.HostId, zabbix.Name, $"Already in NKeeper as “{nkeeperName}”."));
+                continue;
+            }
+
+            var ip = zabbix.IpAddresses.Count > 0 ? zabbix.IpAddresses[0] : null;
+            var hostname = zabbix.DnsNames.FirstOrDefault(NetworkAddress.IsValidHostname)
+                // The technical name is often the machine's hostname.
+                ?? (NetworkAddress.IsValidHostname(zabbix.Host) && ip is null ? zabbix.Host : null);
+            if (hostname is null && ip is null)
+            {
+                skipped.Add(new ZabbixImportSkipped(zabbix.HostId, zabbix.Name, "Zabbix has no IP address or DNS name for it."));
+                continue;
+            }
+
+            var host = new Host
+            {
+                Id = Guid.NewGuid(),
+                Name = Truncate(zabbix.Name, 200),
+                Hostname = hostname,
+                IpAddress = ip,
+                MacAddress = zabbix.MacAddresses.Count > 0 ? zabbix.MacAddresses[0] : null,
+                Description = record.Description is null ? null : Truncate(record.Description, 4000),
+                SerialNumber = record.SerialNumber is null ? null : Truncate(record.SerialNumber, 128),
+                ZabbixHostId = zabbix.HostId,
+                CreatedAtUtc = now,
+                CreatedByUserId = user.Id,
+                UpdatedAtUtc = now,
+                UpdatedByUserId = user.Id,
+            };
+            var tags = zabbix.Tags.Select(t => (Name: t.Name, Value: t.Value))
+                .Concat(groupsAsTags ? record.Groups.Select(g => (Name: "group", Value: (string?)g)) : []);
+            ApplyTags(host, tags
+                // "name:value" is NKeeper's search syntax, so tag names can't have a colon.
+                .Where(t => t.Name.Trim().Length is > 0 and <= HostTag.NameMaxLength && !t.Name.Contains(':', StringComparison.Ordinal))
+                .Where(t => (t.Value?.Length ?? 0) <= HostTag.ValueMaxLength)
+                .Take(50)
+                .Select(t => new HostTagRequest { Name = t.Name.Trim(), Value = t.Value }));
+            hosts.Add(host);
+        }
+
+        db.Hosts.AddRange(hosts);
+        await db.SaveChangesAsync(cancellationToken);
+        var createdIds = hosts.Select(h => h.Id).ToList();
+        var created = await access.Visible(user).AsNoTracking().Where(h => createdIds.Contains(h.Id))
+            .OrderBy(h => h.Name.ToUpper()).ThenBy(h => h.Id)
+            .Select(Projection).AsSplitQuery().ToListAsync(cancellationToken);
+        return new ZabbixImportResponse([.. created.Select(h => h with { CanManage = true })], skipped);
+    }
+
+    private static string Truncate(string text, int length) => text.Length <= length ? text : text[..length];
 
     /// <summary>
     /// Applies the same tag, hypervisor and service changes to many hosts in one transaction.
@@ -643,6 +755,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         host.CpuCores = request.CpuCores;
         host.MemoryMiB = request.MemoryMiB;
         host.SerialNumber = InventoryText.TrimToNull(request.SerialNumber);
+        host.ZabbixHostId = InventoryText.TrimToNull(request.ZabbixHostId);
         host.JumpHostId = request.JumpHostId;
         host.JumpCredentialId = request.JumpHostId is null ? null : request.JumpCredentialId;
         ApplyVirtualMachine(host, request);

@@ -129,6 +129,8 @@ export interface Host {
   jumpHostId: string | null
   /** Which of the jump host's credentials to sign in to it with; null means its first usable one. */
   jumpCredentialId: string | null
+  /** The host's ID in Zabbix, when it's linked to one. */
+  zabbixHostId: string | null
   tags: HostTag[]
   /** Worked out in the browser from the loaded hosts (see inheritance.ts); not sent by the API. */
   inheritedTags?: InheritedTag[]
@@ -173,6 +175,7 @@ export interface HostInput {
   serialNumber: string | null
   jumpHostId: string | null
   jumpCredentialId: string | null
+  zabbixHostId: string | null
   tags: HostTag[]
   services: HostService[]
   credentials: HostCredentialInput[]

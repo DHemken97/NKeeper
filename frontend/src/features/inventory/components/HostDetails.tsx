@@ -20,6 +20,7 @@ import {
   type ServiceCheck,
   type TrustedKey,
 } from '../types'
+import { ZabbixSection } from '../../zabbix/components/ZabbixSection'
 import { DeleteButton } from './DeleteButton'
 import styles from './HostPanel.module.css'
 
@@ -354,6 +355,8 @@ export function HostDetails({
             </ul>
           )}
         </section>
+
+        {host.zabbixHostId ? <ZabbixSection key={host.id} host={host} onChanged={onChanged} /> : null}
 
         <section className={styles.section} aria-labelledby="credentials-title">
           <h2 id="credentials-title" className={styles.sectionTitle}>

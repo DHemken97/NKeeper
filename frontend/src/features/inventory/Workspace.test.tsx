@@ -35,6 +35,7 @@ function makeHost(overrides: Partial<Host>): Host {
     serialNumber: null,
     jumpHostId: null,
     jumpCredentialId: null,
+    zabbixHostId: null,
     tags: [],
     services: [],
     credentials: [],
@@ -232,6 +233,7 @@ describe('workspace', () => {
       serialNumber: null,
       jumpHostId: null,
       jumpCredentialId: null,
+      zabbixHostId: null,
       tags: [{ name: 'site', value: 'DC-A', inheritable: true }],
       services: [{ protocol: 'Ssh', port: null, label: null }],
       credentials: [{ label: null, username: 'root', domain: null, notes: null, password: 's3cret!' }],
@@ -319,6 +321,7 @@ describe('workspace', () => {
       serialNumber: null,
       jumpHostId: null,
       jumpCredentialId: null,
+      zabbixHostId: null,
       tags: [
         { name: 'env', value: 'production', inheritable: true },
         { name: 'site', value: 'DC-A', inheritable: true },

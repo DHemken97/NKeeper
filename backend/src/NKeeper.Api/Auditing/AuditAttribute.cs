@@ -77,6 +77,7 @@ public sealed class AuditAttribute(string action, AuditTarget target = AuditTarg
             {
                 IReadOnlyCollection<HostResponse> hosts => $"{hosts.Count} host{(hosts.Count == 1 ? "" : "s")}",
                 HostImportResponse import => $"added {import.Added.Count}, updated {import.Updated.Count}, deleted {import.Deleted.Count}",
+                Contracts.Zabbix.ZabbixImportResponse zabbix => $"added {zabbix.Created.Count}, skipped {zabbix.Skipped.Count}",
                 _ => null,
             },
         }.Where(part => !string.IsNullOrEmpty(part)));

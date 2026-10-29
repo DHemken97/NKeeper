@@ -1,0 +1,16 @@
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.skipped {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+}

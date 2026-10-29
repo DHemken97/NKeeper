@@ -141,6 +141,11 @@ public sealed record HostRequest : IValidatableObject
     [StringLength(128)]
     public string? SerialNumber { get; init; }
 
+    /// <summary>The host's ID in Zabbix, to show what Zabbix knows about it; null when it isn't linked.</summary>
+    [StringLength(NKeeper.Infrastructure.Inventory.Host.ZabbixHostIdMaxLength, ErrorMessage = "A Zabbix host ID has at most 20 digits.")]
+    [RegularExpression(@"^\s*[0-9]+\s*$", ErrorMessage = "A Zabbix host ID is a number, e.g. 10084.")]
+    public string? ZabbixHostId { get; init; }
+
     [MaxLength(50, ErrorMessage = "A host can have at most 50 tags.")]
     public HostTagRequest[] Tags { get; init; } = [];
 
@@ -265,6 +270,7 @@ public sealed record TrustedKeyResponse(ServiceProtocol Protocol, int Port, stri
 /// <param name="HypervisorSeenAtUtc">When a scan last found the VM on that host; null when it was linked by hand.</param>
 /// <param name="CpuCores">Logical processors, or a VM's vCPUs.</param>
 /// <param name="MemoryMiB">Memory in MiB.</param>
+/// <param name="ZabbixHostId">The host's ID in Zabbix, when it's linked to one.</param>
 public sealed record HostResponse(
     Guid Id,
     string Name,
@@ -281,6 +287,7 @@ public sealed record HostResponse(
     string? SerialNumber,
     Guid? JumpHostId,
     Guid? JumpCredentialId,
+    string? ZabbixHostId,
     IReadOnlyList<HostTagResponse> Tags,
     IReadOnlyList<HostServiceResponse> Services,
     IReadOnlyList<HostCredentialResponse> Credentials,

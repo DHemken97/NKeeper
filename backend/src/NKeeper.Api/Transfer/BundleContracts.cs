@@ -14,11 +14,15 @@ namespace NKeeper.Api.Transfer;
  */
 
 /// <param name="Email">The SMTP settings, password in plain text; absent from older files.</param>
+/// <param name="Zabbix">The Zabbix settings, API token in plain text; absent from older files.</param>
 public sealed record BundleV1(
     IReadOnlyList<BundleUser> Users,
     IReadOnlyList<BundleGrant> Grants,
     IReadOnlyList<BundleHost> Hosts,
-    BundleEmail? Email = null);
+    BundleEmail? Email = null,
+    BundleZabbix? Zabbix = null);
+
+public sealed record BundleZabbix(bool Enabled, string Url, string? ApiToken, string? TrustedCertificateFingerprint);
 
 public sealed record BundleEmail(
     bool Enabled,
@@ -66,6 +70,7 @@ public sealed record BundleGrant(
     Guid? CreatedByUserId);
 
 /// <param name="JumpHostId">The host it's reached through; absent from older files.</param>
+/// <param name="ZabbixHostId">The Zabbix host it's linked to; absent from older files.</param>
 public sealed record BundleHost(
     Guid Id,
     string Name,
@@ -89,7 +94,8 @@ public sealed record BundleHost(
     IReadOnlyList<BundleCredential> Credentials,
     IReadOnlyList<BundleTrustedKey> TrustedKeys,
     Guid? JumpHostId = null,
-    Guid? JumpCredentialId = null);
+    Guid? JumpCredentialId = null,
+    string? ZabbixHostId = null);
 
 public sealed record BundleService(Guid Id, ServiceProtocol Protocol, int? Port, string? Label, int Position, RdpSecurityMode? RdpSecurity, string? Address);
 

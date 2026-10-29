@@ -29,6 +29,7 @@ NKeeper holds credentials for the machines it connects to, so it's built to keep
 ## Stored secrets
 
 - **Write-only encryption.** Credential passwords and private keys are encrypted with ASP.NET Core Data Protection before they reach the database. The API never returns them: responses only say `hasPassword` / `hasPrivateKey`.
+- **Integration secrets** (the SMTP password and the Zabbix API token) are encrypted the same way and never returned: responses only say whether one is saved. The Zabbix server's certificate is pinned when it isn't publicly valid, as for web sessions.
 - **Domain sign-in passwords** (when RDP pass-through is on) are encrypted the same way and stored on the user's server-side session row, never in the cookie or the browser. Signing out, expiry and revocation delete them with the session. They are used only for RDP sessions the user opens with **My sign-in**.
 - **Server-side use only.** Secrets are decrypted in memory at the moment of connecting. **Cloning** a host copies the encrypted values on the server, so they never reach the browser either.
 - **Key storage.** The Data Protection keys are stored in PostgreSQL, so restarts keep working.

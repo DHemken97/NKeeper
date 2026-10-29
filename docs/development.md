@@ -81,6 +81,7 @@ backend/
     Transfer/                           moving an instance: encrypted bundle format, export, import, lock
     Users/                              user administration and access grants
     Web/                                web-session proxy (YARP), session store, HTTPS certificate trust
+    Zabbix/                             the Zabbix JSON-RPC client (API token), queries, and matching with NKeeper hosts
   src/NKeeper.Infrastructure/           persistence and identity
     Access/                             access-grant entity
     Identity/                           users, roles, database-backed auth sessions, bootstrap admin
@@ -93,6 +94,7 @@ frontend/
   src/components/                       layout and UI components (Button, Dialog, ContextMenu, …)
   src/features/auth, account, users     sign-in, own password, user administration
   src/features/inventory/               workspace page, host tree, search and grouping, host menu, details and editor
+  src/features/zabbix/                  Zabbix settings, host field and details section, comparison report
   src/features/terminal/                session tabs: SSH terminal, RDP/VNC desktop, web session, KVM VM list, SPICE and VNC consoles, iDRAC
   src/lib/api.ts                        the single HTTP client (CSRF, errors)
   src/vendor/                           Apache Guacamole client and spice-html5 (vendored, see their READMEs)
@@ -146,6 +148,12 @@ All sessions start from a **target**: a host, one of its services, and a saved c
   - RACADM is an ordinary SSH session started on the iDRAC service: the resolver turns it into SSH to port 22 of the iDRAC's address;
   - identities trusted for the iDRAC (its certificate, its SSH host key) are kept under the `Idrac` protocol, apart from the host's own, and are forgotten when the iDRAC's address changes.
 
+- **Zabbix** (`/api/admin/zabbix`, `/api/zabbix/status`, `/api/hosts/{id}/zabbix`, `/api/zabbix/hosts`, `/api/zabbix/comparison`, `/api/zabbix/links`, `/api/zabbix/import`):
+  - `ZabbixClient` posts JSON-RPC to `<frontend>/api_jsonrpc.php` with `Authorization: Bearer <token>`; `apiinfo.version` is sent without it, as Zabbix requires. A self-signed certificate is pinned by the fingerprint saved with the settings;
+  - `ZabbixQueries` reads `host.get` (interfaces, inventory, tags, host groups), `hostinterface.get` (searching by address), `item.get` (a fixed list of well-known keys) and `problem.get`. Zabbix sends numbers as strings and an empty array for a disabled inventory;
+  - `ZabbixMatcher` is pure: a stored `Host.ZabbixHostId` links for certain, then MAC, IP, hostname and name find probable matches;
+  - tests: `ZabbixTests` against `ZabbixServerFixture`, an in-process fake Zabbix 7.0 API over HTTPS.
+
 Trusted keys are kept per host, port and protocol (`TrustedKeyStore`). Session lifetimes, per-user limits and "end everything for this user" live in `SessionLimiter`, `WebSessionStore` and `ConsoleSessionStore`.
 
 ## Tests
@@ -167,6 +175,7 @@ cd frontend && npm run build           # type-check and production build
 | An in-process HTTP/HTTPS server | Web sessions: proxying, cookies, framing, certificates, isolation |
 | An in-process fake iDRAC (Redfish over HTTPS) | iDRAC status, power, console credentials and launch, certificate trust |
 | An in-process fake OpenID Connect provider | Single sign-on through ASP.NET Core's real handler: signed id_tokens, state, nonce and PKCE, account creation and refusals, groups |
+| An in-process fake Zabbix 7.0 API (JSON-RPC over HTTPS) | Zabbix settings and certificate trust, host overview, search, comparison, linking and adding hosts |
 | A fake SMTP transport | Email settings, test emails and emailed sign-in codes (it keeps the messages instead of delivering them) |
 
 Without Docker (and without `NKEEPER_TEST_POSTGRES`), these tests are reported as **Skipped** with the reason, never as passed.
