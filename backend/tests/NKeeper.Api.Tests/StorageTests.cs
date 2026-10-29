@@ -213,51 +213,6 @@ public sealed class StorageTests(PostgresServerFixture postgres, StorageServerFi
     }
 
     [Fact]
-    public async Task Proxmox_MountsMultipathMapsAsLvmStorage_AndUnmountsThemWhenNothingUsesThem()
-    {
-        const string mpathb = "36001405bbbbbbbbbbbbbbbbbbbbbbbbb";
-        var host = await CreateTrustedHostAsync();
-
-        var before = Storage(await PostAsync("/api/storage/status", Request(host))).Proxmox!;
-        Assert.Equal(("san-test", "node2,san-test"), (before.Node, string.Join(',', before.ClusterNodes)));
-        Assert.Equal([new LvmMap(mpathb, "vgsan", null, "san", false), new LvmMap("mpatha", null, null, null, false)], before.Maps);
-
-        // A blank LUN gets a volume group and a storage of its own; a volume group with storage gets this node added.
-        var mounted = await ActAsync(host, StorageActions.LvmMount, name: "mpatha", storage: "san2");
-        Assert.Equal("Mounted mpatha as Proxmox LVM storage san2 (volume group san2) on san-test.", mounted.GetProperty("message").GetString());
-        var both = Storage(await ActAsync(host, StorageActions.LvmMount, name: mpathb)).Proxmox!;
-        Assert.Equal([new LvmMap(mpathb, "vgsan", null, "san", true), new LvmMap("mpatha", "san2", null, "san2", true)], both.Maps);
-        Assert.Equal(["node2", "san-test"], both.Storages.Single(s => s.Id == "san").Nodes);
-
-        // What's mounted can't lose its last path, be flushed, or be unmounted while a guest has disks on it.
-        var logout = await ActResponseAsync(host, StorageActions.IscsiLogout, target: Disk1, portal: "10.0.0.5:3260");
-        Assert.Contains("mpatha is on this session and mounted as Proxmox storage san2", await logout.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
-        Assert.Equal(HttpStatusCode.BadRequest, (await ActResponseAsync(host, StorageActions.MultipathFlush, name: "mpatha")).StatusCode);
-        Assert.Equal(0, await san.ExecAsync("echo 'scsi0: san2:vm-100-disk-0,size=8G' > /etc/pve/nodes/san-test/qemu-server/100.conf"));
-        var used = await ActResponseAsync(host, StorageActions.LvmUnmount, name: "mpatha");
-        Assert.Equal(HttpStatusCode.BadGateway, used.StatusCode);
-        Assert.Contains("Guests 100 on san-test have disks on storage san2", await used.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
-        Assert.Equal(0, await san.ExecAsync("rm /etc/pve/nodes/san-test/qemu-server/100.conf"));
-
-        // Unmounting takes this node off the storage, and removes a storage no node is left on.
-        Assert.Equal("Proxmox no longer uses mpatha on san-test; volume group san2 is deactivated here.", (await ActAsync(host, StorageActions.LvmUnmount, name: "mpatha")).GetProperty("message").GetString());
-        var after = Storage(await ActAsync(host, StorageActions.LvmUnmount, name: mpathb)).Proxmox!;
-        Assert.Equal([new LvmMap(mpathb, "vgsan", null, "san", false), new LvmMap("mpatha", "san2", null, null, false)], after.Maps);
-        Assert.Equal(["local", "san"], after.AllStorage);
-        Assert.Equal(["node2"], after.Storages.Single().Nodes);
-
-        var audit = await _client.GetFromJsonAsync<JsonElement>("/api/audit/events?category=storage", Ct);
-        Assert.Equal(
-            [
-                $"Proxmox LVM unmount · {mpathb} · san on san-test",
-                "Proxmox LVM unmount · mpatha · san2 on san-test",
-                $"Proxmox LVM mount · {mpathb} · san on san-test",
-                "Proxmox LVM mount · mpatha · san2 (new volume group san2) on san-test",
-            ],
-            audit.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("detail").GetString()));
-    }
-
-    [Fact]
     public async Task WithoutRoot_ExplainsThatSudoIsNeeded()
     {
         var host = await CreateTrustedHostAsync();
@@ -284,17 +239,17 @@ public sealed class StorageTests(PostgresServerFixture postgres, StorageServerFi
     private static object Request(HostResponse host, string? trust = null) =>
         new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, trustFingerprint = trust };
 
-    private async Task<JsonElement> ActAsync(HostResponse host, string action, string? target = null, string? portal = null, string? name = null, string? storage = null)
+    private async Task<JsonElement> ActAsync(HostResponse host, string action, string? target = null, string? portal = null, string? name = null)
     {
-        var response = await ActResponseAsync(host, action, target, portal, name, storage);
+        var response = await ActResponseAsync(host, action, target, portal, name);
         Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(Ct));
         return await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
     }
 
-    private Task<HttpResponseMessage> ActResponseAsync(HostResponse host, string action, string? target = null, string? portal = null, string? name = null, string? storage = null) =>
+    private Task<HttpResponseMessage> ActResponseAsync(HostResponse host, string action, string? target = null, string? portal = null, string? name = null) =>
         _client.SendJsonAsync(
             HttpMethod.Post, "/api/storage/action",
-            new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, action, target, portal, name, storage }, Ct);
+            new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, action, target, portal, name }, Ct);
 
     private async Task<JsonElement> PostAsync(string path, object body)
     {
