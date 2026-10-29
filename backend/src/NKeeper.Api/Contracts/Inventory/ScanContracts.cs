@@ -77,6 +77,27 @@ public sealed record ScannedGuest(
 /// <param name="CanManage">Whether the user may unlink it.</param>
 public sealed record MissingGuest(Guid HostId, string Name, Guid HypervisorHostId, string HypervisorHostName, bool CanManage);
 
+/// <summary>
+/// Another node of the scanned Proxmox node's cluster, from its corosync configuration, and what
+/// NKeeper matched it to.
+/// </summary>
+/// <param name="Address">The address corosync reaches it on (ring0_addr): an IP address or a hostname.</param>
+/// <param name="MacAddress">Its MAC address, when the scanned node's neighbour table has its address.</param>
+/// <param name="MatchedBy">"mac", "ip", "hostname" or "name".</param>
+/// <param name="NewHost">For a node that isn't in NKeeper: the host that could be added for it.</param>
+/// <param name="Note">Why it can't be added, or why a host with its name wasn't taken to be it.</param>
+/// <param name="TagProposed">For a node NKeeper has: whether it lacks the cluster tag and the user may add it.</param>
+public sealed record ScannedClusterNode(
+    string Name,
+    string? Address,
+    string? MacAddress,
+    Guid? HostId = null,
+    string? HostName = null,
+    string? MatchedBy = null,
+    ProposedHost? NewHost = null,
+    string? Note = null,
+    bool TagProposed = false);
+
 /// <summary>A host a scan could add for a guest NKeeper doesn't have yet.</summary>
 public sealed record ProposedHost(string Name, string? Hostname, string? IpAddress, string? MacAddress, string Description);
 
@@ -135,6 +156,12 @@ public sealed record ScanFindings(
     /// find. Empty when the hypervisor's VM list couldn't be read in full.
     /// </summary>
     public IReadOnlyList<MissingGuest> MissingGuests { get; init; } = [];
+
+    /// <summary>Internal scans of Proxmox nodes in a cluster: the cluster's other nodes, matched to NKeeper hosts.</summary>
+    public IReadOnlyList<ScannedClusterNode> ClusterNodes { get; init; } = [];
+
+    /// <summary>Internal scans of Proxmox nodes in a cluster: the cluster's name, recorded as a <c>cluster</c> tag.</summary>
+    public string? ProxmoxCluster { get; init; }
 
     /// <summary>Whether some of the hypervisor's VMs couldn't be listed (so a VM not found may still be there).</summary>
     [JsonIgnore]

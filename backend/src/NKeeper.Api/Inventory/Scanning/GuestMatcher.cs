@@ -202,7 +202,7 @@ internal static class GuestMatcher
     }
 
     /// <summary>The host's name or hostname, or either one's first label (VM names are usually short).</summary>
-    private static bool HasName(Candidate host, string? name)
+    internal static bool HasName(Candidate host, string? name)
     {
         if (string.IsNullOrWhiteSpace(name))
         {

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using NKeeper.Api.Contracts.Inventory;
 using NKeeper.Api.RemoteSessions;
+using NKeeper.Infrastructure.Inventory;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 
@@ -64,8 +65,13 @@ internal static class InternalScan
         fi
         s proxmox
         if [ -d /etc/pve/nodes ]; then
-          printf 'cluster\t%s\n' "$(sed -n 's/^[[:space:]]*cluster_name:[[:space:]]*//p' /etc/pve/corosync.conf 2>/dev/null | head -n 1)"
+          # The cluster file system's copy is root's; corosync's own is readable by everyone.
+          c=/etc/pve/corosync.conf; [ -r "$c" ] || c=/etc/corosync/corosync.conf
+          printf 'cluster\t%s\n' "$(sed -n 's/^[[:space:]]*cluster_name:[[:space:]]*//p' "$c" 2>/dev/null | head -n 1)"
           printf 'node\t%s\n' "$(uname -n | cut -d. -f1)"
+          # The cluster's nodes, with the address corosync reaches each on.
+          awk '$1 == "nodelist" { n = 1 } n && $1 == "name:" { name = $2 } n && $1 == "ring0_addr:" { addr = $2 }
+            n && $1 == "}" && name != "" { printf "member\t%s\t%s\n", name, addr; name = ""; addr = "" }' "$c" 2>/dev/null
           for f in /etc/pve/nodes/*/qemu-server/*.conf /etc/pve/nodes/*/lxc/*.conf; do
             [ -e "$f" ] || continue
             [ -r "$f" ] || { echo unreadable; continue; }
@@ -186,6 +192,7 @@ internal static class InternalScan
         var guests = ParseGuests(sections, notes);
         var guestListIncomplete = Lines(sections, "libvirtvms").Contains("unreadable") || Lines(sections, "proxmox").Contains("unreadable");
         var neighbors = ParseNeighbors(sections, OwnAddresses(sections, serverIp, clientIp), notes);
+        var clusterNodes = ParseClusterNodes(sections, neighbors);
         var cpus = PositiveInt(First(sections, "cpus"));
         // A VM's "serial number" is made up by its hypervisor: only hardware's is worth recording.
         var serial = virtualization is null ? Serial(First(sections, "serial"), notes) : null;
@@ -193,6 +200,10 @@ internal static class InternalScan
             hostname, serverIp, mac, os, [.. ports.Select(ScanPorts.Describe)], isKvmHost, users, notes, virtualization, guests, neighbors, cpus, MemoryMiB(sections), serial)
         {
             GuestListIncomplete = guestListIncomplete,
+            ClusterNodes = clusterNodes,
+            ProxmoxCluster = Lines(sections, "proxmox").Select(l => l.Split('	', 2)).FirstOrDefault(f => f[0] == "cluster" && f.Length == 2)?[1].Trim() is { Length: > 0 } cluster
+                ? cluster[..Math.Min(cluster.Length, HostTag.ValueMaxLength)]
+                : null,
         };
     }
 
@@ -290,6 +301,37 @@ internal static class InternalScan
         }
 
         return guests;
+    }
+
+    /// <summary>
+    /// The other nodes of a Proxmox cluster ("member	name	address" lines from corosync.conf), each with
+    /// the MAC address the scanned node's neighbour table has for its address. Empty outside a cluster.
+    /// </summary>
+    private static List<ScannedClusterNode> ParseClusterNodes(Dictionary<string, List<string>> sections, List<ScannedNeighbor> neighbors)
+    {
+        var proxmox = Lines(sections, "proxmox").Select(l => l.Split('	')).ToList();
+        var localNode = proxmox.FirstOrDefault(f => f[0] == "node" && f.Length == 2)?[1].Trim();
+        var members = proxmox.Where(f => f[0] == "member" && f.Length >= 2 && f[1].Trim().Length > 0).ToList();
+        if (members.Count < 2)
+        {
+            return [];
+        }
+
+        var nodes = new List<ScannedClusterNode>();
+        foreach (var fields in members)
+        {
+            var name = fields[1].Trim();
+            if (string.Equals(name, localNode, StringComparison.OrdinalIgnoreCase) || nodes.Any(n => n.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            var address = fields.ElementAtOrDefault(2)?.Trim() is { Length: > 0 } a ? (NetworkAddress.TryNormalizeIp(a, out var ip) ? ip : a) : null;
+            var mac = address is null ? null : neighbors.FirstOrDefault(n => n.IpAddress == address)?.MacAddress;
+            nodes.Add(new ScannedClusterNode(name, address, mac));
+        }
+
+        return nodes;
     }
 
     /// <summary>The most neighbour entries recorded, so a host with a huge table can't flood the findings.</summary>

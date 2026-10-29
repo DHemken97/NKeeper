@@ -8,8 +8,8 @@ import { ApiError } from '../../../lib/api'
 import { toFormErrors } from '../../../lib/formErrors'
 import { hostsApi } from '../api/inventoryApi'
 import { toHostDraft, toHostInput } from '../drafts'
-import { scanProposals, type ScanProposal } from '../scanProposals'
-import { formatMemory, PROTOCOL_INFO, primaryAddress, type Host, type HostInput, type InternalScanLogin, type ProposedHost, type ScanFindings, type ScannedGuest } from '../types'
+import { CLUSTER_TAG, scanProposals, type ScanProposal } from '../scanProposals'
+import { formatMemory, PROTOCOL_INFO, primaryAddress, type Host, type HostInput, type InternalScanLogin, type HostService, type ProposedHost, type ScanFindings, type ScannedGuest } from '../types'
 import styles from './ScanDialog.module.css'
 
 interface ScanDialogProps {
@@ -174,17 +174,26 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
   const addable = canAddHosts ? findings.guests.filter((g) => g.newHost && g.hypervisorHostId) : []
   const [chosenNew, setChosenNew] = useState<ReadonlySet<string>>(new Set())
   const unlinked = findings.guests.filter((g) => !links.includes(g) && !addable.includes(g))
+  // The cluster's other nodes: the ones NKeeper lacks can be added (administrators only), the ones it has tagged.
+  const clusterNodes = findings.clusterNodes ?? []
+  const cluster = findings.proxmoxCluster ?? null
+  const addableNodes = canAddHosts ? clusterNodes.filter((n) => n.newHost) : []
+  const taggableNodes = cluster ? clusterNodes.filter((n) => n.tagProposed && n.hostId) : []
+  const [chosenNodes, setChosenNodes] = useState<ReadonlySet<string>>(() => new Set([...addableNodes, ...taggableNodes].map((n) => n.name)))
+  const otherNodes = clusterNodes.filter((n) => !addableNodes.includes(n) && !taggableNodes.includes(n) && n.note)
+  const nodeAddresses = new Set(addableNodes.map((n) => n.newHost!.ipAddress).filter(Boolean))
   const neighbors = findings.neighbors ?? []
-  // Neighbours NKeeper doesn't have can be added (administrators only), unticked by default.
-  const addableNeighbors = canAddHosts ? neighbors.filter((n) => n.newHost) : []
+  // Neighbours NKeeper doesn't have can be added (administrators only), unticked by default; cluster nodes are added as such.
+  const addableNeighbors = canAddHosts ? neighbors.filter((n) => n.newHost && !nodeAddresses.has(n.ipAddress)) : []
   const knownNeighbors = neighbors.filter((n) => n.hostId)
   const [chosenNeighbors, setChosenNeighbors] = useState<ReadonlySet<string>>(new Set())
   // Hosts linked here that the scan didn't find can be unlinked, unticked: the VM may only be hidden from this login.
   const missing = findings.missingGuests ?? []
   const unlinkable = missing.filter((m) => m.canManage)
   const [chosenUnlinks, setChosenUnlinks] = useState<ReadonlySet<string>>(new Set())
-  const changeCount = chosen.size + chosenLinks.size + chosenNew.size + chosenNeighbors.size + chosenUnlinks.size
-  const anything = proposals.length + links.length + addable.length + addableNeighbors.length + unlinkable.length > 0
+  const changeCount = chosen.size + chosenLinks.size + chosenNew.size + chosenNeighbors.size + chosenUnlinks.size + chosenNodes.size
+  const anything =
+    proposals.length + links.length + addable.length + addableNeighbors.length + unlinkable.length + addableNodes.length + taggableNodes.length > 0
 
   function toggleLink(id: string, on: boolean) {
     setChosenLinks((current) => {
@@ -232,6 +241,20 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
           newGuests.map((g) => ({ ...g.newHost!, hypervisorId: g.hypervisorHostId!, virtualMachineId: g.virtualMachineId, cpuCores: g.cpuCores, memoryMiB: g.memoryMiB })),
         )
         created.forEach(onApplied)
+      }
+      // New nodes get the scanned node's services (not its logins) and the cluster's tag.
+      for (const node of addableNodes.filter((n) => chosenNodes.has(n.name))) {
+        onApplied(await hostsApi.create(clusterNodeToInput(node.newHost!, host.services, cluster)))
+      }
+      const tagged = taggableNodes.filter((n) => chosenNodes.has(n.name))
+      if (cluster && tagged.length > 0) {
+        const updated = await hostsApi.bulkUpdate({
+          hostIds: tagged.map((n) => n.hostId!),
+          addTags: [],
+          setTags: [{ name: CLUSTER_TAG, value: cluster }],
+          removeTags: [],
+        })
+        updated.forEach(onApplied)
       }
       // Unlinked hosts stay virtual machines, just with no host they run on.
       const unlinks = unlinkable.filter((m) => chosenUnlinks.has(m.hostId))
@@ -358,6 +381,51 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
                 <span className={styles.detail}>{newHostDetail(guest)}</span>
               </div>
             ))}
+          </fieldset>
+        ) : null}
+
+        {addableNodes.length + taggableNodes.length + otherNodes.length > 0 ? (
+          <fieldset className={styles.group}>
+            <legend className={styles.heading}>{cluster ? `Proxmox cluster “${cluster}”` : 'Proxmox cluster'}</legend>
+            {addableNodes.length > 0 ? (
+              <p className={styles.muted}>
+                Nodes NKeeper doesn’t have yet become hosts with {host.name}’s services{cluster ? ` and the tag ${CLUSTER_TAG}: ${cluster}` : ''}.
+                Add their logins afterwards.
+              </p>
+            ) : null}
+            {[...addableNodes, ...taggableNodes].map((node) => (
+              <div key={node.name} className={styles.proposal}>
+                <Checkbox
+                  label={node.newHost ? `Add ${node.name}` : `Tag ${node.hostName} ${CLUSTER_TAG}: ${cluster}`}
+                  checked={chosenNodes.has(node.name)}
+                  onChange={(event) =>
+                    setChosenNodes((current) => {
+                      const next = new Set(current)
+                      if (event.target.checked) {
+                        next.add(node.name)
+                      } else {
+                        next.delete(node.name)
+                      }
+                      return next
+                    })
+                  }
+                />
+                <span className={styles.detail}>
+                  {node.newHost
+                    ? [node.newHost.ipAddress ?? node.newHost.hostname, node.newHost.macAddress, node.note].filter(Boolean).join(' · ')
+                    : `node ${node.name}, matched by ${CLUSTER_MATCHED_BY[node.matchedBy!]}`}
+                </span>
+              </div>
+            ))}
+            {otherNodes.length > 0 ? (
+              <ul className={styles.notes}>
+                {otherNodes.map((node) => (
+                  <li key={node.name}>
+                    <strong>{node.name}</strong>: {node.note}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </fieldset>
         ) : null}
 
@@ -518,6 +586,17 @@ function neighborToInput(proposed: ProposedHost): HostInput {
     credentials: [],
   }
 }
+
+/** A Proxmox node NKeeper doesn't have yet: the scanned node's services (not iDRACs, each machine's own) and the cluster's tag. */
+function clusterNodeToInput(proposed: ProposedHost, services: HostService[], cluster: string | null): HostInput {
+  return {
+    ...neighborToInput(proposed),
+    tags: cluster ? [{ name: CLUSTER_TAG, value: cluster }] : [],
+    services: services.filter((s) => !s.address),
+  }
+}
+
+const CLUSTER_MATCHED_BY = { mac: 'its MAC address', ip: 'its IP address', hostname: 'its hostname', name: 'its name' } as const
 
 const PLATFORMS: Record<ScannedGuest['platform'], string> = { libvirt: 'libvirt VM', 'proxmox-qemu': 'Proxmox VM', 'proxmox-lxc': 'Proxmox container' }
 const MATCHED_BY = { id: 'its VM identity', mac: 'its MAC address', name: 'its name' } as const
