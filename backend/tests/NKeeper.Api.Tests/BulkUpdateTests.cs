@@ -58,6 +58,34 @@ public sealed class BulkUpdateTests(PostgresServerFixture postgres) : IAsyncLife
     }
 
     [Fact]
+    public async Task Tags_AreInheritable_UnlessMarkedOtherwise()
+    {
+        var node = await CreateAsync("node1", new { name = "site", value = "A" }, new { name = "os", value = "Proxmox VE 8", inheritable = false });
+        Assert.Equal([("os", false), ("site", true)], node.Tags.Select(t => (t.Name, t.Inheritable)));
+
+        // Saving a host keeps the tag's row and changes whether it's inherited.
+        var response = await _client.SendJsonAsync(HttpMethod.Put, $"/api/hosts/{node.Id}", new
+        {
+            name = node.Name,
+            hostname = node.Hostname,
+            tags = new object[] { new { name = "os", value = "Proxmox VE 8" }, new { name = "site", value = "A", inheritable = false } },
+            version = node.Version,
+        }, Ct);
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(Ct));
+        var saved = (await response.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!;
+        Assert.Equal([("os", true), ("site", false)], saved.Tags.Select(t => (t.Name, t.Inheritable)));
+
+        // Bulk changes say it too; a tag the host already has keeps its own setting when added again.
+        var bulk = await BulkAsync(new
+        {
+            hostIds = new[] { node.Id },
+            setTags = new[] { new { name = "cluster", value = "lab", inheritable = false } },
+            addTags = new[] { new { name = "site", value = "A", inheritable = true } },
+        });
+        Assert.Equal([("cluster", false), ("os", true), ("site", false)], bulk[0].Tags.Select(t => (t.Name, t.Inheritable)));
+    }
+
+    [Fact]
     public async Task TheHostVmsRunOn_IsSetAndCleared_WithoutLoops()
     {
         var node = await CreateAsync("node1");

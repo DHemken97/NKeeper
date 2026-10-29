@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { describe, expect, it } from 'vitest'
@@ -125,6 +125,52 @@ const nodeScan: ScanFindings = {
 }
 
 describe('virtual machines', () => {
+  it('inherit the tags of the host they run on, marked as inherited, unless a tag isn’t inheritable', async () => {
+    let saved: Record<string, unknown> | undefined
+    const tagged = {
+      ...node2,
+      tags: [
+        { name: 'site', value: 'DC-A', inheritable: true },
+        { name: 'env', value: 'prod', inheritable: true },
+        { name: 'os', value: 'Proxmox VE 8', inheritable: false },
+      ],
+    }
+    const { router, user } = renderAt('/?host=h-app01', {
+      'GET /api/hosts': () => jsonResponse(200, [{ ...app01, tags: [{ name: 'env', value: 'test' }] }, node1, tagged, printer]),
+      'PUT /api/hosts/h-node2': (_url, init) => {
+        saved = JSON.parse(String(init.body)) as Record<string, unknown>
+        return jsonResponse(200, { ...tagged, version: 2 })
+      },
+    })
+
+    const details = await screen.findByRole('article', { name: 'app01' })
+    const tags = within(details).getByRole('heading', { name: 'Tags' }).closest('section')!
+    // Its own env replaces node2's; os isn't passed down.
+    expect(within(tags).getByRole('button', { name: /^env\s*test:/ })).toBeInTheDocument()
+    expect(within(tags).getByRole('button', { name: /^site\s*DC-A, inherited from node2/ })).toBeInTheDocument()
+    expect(within(tags).queryByRole('button', { name: /prod|Proxmox/ })).not.toBeInTheDocument()
+    expect(within(tags).getByText(/Inherited from node2, the host it runs on/)).toBeInTheDocument()
+
+    // Searching by an inherited tag finds the VM.
+    await user.click(within(tags).getByRole('button', { name: /^site\s*DC-A, inherited/ }))
+    expect(router.state.location.search).toContain('q=site%3ADC-A')
+    expect(await screen.findByRole('button', { name: /^app01/ })).toBeInTheDocument()
+
+    // On the hypervisor, each tag says whether its VMs inherit it.
+    await act(() => router.navigate('/?host=h-node2&edit=1'))
+    const form = await screen.findByRole('form', { name: 'Edit node2' })
+    expect(within(form).getByRole('checkbox', { name: 'VMs inherit tag 3' })).not.toBeChecked()
+    await user.click(within(form).getByRole('checkbox', { name: 'VMs inherit tag 1' }))
+    await user.click(within(form).getByRole('button', { name: 'Save changes' }))
+    await waitFor(() =>
+      expect(saved?.tags).toEqual([
+        { name: 'site', value: 'DC-A', inheritable: false },
+        { name: 'env', value: 'prod', inheritable: true },
+        { name: 'os', value: 'Proxmox VE 8', inheritable: false },
+      ]),
+    )
+  })
+
   it('are marked in the editor, with the host they run on (hypervisors listed first)', async () => {
     let saved: Record<string, unknown> | undefined
     const { user } = renderAt('/?host=h-printer&edit=1', {
@@ -277,7 +323,7 @@ describe('virtual machines', () => {
     await user.click(within(dialog).getByRole('button', { name: /^Apply 3 changes/ }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(saved?.tags).toEqual(expect.arrayContaining([{ name: 'cluster', value: 'lab' }]))
+    expect(saved?.tags).toEqual(expect.arrayContaining([{ name: 'cluster', value: 'lab', inheritable: true }]))
     // A new node gets the scanned node's services and the cluster's tag.
     expect(created).toMatchObject({ name: 'pve2', ipAddress: '10.0.0.12', tags: [{ name: 'cluster', value: 'lab' }], services: node1.services })
     expect(bulk).toEqual({ hostIds: ['h-node2'], addTags: [], setTags: [{ name: 'cluster', value: 'lab' }], removeTags: [] })

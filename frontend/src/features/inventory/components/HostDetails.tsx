@@ -267,7 +267,7 @@ export function HostDetails({
           <h2 id="tags-title" className={styles.sectionTitle}>
             Tags
           </h2>
-          {host.tags.length === 0 ? (
+          {host.tags.length + (host.inheritedTags?.length ?? 0) === 0 ? (
             <p className={styles.muted}>No tags. Add tags like site, env or role to group hosts in the tree.</p>
           ) : (
             <ul className={styles.chips}>
@@ -277,7 +277,7 @@ export function HostDetails({
                     type="button"
                     className={styles.chip}
                     onClick={() => onTagClick(tag)}
-                    title="Show hosts with this tag"
+                    title={tag.inheritable === false ? 'Show hosts with this tag (VMs on this host don’t inherit it)' : 'Show hosts with this tag'}
                   >
                     <span className={styles.chipName}>{tag.name}</span>
                     {tag.value ? <span className={styles.chipValue}>{tag.value}</span> : null}
@@ -285,8 +285,33 @@ export function HostDetails({
                   </button>
                 </li>
               ))}
+              {host.inheritedTags?.map((tag) => (
+                <li key={`inherited:${tag.name}=${tag.value ?? ''}`}>
+                  <button
+                    type="button"
+                    className={`${styles.chip} ${styles.chipInherited}`}
+                    onClick={() => onTagClick(tag)}
+                    title={`Inherited from ${tag.fromHostName}. Show hosts with this tag`}
+                  >
+                    <span className={styles.chipName}>
+                      <span aria-hidden="true">↳ </span>
+                      {tag.name}
+                    </span>
+                    {tag.value ? <span className={styles.chipValue}>{tag.value}</span> : null}
+                    <span className="visually-hidden">
+                      , inherited from {tag.fromHostName}: show hosts with {formatTag(tag)}
+                    </span>
+                  </button>
+                </li>
+              ))}
             </ul>
           )}
+          {host.inheritedTags?.length ? (
+            <p className={styles.muted}>
+              <span aria-hidden="true">↳ </span>Inherited from {[...new Set(host.inheritedTags.map((t) => t.fromHostName))].join(', ')}, the host
+              it runs on. A tag of the same name here replaces it.
+            </p>
+          ) : null}
         </section>
 
         <section className={styles.section} aria-labelledby="services-title">

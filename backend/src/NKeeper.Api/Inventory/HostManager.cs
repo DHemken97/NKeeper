@@ -35,7 +35,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         h.ZabbixHostId,
         h.Tags
             .OrderBy(t => t.Name.ToUpper()).ThenBy(t => t.Value.ToUpper())
-            .Select(t => new HostTagResponse(t.Name, t.Value == "" ? null : t.Value))
+            .Select(t => new HostTagResponse(t.Name, t.Value == "" ? null : t.Value, t.Inheritable))
             .ToList(),
         h.Services
             .OrderBy(s => s.Position)
@@ -390,8 +390,8 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
 
         static string Norm(string? value) => value?.Trim() ?? string.Empty;
         var removals = request.RemoveTags.Select(r => (Name: Norm(r.Name), Value: r.Value is null ? null : Norm(r.Value))).ToList();
-        var sets = request.SetTags.Select(t => (Name: Norm(t.Name), Value: Norm(t.Value))).ToList();
-        var additions = request.AddTags.Select(t => (Name: Norm(t.Name), Value: Norm(t.Value))).ToList();
+        var sets = request.SetTags.Select(t => (Name: Norm(t.Name), Value: Norm(t.Value), t.Inheritable)).ToList();
+        var additions = request.AddTags.Select(t => (Name: Norm(t.Name), Value: Norm(t.Value), t.Inheritable)).ToList();
         var now = timeProvider.GetUtcNow();
         var idracChanged = new List<Guid>();
         var lostSsh = new List<Guid>();
@@ -408,23 +408,23 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
                 changed |= host.Tags.RemoveAll(t => Is(t, name, value)) > 0;
             }
 
-            foreach (var (name, value) in sets)
+            foreach (var (name, value, inheritable) in sets)
             {
-                if (host.Tags.Count(t => Is(t, name, null)) == 1 && host.Tags.Any(t => Is(t, name, value)))
+                if (host.Tags.Count(t => Is(t, name, null)) == 1 && host.Tags.Any(t => Is(t, name, value) && t.Inheritable == inheritable))
                 {
                     continue; // Already exactly this.
                 }
 
                 host.Tags.RemoveAll(t => Is(t, name, null));
-                host.Tags.Add(new HostTag { Name = name, Value = value });
+                host.Tags.Add(new HostTag { Name = name, Value = value, Inheritable = inheritable });
                 changed = true;
             }
 
-            foreach (var (name, value) in additions)
+            foreach (var (name, value, inheritable) in additions)
             {
                 if (!host.Tags.Any(t => Is(t, name, value)))
                 {
-                    host.Tags.Add(new HostTag { Name = name, Value = value });
+                    host.Tags.Add(new HostTag { Name = name, Value = value, Inheritable = inheritable });
                     changed = true;
                 }
             }
@@ -812,18 +812,22 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
     private static void ApplyTags(Host host, IEnumerable<HostTagRequest> tags)
     {
         var requested = tags
-            .Select(t => (Name: t.Name.Trim(), Value: t.Value?.Trim() ?? string.Empty))
+            .Select(t => (Name: t.Name.Trim(), Value: t.Value?.Trim() ?? string.Empty, t.Inheritable))
             .Where(t => t.Name.Length > 0)
             .DistinctBy(t => (t.Name.ToUpperInvariant(), t.Value.ToUpperInvariant()))
             .ToList();
 
         // Keep rows that are unchanged so their IDs stay stable; remove and add the rest.
-        host.Tags.RemoveAll(existing => !requested.Contains((existing.Name, existing.Value)));
-        foreach (var (name, value) in requested)
+        host.Tags.RemoveAll(existing => !requested.Any(t => t.Name == existing.Name && t.Value == existing.Value));
+        foreach (var (name, value, inheritable) in requested)
         {
-            if (!host.Tags.Any(t => t.Name == name && t.Value == value))
+            if (host.Tags.Find(t => t.Name == name && t.Value == value) is { } existing)
             {
-                host.Tags.Add(new HostTag { Name = name, Value = value });
+                existing.Inheritable = inheritable;
+            }
+            else
+            {
+                host.Tags.Add(new HostTag { Name = name, Value = value, Inheritable = inheritable });
             }
         }
     }

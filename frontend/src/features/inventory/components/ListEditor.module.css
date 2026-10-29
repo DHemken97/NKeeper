@@ -38,9 +38,26 @@
 
 .tagRow {
   display: grid;
-  grid-template-columns: minmax(7rem, 1fr) auto minmax(9rem, 1.6fr) auto;
+  grid-template-columns: minmax(7rem, 1fr) auto minmax(9rem, 1.6fr) auto auto;
   align-items: center;
   gap: var(--space-2);
+}
+
+.inheritToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.inheritedList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
 }
 
 .separator {
@@ -139,7 +156,7 @@ select.input {
   }
 
   .tagRow {
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.4fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.4fr) auto auto;
   }
 }
 

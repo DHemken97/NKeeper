@@ -8,6 +8,7 @@ import { hostsApi } from '../../inventory/api/inventoryApi'
 import { GroupByPicker } from '../../inventory/components/GroupByPicker'
 import { decodeGroupKey, encodeGroupKey, groupKeyLabel, sortHosts, tagNames, type GroupKey } from '../../inventory/grouping'
 import { useResource } from '../../inventory/hooks/useResource'
+import { withInheritedTags } from '../../inventory/inheritance'
 import { downloadCsv } from '../download'
 import { buildInventory, inventoryCsv, type InventoryRow } from '../inventoryCounts'
 import styles from './Reports.module.css'
@@ -24,7 +25,7 @@ export function InventoryReport() {
   const hosts = useResource((signal) => hostsApi.list(signal))
   const [params, setParams] = useSearchParams()
   const keys = useMemo(() => params.getAll('group').map(decodeGroupKey), [params])
-  const sorted = useMemo(() => sortHosts(hosts.data ?? [], 'name'), [hosts.data])
+  const sorted = useMemo(() => sortHosts(withInheritedTags(hosts.data ?? []), 'name'), [hosts.data])
   const report = useMemo(() => buildInventory(sorted, keys), [sorted, keys])
   const names = useMemo(() => tagNames(hosts.data ?? []), [hosts.data])
 

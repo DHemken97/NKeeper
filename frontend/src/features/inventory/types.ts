@@ -53,6 +53,14 @@ export const PROTOCOL_INFO: Record<ServiceProtocol, { label: string; name: strin
 export interface HostTag {
   name: string
   value: string | null
+  /** Whether VMs running on the host inherit it (unless they have a tag of that name). Defaults to true. */
+  inheritable?: boolean
+}
+
+/** A tag a VM inherits from the host it runs on (or that host's own hypervisor). */
+export interface InheritedTag extends HostTag {
+  fromHostId: string
+  fromHostName: string
 }
 
 /** How an RDP connection is secured. Legacy RDP security (no TLS) is never offered. */
@@ -124,6 +132,8 @@ export interface Host {
   /** The host's ID in Zabbix, when it's linked to one. */
   zabbixHostId: string | null
   tags: HostTag[]
+  /** Worked out in the browser from the loaded hosts (see inheritance.ts); not sent by the API. */
+  inheritedTags?: InheritedTag[]
   services: HostService[]
   credentials: HostCredential[]
   trustedKeys: TrustedKey[]

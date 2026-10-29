@@ -130,7 +130,8 @@ export function scanProposals(host: Host, findings: ScanFindings, sshPort: numbe
       detail: `${OS_TAG}: ${os}${now(current)}`,
       checked: true,
       apply: (draft) => {
-        draft.tags = [...draft.tags.filter((t) => !sameText(t.name, OS_TAG)), newTagDraft(OS_TAG, os)]
+        // A hypervisor's operating system isn't its VMs'.
+        draft.tags = [...draft.tags.filter((t) => !sameText(t.name, OS_TAG)), newTagDraft(OS_TAG, os, false)]
       },
     })
   }

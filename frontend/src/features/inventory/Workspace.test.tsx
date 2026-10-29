@@ -234,7 +234,7 @@ describe('workspace', () => {
       jumpHostId: null,
       jumpCredentialId: null,
       zabbixHostId: null,
-      tags: [{ name: 'site', value: 'DC-A' }],
+      tags: [{ name: 'site', value: 'DC-A', inheritable: true }],
       services: [{ protocol: 'Ssh', port: null, label: null }],
       credentials: [{ label: null, username: 'root', domain: null, notes: null, password: 's3cret!' }],
     })
@@ -264,7 +264,7 @@ describe('workspace', () => {
     await waitFor(() => expect(body).toBeDefined())
     expect(body).toMatchObject({
       version: 41,
-      tags: [{ name: 'site', value: 'DC-A' }],
+      tags: [{ name: 'site', value: 'DC-A', inheritable: true }],
       credentials: [{ username: 'sa' }],
     })
     expect(await screen.findByRole('article', { name: 'sql01-renamed' })).toBeInTheDocument()
@@ -323,8 +323,8 @@ describe('workspace', () => {
       jumpCredentialId: null,
       zabbixHostId: null,
       tags: [
-        { name: 'env', value: 'production' },
-        { name: 'site', value: 'DC-A' },
+        { name: 'env', value: 'production', inheritable: true },
+        { name: 'site', value: 'DC-A', inheritable: true },
       ],
       services: [
         { protocol: 'Rdp', port: null, label: null, rdpSecurity: 'Auto' },
