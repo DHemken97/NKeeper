@@ -5,19 +5,7 @@ import { Dialog } from '../../../components/ui/Dialog'
 import { TextField } from '../../../components/ui/TextField'
 import { api, ApiError } from '../../../lib/api'
 import { hostKeyPrompt, kvmRequestBody } from '../kvm'
-import {
-  CONFIRM,
-  iscsiRows,
-  lastPathToMounted,
-  multipathTargets,
-  sessionMaps,
-  suggestedStorageId,
-  type DrbdResource,
-  type LvmMap,
-  type StorageActionRequest,
-  type StorageResponse,
-  type StorageStatus,
-} from '../storage'
+import { CONFIRM, iscsiRows, multipathTargets, type DrbdResource, type StorageActionRequest, type StorageResponse, type StorageStatus } from '../storage'
 import type { RemoteSession, SessionPhase } from '../types'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
 import styles from './Session.module.css'
@@ -33,24 +21,9 @@ function subject(request: StorageActionRequest): string {
   return request.target ? `${request.target} (${request.portal})` : (request.name ?? request.portal ?? 'this host')
 }
 
-/** What's on a map, for Proxmox LVM: its storage, its volume group, something else, or nothing. */
-function lvmState(lvm: LvmMap, node: string): string {
-  if (lvm.mounted) {
-    return `Storage ${lvm.storage} (VG ${lvm.volumeGroup})`
-  }
-  if (lvm.storage) {
-    return `VG ${lvm.volumeGroup} · storage ${lvm.storage}, not on ${node}`
-  }
-  if (lvm.volumeGroup) {
-    return `VG ${lvm.volumeGroup} · no Proxmox storage`
-  }
-  return lvm.signature ? `Has ${lvm.signature}` : 'Blank'
-}
-
 /**
  * A Linux host's shared storage over SSH: iSCSI targets and sessions, multipath maps and DRBD
- * resources, with their everyday actions. On a Proxmox node, multipath maps can be mounted as LVM
- * storage (and a target logged in to and mounted in one go). Actions that take storage away ask first.
+ * resources, with their everyday actions. Actions that take storage away ask first.
  */
 export function StorageView({ session, active, onShowHost }: StorageViewProps) {
   const [phase, setPhase] = useState<SessionPhase>({ kind: 'connecting' })
@@ -59,8 +32,6 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
   const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState<StorageActionRequest | null>(null)
   const [confirming, setConfirming] = useState<StorageActionRequest | null>(null)
-  /** A map being mounted as new Proxmox storage, and the storage ID entered. */
-  const [mounting, setMounting] = useState<{ lvm: LvmMap; storage: string } | null>(null)
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [portal, setPortal] = useState('')
   const trustRef = useRef<string | undefined>(undefined)
@@ -123,20 +94,16 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
     setAttempt((n) => n + 1)
   }
 
-  /**
-   * Runs an action (asking first for those in CONFIRM), then shows the host's storage afterwards.
-   * Resolves to that storage once the action has finished, or null when it didn't run or failed.
-   */
-  function act(request: StorageActionRequest, confirmed = false): Promise<StorageStatus | null> {
+  /** Runs an action (asking first for those in CONFIRM), then shows the host's storage afterwards. */
+  function act(request: StorageActionRequest, confirmed = false) {
     if (!confirmed && CONFIRM[request.action]) {
       setConfirming(request)
-      return Promise.resolve(null)
+      return
     }
     setConfirming(null)
-    setMounting(null)
     setBusy(request)
     setResult(null)
-    return api
+    api
       .post<StorageResponse>('/api/storage/action', { body: { ...kvmRequestBody(session.request, trustRef.current), ...request } })
       .then(
         (response) => {
@@ -147,43 +114,10 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
             setPortal('')
           }
           setResult({ ok: true, message: response.message ?? 'Done.' })
-          return response.storage
         },
-        (error: unknown) => {
-          setResult({ ok: false, message: error instanceof ApiError ? error.message : `Couldn’t change ${subject(request)}.` })
-          return null
-        },
+        (error: unknown) => setResult({ ok: false, message: error instanceof ApiError ? error.message : `Couldn’t change ${subject(request)}.` }),
       )
       .finally(() => setBusy(null))
-  }
-
-  /** Mounts a map: straight away onto the storage its volume group already has, else after naming a new storage. */
-  function mount(lvm: LvmMap, current: StorageStatus) {
-    if (lvm.storage) {
-      void act({ action: 'lvm.mount', name: lvm.map })
-      return
-    }
-    const map = current.multipath?.find((m) => m.name === lvm.map)
-    setMounting({ lvm, storage: suggestedStorageId(lvm, map, current.iscsi) })
-  }
-
-  /** Logs in to a target, then mounts the multipath map its disk shows up in. */
-  async function logInAndMount(target: string, portal: string) {
-    const after = await act({ action: 'iscsi.login', target, portal })
-    const session = after?.iscsi?.sessions.find((s) => s.target === target && s.portal === portal)
-    if (!after || !session) {
-      return
-    }
-    const maps = sessionMaps(session, after.multipath)
-    const lvm = maps.map((m) => after.proxmox?.maps.find((l) => l.map === m.name)).find((l) => l && !l.mounted && (l.volumeGroup || !l.signature))
-    if (lvm) {
-      mount(lvm, after)
-    } else if (maps.length === 0) {
-      setResult((r) => ({
-        ok: true,
-        message: `${r?.message ?? ''} There’s no multipath map for it to mount yet: mount it under Multipath once it shows up (Reload maps).`,
-      }))
-    }
   }
 
   function discover(event: FormEvent) {
@@ -264,7 +198,6 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
                       {iscsiRows(storage.iscsi).map((row) => {
                         const request = { target: row.target, portal: row.portal }
                         const loggedIn = row.session?.state === 'LOGGED_IN'
-                        const mountedHere = row.session ? lastPathToMounted(row.session, storage) : null
                         return (
                           <tr key={`${row.target} ${row.portal}`}>
                             <td className={styles.vmName}>{row.target}</td>
@@ -277,36 +210,21 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
                               {row.session ? row.session.state.replace('_', ' ').toLowerCase() : 'not logged in'}
                             </td>
                             <td>{row.session?.disks.join(', ') || '—'}</td>
-                            <td className={`${styles.vmActions} ${styles.storageActions}`}>
+                            <td className={styles.vmActions}>
                               {row.session ? (
-                                <>
-                                  <Button
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={() => act({ action: 'iscsi.logout', ...request })}
-                                    disabled={disabled || mountedHere !== null}
-                                  >
-                                    Log out
-                                  </Button>
-                                  {mountedHere ? <div className={styles.hint}>{mountedHere.name} is mounted: unmount it first</div> : null}
-                                </>
+                                <Button size="sm" variant="secondary" onClick={() => act({ action: 'iscsi.logout', ...request })} disabled={disabled}>
+                                  Log out
+                                </Button>
                               ) : (
-                                <>
-                                  <Button
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={() => act({ action: 'iscsi.login', ...request })}
-                                    disabled={disabled}
-                                    loading={busy?.action === 'iscsi.login' && busy.target === row.target && busy.portal === row.portal}
-                                  >
-                                    Log in
-                                  </Button>
-                                  {storage.proxmox && storage.multipath ? (
-                                    <Button size="sm" variant="secondary" onClick={() => void logInAndMount(row.target, row.portal)} disabled={disabled}>
-                                      Log in &amp; mount LVM
-                                    </Button>
-                                  ) : null}
-                                </>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => act({ action: 'iscsi.login', ...request })}
+                                  disabled={disabled}
+                                  loading={busy?.action === 'iscsi.login' && busy.target === row.target && busy.portal === row.portal}
+                                >
+                                  Log in
+                                </Button>
                               )}
                             </td>
                           </tr>
@@ -337,7 +255,6 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
                         <th scope="col">iSCSI target</th>
                         <th scope="col">Size</th>
                         <th scope="col">Paths</th>
-                        {storage.proxmox ? <th scope="col">Proxmox LVM</th> : null}
                         <th scope="col">
                           <span className="visually-hidden">Actions</span>
                         </th>
@@ -347,8 +264,6 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
                       {storage.multipath.map((map) => {
                         const healthy = map.paths.filter((p) => p.dmState === 'active' && p.pathState === 'ready').length
                         const targets = multipathTargets(map, storage.iscsi)
-                        const lvm = storage.proxmox?.maps.find((l) => l.map === map.name)
-                        const isBusy = (action: StorageActionRequest['action']) => busy?.action === action && busy.name === map.name
                         return (
                           <tr key={map.name}>
                             <td className={styles.vmName}>
@@ -379,34 +294,10 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
                                 </div>
                               ))}
                             </td>
-                            {storage.proxmox ? (
-                              <td>
-                                {lvm ? (
-                                  <>
-                                    <span className={`${styles.dot} ${lvm.mounted ? styles.connected : ''}`} /> {lvmState(lvm, storage.proxmox.node)}
-                                  </>
-                                ) : (
-                                  '—'
-                                )}
-                              </td>
-                            ) : null}
-                            <td className={`${styles.vmActions} ${styles.storageActions}`}>
-                              {lvm?.mounted ? (
-                                <Button size="sm" variant="secondary" onClick={() => act({ action: 'lvm.unmount', name: map.name })} disabled={disabled}>
-                                  Unmount LVM
-                                </Button>
-                              ) : (
-                                <>
-                                  {lvm && (lvm.volumeGroup || !lvm.signature) ? (
-                                    <Button size="sm" variant="secondary" onClick={() => mount(lvm, storage)} disabled={disabled} loading={isBusy('lvm.mount')}>
-                                      Mount LVM
-                                    </Button>
-                                  ) : null}
-                                  <Button size="sm" variant="secondary" onClick={() => act({ action: 'multipath.flush', name: map.name })} disabled={disabled}>
-                                    Flush
-                                  </Button>
-                                </>
-                              )}
+                            <td className={styles.vmActions}>
+                              <Button size="sm" variant="secondary" onClick={() => act({ action: 'multipath.flush', name: map.name })} disabled={disabled}>
+                                Flush
+                              </Button>
                             </td>
                           </tr>
                         )
@@ -467,46 +358,6 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
           }
         >
           <p>{confirmInfo.explanation}</p>
-        </Dialog>
-      ) : null}
-
-      {mounting ? (
-        <Dialog
-          title={`Mount ${mounting.lvm.map} as Proxmox LVM storage?`}
-          description={`On ${session.title}${storage?.proxmox ? ` (node ${storage.proxmox.node})` : ''}.`}
-          onClose={() => setMounting(null)}
-          footer={
-            <>
-              <Button variant="secondary" onClick={() => setMounting(null)}>
-                Cancel
-              </Button>
-              <Button type="submit" form="lvm-mount" variant={mounting.lvm.volumeGroup ? 'primary' : 'danger'} disabled={!mounting.storage.trim()}>
-                {mounting.lvm.volumeGroup ? 'Mount' : 'Initialize and mount'}
-              </Button>
-            </>
-          }
-        >
-          <form
-            id="lvm-mount"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void act({ action: 'lvm.mount', name: mounting.lvm.map, storage: mounting.storage.trim() })
-            }}
-          >
-            <TextField
-              label="Storage ID"
-              value={mounting.storage}
-              onChange={(event) => setMounting({ ...mounting, storage: event.target.value })}
-              hint="The name Proxmox shows it by, e.g. san-vms."
-              autoFocus
-            />
-          </form>
-          <p>
-            {mounting.lvm.volumeGroup
-              ? `Adds an LVM storage on volume group ${mounting.lvm.volumeGroup} for this node, for disk images and containers, marked shared.`
-              : `${mounting.lvm.map} looks blank. NKeeper makes it an LVM physical volume and a volume group named like the storage (pvcreate, vgcreate), then adds the storage for this node, for disk images and containers, marked shared. NKeeper checks it’s blank again first and refuses if it isn’t.`}{' '}
-            Other nodes logged in to it can mount it too.
-          </p>
         </Dialog>
       ) : null}
     </div>

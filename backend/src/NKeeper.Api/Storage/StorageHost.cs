@@ -57,25 +57,8 @@ public sealed record DrbdPeer(string Name, string ConnectionState, string? Role,
 /// <param name="Role">This node's role: <c>Primary</c>, <c>Secondary</c> or <c>Unknown</c>; null when the resource is down.</param>
 public sealed record DrbdResource(string Name, bool Up, string? Role, IReadOnlyList<DrbdVolume> Volumes, IReadOnlyList<DrbdPeer> Peers);
 
-/// <summary>A Proxmox LVM storage (<c>lvm:</c> in <c>/etc/pve/storage.cfg</c>, which the whole cluster shares).</summary>
-/// <param name="Nodes">The nodes it's restricted to; empty for every node.</param>
-public sealed record ProxmoxLvmStorage(string Id, string VolumeGroup, IReadOnlyList<string> Nodes, bool Disabled);
-
-/// <summary>What's on a multipath map, as Proxmox LVM storage sees it.</summary>
-/// <param name="VolumeGroup">The LVM volume group it's a physical volume of.</param>
-/// <param name="Signature">What else is on it (a file system or partition table), when it isn't an LVM volume group.</param>
-/// <param name="Storage">The Proxmox LVM storage on its volume group, for any node.</param>
-/// <param name="Mounted">That storage is enabled on this node: Proxmox uses the map here.</param>
-public sealed record LvmMap(string Map, string? VolumeGroup, string? Signature, string? Storage, bool Mounted);
-
-/// <summary>A Proxmox node's LVM storage on its multipath maps.</summary>
-/// <param name="Node">This node's name in the cluster.</param>
-/// <param name="ClusterNodes">Every node of the cluster (just this one when it isn't clustered).</param>
-/// <param name="AllStorage">Every storage ID in the cluster, of any type (they can't repeat).</param>
-public sealed record ProxmoxLvm(string Node, IReadOnlyList<string> ClusterNodes, IReadOnlyList<string> AllStorage, IReadOnlyList<ProxmoxLvmStorage> Storages, IReadOnlyList<LvmMap> Maps);
-
-/// <summary>What a host's shared storage looks like; each part is null when its tools aren't installed (<paramref name="Proxmox"/>: on a host that isn't a Proxmox node).</summary>
-public sealed record StorageStatus(IscsiStatus? Iscsi, IReadOnlyList<MultipathMap>? Multipath, IReadOnlyList<DrbdResource>? Drbd, ProxmoxLvm? Proxmox = null);
+/// <summary>What a host's shared storage looks like; each part is null when its tools aren't installed.</summary>
+public sealed record StorageStatus(IscsiStatus? Iscsi, IReadOnlyList<MultipathMap>? Multipath, IReadOnlyList<DrbdResource>? Drbd);
 
 /// <summary>The storage actions NKeeper offers.</summary>
 public static class StorageActions
@@ -93,8 +76,6 @@ public static class StorageActions
     public const string DrbdConnect = "drbd.connect";
     public const string DrbdDisconnect = "drbd.disconnect";
     public const string DrbdAdjust = "drbd.adjust";
-    public const string LvmMount = "lvm.mount";
-    public const string LvmUnmount = "lvm.unmount";
 }
 
 /// <summary>An action's shell command (run as root) and how the audit log describes it.</summary>
@@ -118,7 +99,7 @@ internal static partial class StorageHost
     public const string StatusScript =
         AsRoot
         + "have() { command -v \"$1\" >/dev/null 2>&1; }; "
-        + "if [ -n \"$p\" ] && { have iscsiadm || have multipath || have drbdadm || have pvesm; } && ! sudo -n true 2>/dev/null; then echo '@@noroot'; exit 0; fi; "
+        + "if [ -n \"$p\" ] && { have iscsiadm || have multipath || have drbdadm; } && ! sudo -n true 2>/dev/null; then echo '@@noroot'; exit 0; fi; "
         + "if have iscsiadm; then echo '@@iscsi-initiator'; $p sed -n 's/^InitiatorName=//p' /etc/iscsi/initiatorname.iscsi 2>/dev/null; "
         + "echo '@@iscsi-sessions'; $p iscsiadm -m session -P 3 2>/dev/null; echo '@@iscsi-nodes'; $p iscsiadm -m node 2>/dev/null; fi; "
         + "if have multipath; then echo '@@multipath'; $p multipath -ll 2>/dev/null; fi; "
@@ -126,11 +107,6 @@ internal static partial class StorageHost
         + "echo '@@drbd-json'; $p drbdsetup status --json 2>/dev/null || { echo '@@drbd-text'; $p drbdsetup status --verbose 2>/dev/null; }; "
         // Each resource's devices by its configuration, in volume order: DRBD 8.4's status has no minors.
         + "echo '@@drbd-devices'; for r in $($p drbdadm sh-resources 2>/dev/null); do for d in $($p drbdadm sh-dev \"$r\" 2>/dev/null); do echo \"$r $d\"; done; done; fi; "
-        // A Proxmox node: its name, the cluster's nodes and storage, LVM's physical volumes (as named and resolved) and what's on each device-mapper device.
-        + "if have pvesm && have multipath; then echo '@@pve-node'; uname -n | cut -d. -f1; echo '@@pve-nodes'; $p ls /etc/pve/nodes 2>/dev/null; "
-        + "echo '@@pve-storage'; $p cat /etc/pve/storage.cfg 2>/dev/null; "
-        + "echo '@@lvm-pvs'; $p pvs --noheadings --separator '|' -o pv_name,vg_name 2>/dev/null | while IFS='|' read -r pv vg; do echo \"$(echo $pv)|$(readlink -f $pv 2>/dev/null)|$vg\"; done; "
-        + "echo '@@signatures'; $p lsblk -Pdno KNAME,FSTYPE,PTTYPE 2>/dev/null; fi; "
         + "exit 0";
 
     private static readonly TimeSpan StatusTimeout = TimeSpan.FromSeconds(30);
@@ -157,7 +133,6 @@ internal static partial class StorageHost
         var session = after.Iscsi?.Sessions.FirstOrDefault(s => s.Target == target && s.Portal == at);
         var map = after.Multipath?.FirstOrDefault(m => m.Name == name);
         var resource = after.Drbd?.FirstOrDefault(r => r.Name == name);
-        var lvm = after.Proxmox?.Maps.FirstOrDefault(m => m.Map == name);
         return action switch
         {
             StorageActions.IscsiLogin when session is null =>
@@ -173,8 +148,6 @@ internal static partial class StorageHost
             StorageActions.DrbdSecondary when resource?.Role != "Secondary" => $"{name} is {resource?.Role ?? "down"}, not Secondary",
             StorageActions.DrbdDisconnect when resource?.Peers.Any(p => p.ConnectionState != "StandAlone") == true => $"{name} is still connected to its peers",
             StorageActions.DrbdConnect when resource?.Peers.Any(p => p.ConnectionState == "StandAlone") == true => $"{name} is still disconnected (StandAlone)",
-            StorageActions.LvmMount when lvm is not { Mounted: true } => $"{name} isn't mounted as Proxmox LVM storage on {after.Proxmox?.Node ?? "this node"}",
-            StorageActions.LvmUnmount when lvm is { Mounted: true } => $"{name} is still mounted as storage {lvm.Storage}",
             _ => null,
         };
     }
@@ -185,11 +158,8 @@ internal static partial class StorageHost
         var at = NormalizePortal(portal);
         var session = after.Iscsi?.Sessions.FirstOrDefault(s => s.Target == target && s.Portal == at);
         var resource = after.Drbd?.FirstOrDefault(r => r.Name == name);
-        var lvm = after.Proxmox?.Maps.FirstOrDefault(m => m.Map == name);
         return action switch
         {
-            StorageActions.LvmMount => $"Mounted {name} as Proxmox LVM storage {lvm?.Storage} (volume group {lvm?.VolumeGroup}) on {after.Proxmox?.Node}.",
-            StorageActions.LvmUnmount => $"Proxmox no longer uses {name} on {after.Proxmox?.Node}{(lvm?.VolumeGroup is { } vg ? $"; volume group {vg} is deactivated here" : "")}.",
             StorageActions.IscsiLogin => $"Logged in to {target} at {at}{(session is { Disks.Count: > 0 } ? $"; its disks here: {string.Join(", ", session.Disks)}" : "; it has attached no disks (yet)")}.",
             StorageActions.IscsiLogout => $"Logged out of {target} at {at}.",
             StorageActions.IscsiRescan => "Rescanned the iSCSI sessions for new or resized LUNs.",
@@ -211,10 +181,9 @@ internal static partial class StorageHost
 
     /// <summary>
     /// The command for an action on the host as it is now (<paramref name="status"/>), or why it
-    /// can't be done. <paramref name="name"/> is a multipath map or DRBD resource;
-    /// <paramref name="storage"/> the ID for a new Proxmox storage when mounting a map that has none.
+    /// can't be done. <paramref name="name"/> is a multipath map or DRBD resource.
     /// </summary>
-    public static StorageCommand CommandFor(string action, string? target, string? portal, string? name, StorageStatus status, string? storage = null)
+    public static StorageCommand CommandFor(string action, string? target, string? portal, string? name, StorageStatus status)
     {
         switch (action)
         {
@@ -243,14 +212,6 @@ internal static partial class StorageHost
             {
                 var session = RequireIscsi(status).Sessions.FirstOrDefault(s => s.Target == target && s.Portal == NormalizePortal(portal))
                     ?? throw Refused("There's no iSCSI session to that target any more.");
-
-                // Its last path to a map Proxmox uses here would leave the storage without its disk.
-                var others = status.Iscsi!.Sessions.Where(s => s != session && s.State == "LOGGED_IN").SelectMany(s => s.Disks).ToHashSet();
-                if (MountedMaps(status).FirstOrDefault(m => m.Paths.Any(p => session.Disks.Contains(p.Device)) && !m.Paths.Any(p => others.Contains(p.Device))) is { } mounted)
-                {
-                    throw Refused($"{mounted.Name} is on this session and mounted as Proxmox storage {LvmFor(status, mounted.Name)!.Storage}. Unmount it first.");
-                }
-
                 return new(IscsiNodeCommand(session.Target, session.Portal, "--logout"), $"iSCSI logout · {session.Target} · {session.Portal}");
             }
 
@@ -266,19 +227,8 @@ internal static partial class StorageHost
             case StorageActions.MultipathFlush:
             {
                 var map = RequireMultipath(status).FirstOrDefault(m => m.Name == name) ?? throw Refused("There's no multipath map by that name any more.");
-                if (LvmFor(status, map.Name) is { Mounted: true } lvm)
-                {
-                    throw Refused($"{map.Name} is mounted as Proxmox storage {lvm.Storage}. Unmount it first.");
-                }
-
                 return new($"$p multipath -f '{Checked(map.Name, MapName())}'", $"Multipath flush · {map.Name}");
             }
-
-            case StorageActions.LvmMount:
-                return MountCommand(RequireProxmox(status), name, storage?.Trim());
-
-            case StorageActions.LvmUnmount:
-                return UnmountCommand(RequireProxmox(status), name);
 
             case StorageActions.DrbdUp or StorageActions.DrbdDown or StorageActions.DrbdPrimary or StorageActions.DrbdSecondary
                 or StorageActions.DrbdConnect or StorageActions.DrbdDisconnect or StorageActions.DrbdAdjust:
@@ -329,99 +279,7 @@ internal static partial class StorageHost
                 .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)];
         }
 
-        ProxmoxLvm? proxmox = null;
-        if (multipath is not null && sections.TryGetValue("pve-node", out var node) && node.Select(l => l.Trim()).FirstOrDefault(l => MapName().IsMatch(l)) is { } name)
-        {
-            proxmox = ParseProxmox(
-                name,
-                sections.GetValueOrDefault("pve-nodes") ?? [],
-                sections.GetValueOrDefault("pve-storage") ?? [],
-                sections.GetValueOrDefault("lvm-pvs") ?? [],
-                sections.GetValueOrDefault("signatures") ?? [],
-                multipath);
-        }
-
-        return new StorageStatus(iscsi, multipath, drbd, proxmox);
-    }
-
-    /// <summary>
-    /// A Proxmox node's LVM storage on its multipath maps, from the cluster's nodes (<c>ls
-    /// /etc/pve/nodes</c>), <c>/etc/pve/storage.cfg</c>, LVM's physical volumes (<c>name|resolved|vg</c>
-    /// per line) and <c>lsblk -P</c>'s signatures. A map's physical volume may be named by its alias,
-    /// its WWID or its device-mapper device.
-    /// </summary>
-    internal static ProxmoxLvm ParseProxmox(
-        string node, IEnumerable<string> clusterNodes, IEnumerable<string> storageCfg, IEnumerable<string> pvs, IEnumerable<string> signatures, IReadOnlyList<MultipathMap> maps)
-    {
-        var cluster = clusterNodes.Select(l => l.Trim()).Where(n => MapName().IsMatch(n)).Append(node).Distinct().Order(StringComparer.Ordinal).ToList();
-        var (all, storages) = ParseStorageCfg(storageCfg);
-
-        var volumes = pvs
-            .Select(l => l.Split('|'))
-            .Where(f => f.Length == 3)
-            .Select(f => (Name: f[0].Trim(), Resolved: f[1].Trim(), Vg: f[2].Trim()))
-            .ToList();
-        var found = signatures
-            .Select(l => LsblkField().Matches(l).ToDictionary(m => m.Groups["key"].Value, m => m.Groups["value"].Value, StringComparer.Ordinal))
-            .Where(f => f.ContainsKey("KNAME"))
-            .GroupBy(f => f["KNAME"], StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
-
-        return new ProxmoxLvm(node, cluster, all, storages, [.. maps.Select(map =>
-        {
-            var dm = $"/dev/{map.DmDevice}";
-            var volume = volumes.FirstOrDefault(v => v.Name == $"/dev/mapper/{map.Name}" || v.Name == $"/dev/mapper/{map.Wwid}" || v.Name == dm || v.Resolved == dm);
-            var vg = volume.Vg is { Length: > 0 } ? volume.Vg : null;
-            var fields = found.GetValueOrDefault(map.DmDevice);
-            var fsType = fields?.GetValueOrDefault("FSTYPE") ?? "";
-            var ptType = fields?.GetValueOrDefault("PTTYPE") ?? "";
-            var signature = vg is not null ? null
-                : volume.Name is not null || fsType == "LVM2_member" ? "an LVM physical volume without a volume group"
-                : fsType.Length > 0 ? fsType
-                : ptType.Length > 0 ? $"a {ptType} partition table"
-                : null;
-            var storage = vg is null ? null : storages.FirstOrDefault(s => s.VolumeGroup == vg);
-            return new LvmMap(map.Name, vg, signature, storage?.Id, storage is { Disabled: false } && (storage.Nodes.Count == 0 || storage.Nodes.Contains(node)));
-        })]);
-    }
-
-    /// <summary>
-    /// <c>/etc/pve/storage.cfg</c>: a <c>type: id</c> line per storage, then its properties indented
-    /// (<c>vgname vg</c>, <c>nodes a,b</c>, a bare <c>disable</c>…). Every storage's ID, and the LVM ones.
-    /// </summary>
-    internal static (List<string> All, List<ProxmoxLvmStorage> Lvm) ParseStorageCfg(IEnumerable<string> lines)
-    {
-        var all = new List<string>();
-        var lvm = new List<ProxmoxLvmStorage>();
-        (string Type, string Id, Dictionary<string, string> Properties)? current = null;
-
-        void Finish()
-        {
-            if (current is { Type: "lvm" } s && s.Properties.TryGetValue("vgname", out var vg))
-            {
-                var nodes = s.Properties.GetValueOrDefault("nodes")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
-                lvm.Add(new ProxmoxLvmStorage(s.Id, vg, nodes, s.Properties.GetValueOrDefault("disable") is { } d && d != "0"));
-            }
-
-            current = null;
-        }
-
-        foreach (var line in lines)
-        {
-            if (line.Length > 0 && !char.IsWhiteSpace(line[0]) && StorageCfgHeader().Match(line.Trim()) is { Success: true } header)
-            {
-                Finish();
-                current = (header.Groups["type"].Value, header.Groups["id"].Value, new Dictionary<string, string>(StringComparer.Ordinal));
-                all.Add(current.Value.Id);
-            }
-            else if (current is { } s && line.Trim().Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries) is { Length: > 0 } property)
-            {
-                s.Properties[property[0]] = property.Length > 1 ? property[1].Trim() : "1";
-            }
-        }
-
-        Finish();
-        return (all, lvm);
+        return new StorageStatus(iscsi, multipath, drbd);
     }
 
     /// <summary>
@@ -671,101 +529,6 @@ internal static partial class StorageHost
     private static string IscsiNodeCommand(string target, string portal, string verb) =>
         $"$p iscsiadm -m node -T '{Checked(target, Iqn())}' -p '{Checked(portal, PortalFormat())}' {verb}";
 
-    /// <summary>
-    /// Mounts a multipath map as Proxmox LVM storage on this node: adds the node to the storage on
-    /// its volume group, or adds a storage for the volume group, or on a blank LUN creates the
-    /// volume group first. A new storage is shared (each node logged in to the LUN can use it) and
-    /// restricted to the nodes that mounted it.
-    /// </summary>
-    private static StorageCommand MountCommand(ProxmoxLvm pve, string? name, string? storage)
-    {
-        var map = pve.Maps.FirstOrDefault(m => m.Map == name) ?? throw Refused("There's no multipath map by that name any more.");
-        if (map.Mounted)
-        {
-            throw Refused($"{map.Map} is already mounted as Proxmox storage {map.Storage}.");
-        }
-
-        var node = Checked(pve.Node, MapName());
-        var what = $"Proxmox LVM mount · {map.Map} · ";
-        if (map.Storage is not null)
-        {
-            var existing = pve.Storages.First(s => s.Id == map.Storage);
-            if (existing.Disabled)
-            {
-                throw Refused($"Storage {existing.Id} is disabled for the whole cluster. Enable it in Datacenter ▸ Storage first.");
-            }
-
-            var nodes = string.Join(',', existing.Nodes.Append(pve.Node).Select(n => Checked(n, MapName())));
-            return new($"$p pvesm set '{Checked(existing.Id, StorageId())}' --nodes '{nodes}'", $"{what}{existing.Id} on {pve.Node}");
-        }
-
-        if (map.VolumeGroup is null && map.Signature is not null)
-        {
-            throw Refused($"{map.Map} has {map.Signature} on it. NKeeper sets up LVM only on a blank LUN, or one that's already an LVM volume group.");
-        }
-
-        var id = storage is { Length: > 0 } ? storage : throw Refused("Name the new Proxmox storage.");
-        if (!StorageId().IsMatch(id))
-        {
-            throw Refused("A storage ID starts with a letter, ends with a letter or digit, and has only letters, digits, '-', '_' and '.' between.");
-        }
-
-        if (pve.AllStorage.Contains(id, StringComparer.OrdinalIgnoreCase))
-        {
-            throw Refused($"There's already a storage named {id}.");
-        }
-
-        string Add(string vg) => $"$p pvesm add lvm '{id}' --vgname '{Checked(vg, VgName())}' --content rootdir,images --shared 1 --nodes '{node}'";
-        if (map.VolumeGroup is { } group)
-        {
-            return new(Add(group), $"{what}{id} (volume group {group}) on {pve.Node}");
-        }
-
-        // A blank LUN, checked again on the host itself (blkid exits 2 when it finds nothing).
-        var device = $"/dev/mapper/{Checked(map.Map, MapName())}";
-        return new(
-            $"$p blkid -p '{device}' >/dev/null 2>&1; [ $? = 2 ] || {{ echo '{device} is not blank: blkid found a signature on it' >&2; exit 1; }}; "
-            + $"$p pvcreate '{device}' && $p vgcreate '{id}' '{device}' && {Add(id)}",
-            $"{what}{id} (new volume group {id}) on {pve.Node}");
-    }
-
-    /// <summary>
-    /// Stops Proxmox using a map's LVM storage on this node, unless a guest here has disks on it or
-    /// one of its volumes is open: takes the node off the storage (removing the storage when no
-    /// node is left; the volume group and its data stay), then deactivates the volume group here.
-    /// </summary>
-    private static StorageCommand UnmountCommand(ProxmoxLvm pve, string? name)
-    {
-        var map = pve.Maps.FirstOrDefault(m => m.Map == name) ?? throw Refused("There's no multipath map by that name any more.");
-        if (!map.Mounted)
-        {
-            throw Refused($"{map.Map} isn't mounted as Proxmox storage on {pve.Node}.");
-        }
-
-        var existing = pve.Storages.First(s => s.Id == map.Storage);
-        var id = Checked(existing.Id, StorageId());
-        var vg = Checked(existing.VolumeGroup, VgName());
-        var node = Checked(pve.Node, MapName());
-        var others = (existing.Nodes.Count > 0 ? existing.Nodes : pve.ClusterNodes).Where(n => n != pve.Node).Select(n => Checked(n, MapName())).ToList();
-        var release = others.Count > 0 ? $"$p pvesm set '{id}' --nodes '{string.Join(',', others)}'" : $"$p pvesm remove '{id}'";
-        return new(
-            $"used=$($p grep -rlsE '^[a-z0-9]+: *{id}:' /etc/pve/nodes/{node}/qemu-server /etc/pve/nodes/{node}/lxc | sed 's|.*/||; s|[.]conf$||'); "
-            + $"[ -z \"$used\" ] || {{ echo \"Guests $(echo $used) on {node} have disks on storage {id}; move them off it first\" >&2; exit 1; }}; "
-            + $"open=$($p lvs --noheadings -o lv_name,lv_attr '{vg}' 2>/dev/null | awk 'substr($2,6,1)==\"o\" {{print $1}}'); "
-            + $"[ -z \"$open\" ] || {{ echo \"Volumes $(echo $open) of {vg} are open on {node}\" >&2; exit 1; }}; "
-            + $"{release} && $p vgchange -an '{vg}'",
-            $"Proxmox LVM unmount · {map.Map} · {existing.Id} on {pve.Node}");
-    }
-
-    private static LvmMap? LvmFor(StorageStatus status, string name) => status.Proxmox?.Maps.FirstOrDefault(m => m.Map == name);
-
-    /// <summary>The multipath maps Proxmox uses on this node.</summary>
-    private static IEnumerable<MultipathMap> MountedMaps(StorageStatus status) =>
-        (status.Multipath ?? []).Where(m => LvmFor(status, m.Name) is { Mounted: true });
-
-    private static ProxmoxLvm RequireProxmox(StorageStatus status) =>
-        status.Proxmox ?? throw Refused("This host isn't a Proxmox node with multipath (pvesm, multipath).");
-
     private static IscsiStatus RequireIscsi(StorageStatus status) =>
         status.Iscsi ?? throw Refused("iSCSI isn't installed on this host (iscsiadm, from open-iscsi or iscsi-initiator-utils).");
 
@@ -848,20 +611,6 @@ internal static partial class StorageHost
     /// <summary>A multipath map's alias or WWID, or a DRBD resource's name.</summary>
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$")]
     private static partial Regex MapName();
-
-    /// <summary>A Proxmox storage ID.</summary>
-    [GeneratedRegex(@"^[A-Za-z][A-Za-z0-9._-]{0,62}[A-Za-z0-9]$")]
-    private static partial Regex StorageId();
-
-    /// <summary>An LVM volume group's name.</summary>
-    [GeneratedRegex(@"^[A-Za-z0-9+_.][A-Za-z0-9+_.-]{0,126}$")]
-    private static partial Regex VgName();
-
-    [GeneratedRegex(@"^(?<type>[a-z][a-z0-9]*):\s*(?<id>\S+)$")]
-    private static partial Regex StorageCfgHeader();
-
-    [GeneratedRegex(@"(?<key>[A-Z]+)=""(?<value>[^""]*)""")]
-    private static partial Regex LsblkField();
 
     [GeneratedRegex(@"Attached scsi disk (?<disk>[A-Za-z0-9]+)")]
     private static partial Regex AttachedDisk();

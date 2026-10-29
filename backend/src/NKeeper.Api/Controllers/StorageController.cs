@@ -28,8 +28,7 @@ public sealed record StorageActionRequest : StorageRequest
         StorageActions.IscsiDiscover, StorageActions.IscsiLogin, StorageActions.IscsiLogout, StorageActions.IscsiRescan,
         StorageActions.MultipathReload, StorageActions.MultipathFlush,
         StorageActions.DrbdUp, StorageActions.DrbdDown, StorageActions.DrbdPrimary, StorageActions.DrbdSecondary,
-        StorageActions.DrbdConnect, StorageActions.DrbdDisconnect, StorageActions.DrbdAdjust,
-        StorageActions.LvmMount, StorageActions.LvmUnmount, ErrorMessage = "Choose an action.")]
+        StorageActions.DrbdConnect, StorageActions.DrbdDisconnect, StorageActions.DrbdAdjust, ErrorMessage = "Choose an action.")]
     public string Action { get; init; } = string.Empty;
 
     /// <summary>iSCSI login and logout: the target's name (IQN).</summary>
@@ -43,10 +42,6 @@ public sealed record StorageActionRequest : StorageRequest
     /// <summary>A multipath map or DRBD resource.</summary>
     [StringLength(128)]
     public string? Name { get; init; }
-
-    /// <summary>Mounting a multipath map as Proxmox LVM: the ID for a new storage, when its volume group has none.</summary>
-    [StringLength(64)]
-    public string? Storage { get; init; }
 }
 
 /// <summary>The host's storage (after an action, as it is afterwards), or the SSH host key to trust first.</summary>
@@ -56,8 +51,7 @@ public sealed record StorageResponse(string Status, StorageStatus? Storage, Host
 /// <summary>
 /// A Linux host's shared storage over SSH: its iSCSI sessions and targets, multipath maps and DRBD
 /// resources, and the everyday actions on them (iSCSI discovery, login, logout and rescan; multipath
-/// reload and flush; DRBD up, down, primary, secondary, connect, disconnect and adjust; on a
-/// Proxmox node, mounting a multipath map as LVM storage and unmounting it). Actions
+/// reload and flush; DRBD up, down, primary, secondary, connect, disconnect and adjust). Actions
 /// are audited. NKeeper runs the host's own tools as root (or with sudo without a password).
 /// </summary>
 [ApiController]
@@ -79,7 +73,7 @@ public sealed class StorageController(AuditLog audit) : ControllerBase
         WithHostAsync(request, async client =>
         {
             var before = await StorageHost.GetStatusAsync(client, cancellationToken);
-            var command = StorageHost.CommandFor(request.Action, request.Target?.Trim(), request.Portal, request.Name, before, request.Storage);
+            var command = StorageHost.CommandFor(request.Action, request.Target?.Trim(), request.Portal, request.Name, before);
             var output = await StorageHost.RunActionAsync(client, command, cancellationToken);
             await audit.RecordAsync(new AuditEntry("storage.action", request.HostId, command.Description));
 
