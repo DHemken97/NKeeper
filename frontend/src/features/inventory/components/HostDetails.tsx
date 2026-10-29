@@ -27,6 +27,9 @@ import styles from './HostPanel.module.css'
 interface HostDetailsProps {
   host: Host
   onEdit: () => void
+  /** Ask to delete the host straight away (the Delete key in the tree); `onDeleteAsked` clears it. */
+  askDelete?: boolean
+  onDeleteAsked?: () => void
   onDeleted: (id: string) => void
   /** Filter the tree to hosts carrying this tag. */
   onTagClick: (tag: HostTag) => void
@@ -59,6 +62,8 @@ function describeKey(key: TrustedKey): string {
 export function HostDetails({
   host,
   onEdit,
+  askDelete,
+  onDeleteAsked,
   onDeleted,
   onTagClick,
   onConnectMenu,
@@ -143,8 +148,8 @@ export function HostDetails({
         <div className={styles.actions}>
           {host.canManage ? (
             <>
-              <DeleteButton question="Delete this host?" onConfirm={handleDelete} loading={deleting} />
-              <Button variant="secondary" onClick={onEdit} disabled={deleting}>
+              <DeleteButton question="Delete this host?" onConfirm={handleDelete} loading={deleting} askNow={askDelete} onAsked={onDeleteAsked} />
+              <Button variant="secondary" onClick={onEdit} disabled={deleting} title="Edit (Ctrl+E)" aria-keyshortcuts="Control+E">
                 Edit
               </Button>
             </>

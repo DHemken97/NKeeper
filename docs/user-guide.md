@@ -1,6 +1,7 @@
 # User guide
 
 - [The workspace](#the-workspace)
+- [Keyboard shortcuts](#keyboard-shortcuts)
 - [Hosts](#hosts)
 - [Importing from mRemoteNG](#importing-from-mremoteng)
 - [Scanning hosts](#scanning-hosts)
@@ -42,7 +43,8 @@ On a phone, the two panes show one at a time.
 - **Sort** by name, address or last update. Names sort naturally, so `srv2` comes before `srv10`. Your last choice is saved to your account and used by default on your next visit; a sort in the page URL takes precedence.
 - **Select several hosts** to change them together:
   - **Ctrl+click** (**⌘+click** on a Mac) adds or removes a host, and **Ctrl+Space** does the same from the keyboard;
-  - **Shift+click** selects every host between the last one you clicked and this one, as the tree shows them;
+  - **Shift+click** selects every host between the last one you clicked and this one, as the tree shows them, and **Shift+↑/↓** extends the selection from the keyboard;
+  - **Ctrl+A** in the tree selects every host the search shows, and **Esc** clears the selection;
   - **right-click a group** (or press the Menu key on it) for **Select N hosts** (everything under it, collapsed or not) or **Add to selection**.
 
   With two or more selected, the right pane lists the changes you can make to all of them at once:
@@ -57,7 +59,26 @@ On a phone, the two panes show one at a time.
   - **Log in with** each host's own saved SSH login (hosts without one are skipped), or one username and password for all of them, used once and not saved.
   - **Host keys:** hosts NKeeper hasn't connected to before are skipped by default, so you can check their keys one at a time. Tick **Trust new SSH host keys** to accept them on first connection instead. Changed keys are always refused.
   - **Review:** the findings are listed host by host, with the same defaults as a single scan. VM links and new VMs found on any scanned hypervisor are listed once each, even when several nodes of a cluster report them. Hosts that weren't scanned are listed with the reason. **Apply** saves what you ticked.
-- The selection, search, grouping and sort are part of the address (e.g. `/?group=site&q=env:prod&host=<id>`), so you can bookmark or share a view. Open sessions are not part of it.
+- The selection, search, grouping and sort are part of the address (e.g. `/?group=site&q=env:prod&host=<id>`), so you can bookmark or share a view. Open sessions are not part of it. Closing or reloading the browser tab while sessions are open asks first.
+
+## Keyboard shortcuts
+
+You can use NKeeper entirely from the keyboard. Press **?** anywhere (or choose **Keyboard shortcuts** in your account menu) for the full list. Ctrl is ⌘ on a Mac.
+
+- **Anywhere:** **Alt+Shift+H** goes to the host tree. **Alt+Shift+R**, **U** and **S** open Reports, Users and Settings.
+- **Search:** **Ctrl+K** or **/** goes to the search box. **↓**, or **Enter** (which searches at once), goes on to the tree.
+- **The tree** is one Tab stop:
+  - **↑/↓**, **Home** and **End** move, and **←/→** close and open groups.
+  - Typing a name jumps to it.
+  - **Enter** selects a host, and **Delete** asks to delete it.
+- **The selected host:**
+  - **Ctrl+Enter** connects, like a double-click.
+  - **Shift+F10** (or the Menu key) opens its menu.
+  - **Ctrl+E** edits it, **Ctrl+D** clones it, and **Ctrl+S** saves the editor.
+  - **Alt+Shift+N** adds a new host, and **Alt+Shift+I** imports hosts.
+- **Tabs:** **Alt+PageUp/PageDown** moves to the previous or next tab (Details first), and **Alt+Shift+W** closes a session's tab. In the tab bar, **←/→** move and **Delete** closes.
+
+Inside a terminal or remote desktop, every key goes to the remote side except **Alt+PageUp/PageDown**, **Alt+Shift+W** and **Alt+Shift+H**, so there's always a way back out. Browsers keep **Ctrl+W**, **Ctrl+T** and **Ctrl+N** for themselves (Ctrl+W would close the tab). To send them to an SSH shell, use the session's **Full screen**: in Chrome and Edge it hands those keys to the terminal, and holding **Esc** leaves full screen.
 
 ## Hosts
 
@@ -168,6 +189,7 @@ A full terminal (xterm.js) that resizes with the tab.
 - **Authentication:** a credential can use a password, a private key, or both. The password doubles as the key's passphrase. Keyboard-interactive prompts are answered with the password.
 - **Domain accounts:** a credential's domain is sent as `DOMAIN\user`, which is what Windows OpenSSH expects.
 - **Idle sessions** stay open.
+- **Full screen** (in the status bar): in Chrome and Edge, **Ctrl+W** (delete the previous word), **Ctrl+T** and **Ctrl+N** then reach the shell instead of the browser. Hold **Esc** to leave full screen.
 
 ## Telnet
 

@@ -226,7 +226,7 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
     { kind: 'header', label: host.name },
     { kind: 'item', label: 'Connect', submenu: connectMenuEntries(host, actions) },
     { kind: 'separator' },
-    ...(host.canManage ? [{ kind: 'item', label: 'Edit', onSelect: () => actions.edit(host) } as const] : []),
+    ...(host.canManage ? [{ kind: 'item', label: 'Edit', shortcut: 'Ctrl+E', onSelect: () => actions.edit(host) } as const] : []),
     ...(host.canManage || (host.macAddress && actions.wake) || guestHypervisorOf(host, actions)
       ? [{ kind: 'item', label: 'Tasks', submenu: taskMenuEntries(host, actions) } as const]
       : []),

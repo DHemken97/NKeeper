@@ -5,6 +5,7 @@ import { Button } from '../../../components/ui/Button'
 import { ContextMenu } from '../../../components/ui/ContextMenu'
 import { Spinner } from '../../../components/ui/Spinner'
 import { toFormErrors } from '../../../lib/formErrors'
+import { useHotkeys } from '../../../lib/hotkeys'
 import { accountApi } from '../../account/api/accountApi'
 import { healthApi, hostsApi } from '../api/inventoryApi'
 import { BulkEditPanel } from '../components/BulkEditPanel'
@@ -224,6 +225,11 @@ export function WorkspacePage() {
   /** Where a Shift+click range starts. */
   const [anchor, setAnchor] = useState<string | null>(null)
   const [groupMenu, setGroupMenu] = useState<{ groupId: string; x: number; y: number } | null>(null)
+  /** A host the Delete key asked to delete: its details ask for confirmation. */
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const treeRef = useRef<HTMLDivElement>(null)
+  const tabsRef = useRef<HTMLDivElement>(null)
   const [savedPreferences, setSavedPreferences] = useState<{
     userId: string
     groupBy: string[]
@@ -244,6 +250,16 @@ export function WorkspacePage() {
     setSearch({ text: query, seen: query })
   }
   useEffect(() => () => clearTimeout(searchTimer.current), [])
+  // Closing the browser tab (a stray Ctrl+W in a terminal, which the browser keeps for itself) asks first.
+  const hasSessions = sessions.length > 0
+  useEffect(() => {
+    if (!hasSessions) {
+      return
+    }
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [hasSessions])
   const savedGroupBy =
     savedPreferences && savedPreferences.userId === user?.id ? savedPreferences.groupBy : user?.workspaceGroupBy ?? EMPTY_GROUP_BY
   const savedSort =
@@ -466,12 +482,61 @@ export function WorkspacePage() {
     openSession(host, source.request.serviceIndex, credential, source.request.oneOff, mode)
   }
 
-  function closeSession(id: string) {
+  /** Closes a session tab, returning the tab shown after it. */
+  function closeSession(id: string): string {
     const index = sessions.findIndex((s) => s.id === id)
     const remaining = sessions.filter((s) => s.id !== id)
     setSessions(remaining)
-    if (activeTab === id) {
-      setActiveTab(remaining[Math.min(index, remaining.length - 1)]?.id ?? DETAILS_TAB)
+    if (activeTab !== id) {
+      return activeTab
+    }
+    const next = remaining[Math.min(index, remaining.length - 1)]?.id ?? DETAILS_TAB
+    setActiveTab(next)
+    return next
+  }
+
+  /** The tree's Tab stop: the focused or selected row, else the first. */
+  function focusTree() {
+    const tree = treeRef.current
+    ;(tree?.querySelector<HTMLElement>('[data-tree-row][tabindex="0"]') ?? tree?.querySelector<HTMLElement>('[data-tree-row]'))?.focus()
+  }
+
+  /** After the view under the focus went away (saved, cancelled, deleted): back to the tree. */
+  function refocusTree() {
+    requestAnimationFrame(() => {
+      if (!document.activeElement || document.activeElement === document.body) {
+        focusTree()
+      }
+    })
+  }
+
+  /** Shows a tab from the keyboard. Focus goes with it: to its tab, unless the view took focus itself. */
+  function showTab(id: string) {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen()
+    }
+    setActiveTab(id)
+    requestAnimationFrame(() => {
+      const focused = document.activeElement
+      if (!focused || focused === document.body || focused.closest('[hidden]')) {
+        tabsRef.current?.querySelector<HTMLElement>(`[data-tab-id="${id}"]`)?.focus()
+      }
+    })
+  }
+
+  /** Alt+PageUp/PageDown: the previous or next tab, Details first. */
+  function stepTab(step: 1 | -1) {
+    const ids = [DETAILS_TAB, ...sessions.map((s) => s.id)]
+    const index = Math.max(0, ids.indexOf(activeTab))
+    showTab(ids[(index + step + ids.length) % ids.length])
+  }
+
+  /** The Delete key in the tree: show the host and ask, as its Delete button would. */
+  function askToDelete(id: string) {
+    if (allHosts?.find((h) => h.id === id)?.canManage) {
+      setBulk(new Set())
+      showHost(id)
+      setPendingDelete(id)
     }
   }
 
@@ -544,6 +609,7 @@ export function WorkspacePage() {
   function handleSaved(saved: Host) {
     applyLocally((hosts) => [...hosts.filter((h) => h.id !== saved.id), saved])
     showHost(saved.id)
+    refocusTree()
   }
 
   function handleChanged(changed: Host) {
@@ -553,6 +619,7 @@ export function WorkspacePage() {
   function handleDeleted(id: string) {
     applyLocally((hosts) => hosts.filter((h) => h.id !== id))
     update({ host: null, edit: null })
+    refocusTree()
   }
 
   function filterByTag(tag: HostTag) {
@@ -573,6 +640,37 @@ export function WorkspacePage() {
   const bulkHosts = bulk.size > 1 ? (allHosts ?? []).filter((h) => bulk.has(h.id)) : []
   const showingPanel = selectedId !== null || activeTab !== DETAILS_TAB || bulkHosts.length > 1
   const menuHost = menu ? allHosts?.find((h) => h.id === menu.hostId) : undefined
+  const singleHost = bulkHosts.length > 1 ? undefined : selectedHost
+
+  useHotkeys([
+    // Work in a terminal or remote desktop too: the way back out of one.
+    { keys: 'Alt+PageDown', run: () => stepTab(1), enabled: hasSessions, inSessions: true },
+    { keys: 'Alt+PageUp', run: () => stepTab(-1), enabled: hasSessions, inSessions: true },
+    { keys: 'Alt+Shift+W', run: () => showTab(closeSession(activeTab)), enabled: activeTab !== DETAILS_TAB, inSessions: true },
+    { keys: 'Alt+Shift+H', run: focusTree, inSessions: true },
+    {
+      keys: ['Ctrl+K', '/'],
+      run: () => {
+        searchRef.current?.focus()
+        searchRef.current?.select()
+      },
+    },
+    { keys: 'Ctrl+Enter', run: () => connectWithDefaults(singleHost!.id), enabled: singleHost !== undefined },
+    { keys: 'Ctrl+E', run: () => showHost(singleHost!.id, true), enabled: singleHost?.canManage === true && !editing },
+    { keys: 'Ctrl+D', run: () => cloneHost(singleHost!), enabled: admin && singleHost !== undefined },
+    {
+      keys: ['Shift+F10', 'ContextMenu'],
+      run: () => {
+        // Below the host's row in the tree, or at the top of the details.
+        const row = treeRef.current?.querySelector(`[data-host-id="${singleHost!.id}"]`)
+        const rect = (row ?? document.querySelector('main'))!.getBoundingClientRect()
+        setMenu({ hostId: singleHost!.id, x: rect.left + 24, y: row ? rect.bottom : rect.top + 48 })
+      },
+      enabled: singleHost !== undefined,
+    },
+    { keys: 'Alt+Shift+N', run: () => showHost(NEW_HOST), enabled: admin },
+    { keys: 'Alt+Shift+I', run: () => setImporting(true), enabled: admin },
+  ])
 
   return (
     <div className={`${styles.workspace} ${showingPanel ? styles.panelOpen : ''}`}>
@@ -628,10 +726,10 @@ export function WorkspacePage() {
             </button>
             {admin ? (
               <>
-                <Button size="sm" variant="secondary" onClick={() => setImporting(true)}>
+                <Button size="sm" variant="secondary" onClick={() => setImporting(true)} title="Import (Alt+Shift+I)" aria-keyshortcuts="Alt+Shift+I">
                   Import
                 </Button>
-                <Button size="sm" onClick={() => showHost(NEW_HOST)}>
+                <Button size="sm" onClick={() => showHost(NEW_HOST)} title="New host (Alt+Shift+N)" aria-keyshortcuts="Alt+Shift+N">
                   New host
                 </Button>
               </>
@@ -647,10 +745,22 @@ export function WorkspacePage() {
 
         <div className={styles.controls}>
           <input
+            ref={searchRef}
             className={styles.search}
             type="search"
             value={search.text}
             onChange={(event) => typeSearch(event.target.value)}
+            // Down goes to the tree; Enter searches at once and goes there too.
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === 'ArrowDown') {
+                event.preventDefault()
+                if (event.key === 'Enter' && search.text !== query) {
+                  update({ q: search.text || null })
+                }
+                requestAnimationFrame(focusTree)
+              }
+            }}
+            aria-keyshortcuts="Control+K /"
             placeholder="Search, or env:prod site:&quot;DC A&quot;"
             aria-label="Search hosts"
             spellCheck={false}
@@ -685,7 +795,7 @@ export function WorkspacePage() {
         </div>
         {preferencesError ? <Alert>{`Couldn’t save your host tree preferences. ${preferencesError}`}</Alert> : null}
 
-        <div className={styles.treeScroll}>
+        <div ref={treeRef} className={styles.treeScroll}>
           {resource.error && !allHosts ? (
             <div className={styles.sidebarState}>
               <Alert>{toFormErrors(resource.error).message}</Alert>
@@ -715,6 +825,9 @@ export function WorkspacePage() {
               onToggle={toggleGroup}
               onSelect={selectHost}
               onActivate={connectWithDefaults}
+              onSelectAll={() => selectMany(new Set(visibleHosts.map((h) => h.id)))}
+              onClearSelection={() => setBulk(new Set())}
+              onDelete={askToDelete}
               onContextMenu={(hostId, x, y) => setMenu({ hostId, x, y })}
               onGroupContextMenu={(groupId, x, y) => setGroupMenu({ groupId, x, y })}
               menuHostId={menu?.hostId ?? null}
@@ -740,10 +853,38 @@ export function WorkspacePage() {
         ) : null}
 
         {sessions.length > 0 ? (
-          <div className={styles.tabs} role="tablist" aria-label="Open views">
+          <div
+            ref={tabsRef}
+            className={styles.tabs}
+            role="tablist"
+            aria-label="Open views"
+            aria-keyshortcuts="Alt+PageUp Alt+PageDown"
+            // Arrow keys move between tabs; Delete closes a session's.
+            onKeyDown={(event) => {
+              const tab = event.target instanceof HTMLElement ? event.target.dataset.tabId : undefined
+              if (!tab || event.ctrlKey || event.metaKey || event.altKey) {
+                return
+              }
+              const ids = [DETAILS_TAB, ...sessions.map((s) => s.id)]
+              const index = ids.indexOf(tab)
+              const to =
+                event.key === 'ArrowRight' ? ids[(index + 1) % ids.length]
+                : event.key === 'ArrowLeft' ? ids[(index - 1 + ids.length) % ids.length]
+                : event.key === 'Home' ? ids[0]
+                : event.key === 'End' ? ids[ids.length - 1]
+                : event.key === 'Delete' && tab !== DETAILS_TAB ? closeSession(tab)
+                : null
+              if (to) {
+                event.preventDefault()
+                setActiveTab(to)
+                tabsRef.current?.querySelector<HTMLElement>(`[data-tab-id="${to}"]`)?.focus()
+              }
+            }}
+          >
             <button
               type="button"
               role="tab"
+              data-tab-id={DETAILS_TAB}
               className={styles.tab}
               aria-selected={activeTab === DETAILS_TAB}
               onClick={() => setActiveTab(DETAILS_TAB)}
@@ -756,6 +897,7 @@ export function WorkspacePage() {
                 <button
                   type="button"
                   role="tab"
+                  data-tab-id={session.id}
                   className={styles.tab}
                   aria-selected={activeTab === session.id}
                   onClick={() => setActiveTab(session.id)}
@@ -765,7 +907,13 @@ export function WorkspacePage() {
                   <span className={styles.tabTitle}>{session.title}</span>
                   <span className={styles.tabDetail}>{session.detail}</span>
                 </button>
-                <button type="button" className={styles.tabClose} onClick={() => closeSession(session.id)} aria-label={`Close ${session.title}`}>
+                <button
+                  type="button"
+                  className={styles.tabClose}
+                  onClick={() => closeSession(session.id)}
+                  aria-label={`Close ${session.title}`}
+                  title="Close (Alt+Shift+W)"
+                >
                   ×
                 </button>
               </div>
@@ -800,13 +948,18 @@ export function WorkspacePage() {
               knownTagValues={(name) => tagValues(allHosts ?? [], name)}
               allHosts={allHosts ?? []}
               onSaved={handleSaved}
-              onCancel={() => update(selectedId === NEW_HOST ? { host: cloneSource?.id ?? null, clone: null } : { edit: null })}
+              onCancel={() => {
+                update(selectedId === NEW_HOST ? { host: cloneSource?.id ?? null, clone: null } : { edit: null })
+                refocusTree()
+              }}
             />
           ) : selectedHost ? (
             <HostDetails
               key={selectedHost.id}
               host={selectedHost}
               onEdit={() => update({ edit: '1' })}
+              askDelete={pendingDelete === selectedHost.id}
+              onDeleteAsked={() => setPendingDelete(null)}
               onDeleted={handleDeleted}
               onTagClick={filterByTag}
               onConnectMenu={(anchor) => setMenu({ hostId: selectedHost.id, x: anchor.left, y: anchor.bottom + 4, connectOnly: true })}

@@ -4,6 +4,7 @@ import '@xterm/xterm/css/xterm.css'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { apiWebSocketUrl } from '../../../lib/api'
+import { toggleFullscreen } from '../fullscreen'
 import type { RemoteSession, ServerMessage, SessionPhase } from '../types'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
 import styles from './Session.module.css'
@@ -44,6 +45,7 @@ function fitIfVisible(fit: FitAddon, element: HTMLElement | null) {
 export function SshTerminal({ session, active, onShowHost, onEnded }: SshTerminalProps) {
   const telnet = session.protocol === 'telnet'
   const containerRef = useRef<HTMLDivElement>(null)
+  const areaRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
@@ -196,6 +198,12 @@ export function SshTerminal({ session, active, onShowHost, onEnded }: SshTermina
     setAttempt((n) => n + 1)
   }
 
+  async function showFullscreen() {
+    // Keyboard Lock then sends Ctrl+W (delete a word), Ctrl+T and Ctrl+N to the shell, not the browser.
+    await toggleFullscreen(areaRef.current)
+    terminalRef.current?.focus()
+  }
+
   const canReconnect = !session.request.oneOff
 
   return (
@@ -209,6 +217,16 @@ export function SshTerminal({ session, active, onShowHost, onEnded }: SshTermina
             Unencrypted to host
           </span>
         ) : null}
+        {phase.kind === 'connected' ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void showFullscreen()}
+            title="Full screen, where Ctrl+W, Ctrl+T and Ctrl+N go to the terminal instead of the browser. Hold Esc to leave."
+          >
+            Full screen
+          </Button>
+        ) : null}
         {phase.kind === 'ended' && canReconnect ? (
           <Button variant="secondary" size="sm" onClick={reconnect}>
             Reconnect
@@ -216,7 +234,7 @@ export function SshTerminal({ session, active, onShowHost, onEnded }: SshTermina
         ) : null}
       </SessionStatusBar>
 
-      <div className={styles.terminalArea}>
+      <div ref={areaRef} className={styles.terminalArea}>
         <div ref={containerRef} className={styles.terminal} />
         {phase.kind === 'connecting' && !phase.target ? <OpeningCard /> : null}
         {phase.kind === 'hostKey' ? <TrustCard prompt={phase.prompt} target={phase.target} onDecide={decideHostKey} /> : null}

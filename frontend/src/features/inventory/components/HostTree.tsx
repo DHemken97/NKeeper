@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent, MouseEvent } from 'react'
+import { useLayoutEffect, useRef, type CSSProperties, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import type { TreeGroup, TreeNode } from '../grouping'
 import { PROTOCOL_INFO, primaryAddress, type HostHealth } from '../types'
 import styles from './HostTree.module.css'
@@ -15,8 +15,14 @@ interface HostTreeProps {
   collapsed: ReadonlySet<string>
   onToggle: (groupId: string) => void
   onSelect: (hostId: string, mode: SelectMode) => void
-  /** Double-click: connect with the first SSH service and credential. */
+  /** Double-click or Ctrl+Enter: connect with the first SSH service and credential. */
   onActivate: (hostId: string) => void
+  /** Ctrl+A: select every host shown. */
+  onSelectAll: () => void
+  /** Escape: clear the bulk selection. */
+  onClearSelection: () => void
+  /** The Delete key on a host. */
+  onDelete: (hostId: string) => void
   /** Right-click, the Menu key or Shift+F10, at viewport coordinates. */
   onContextMenu: (hostId: string, x: number, y: number) => void
   /** Right-click (or the Menu key) on a group, e.g. to select its hosts. */
@@ -29,14 +35,34 @@ interface HostTreeProps {
 
 const HEALTH_LABELS: Record<HostHealth, string> = { up: 'All services up', partial: 'Some services down', down: 'Not answering' }
 
+/** How long typed letters keep adding to the name being looked for. */
+const TYPEAHEAD_MS = 700
+
 /**
- * The connection tree. Arrow keys move between rows; Left/Right collapse and expand groups.
- * Right-click (or the Menu key / Shift+F10) opens a host's menu; double-click connects.
- * Ctrl/⌘+click (or Ctrl+Space) adds a host to a bulk selection, Shift+click selects a range, and
- * a group's menu selects all its hosts. A host that matches several groups appears under each.
+ * The connection tree, a single Tab stop. Arrow keys move between rows; Left/Right collapse and
+ * expand groups; typing jumps to a name. Right-click (or the Menu key / Shift+F10) opens a host's
+ * menu; double-click (or Ctrl+Enter) connects. Ctrl/⌘+click (or Ctrl+Space) adds a host to a bulk
+ * selection, Shift+click (or Shift+arrows) selects a range, Ctrl+A selects everything shown, and a
+ * group's menu selects all its hosts. A host that matches several groups appears under each.
  */
 export function HostTree({ nodes, ...rest }: HostTreeProps) {
-  const { onToggle, onContextMenu, onGroupContextMenu, onSelect } = rest
+  const { onToggle, onContextMenu, onGroupContextMenu, onSelect, onActivate, onSelectAll, onClearSelection, onDelete } = rest
+  const treeRef = useRef<HTMLUListElement>(null)
+  const typeahead = useRef({ text: '', at: 0 })
+
+  // Roving Tab stop: the focused row, else the selected host, else the first row.
+  useLayoutEffect(() => {
+    const rows = treeRef.current ? Array.from(treeRef.current.querySelectorAll<HTMLElement>('[data-tree-row]')) : []
+    const stop = rows.find((row) => row === document.activeElement) ?? rows.find((row) => row.getAttribute('aria-current')) ?? rows[0]
+    rows.forEach((row) => (row.tabIndex = row === stop ? 0 : -1))
+  })
+
+  function handleFocus(event: FocusEvent<HTMLUListElement>) {
+    if (event.target instanceof HTMLElement && event.target.dataset.treeRow !== undefined) {
+      event.currentTarget.querySelectorAll<HTMLElement>('[data-tree-row]').forEach((row) => (row.tabIndex = row === event.target ? 0 : -1))
+    }
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLUListElement>) {
     const rows = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-tree-row]'))
     const index = rows.indexOf(document.activeElement as HTMLButtonElement)
@@ -46,8 +72,11 @@ export function HostTree({ nodes, ...rest }: HostTreeProps) {
     const row = rows[index]
     const move = (to: number) => {
       event.preventDefault()
-      rows[Math.max(0, Math.min(rows.length - 1, to))]?.focus()
+      const next = rows[Math.max(0, Math.min(rows.length - 1, to))]
+      next?.focus()
+      return next
     }
+    const ctrl = event.ctrlKey || event.metaKey
 
     if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
       event.preventDefault()
@@ -60,9 +89,54 @@ export function HostTree({ nodes, ...rest }: HostTreeProps) {
       return
     }
 
-    if (row.dataset.hostId && event.key === ' ' && (event.ctrlKey || event.metaKey)) {
+    if (row.dataset.hostId && event.key === ' ' && ctrl) {
       event.preventDefault()
       onSelect(row.dataset.hostId, 'toggle')
+      return
+    }
+
+    if (row.dataset.hostId && event.key === 'Enter' && ctrl) {
+      event.preventDefault()
+      onActivate(row.dataset.hostId)
+      return
+    }
+
+    if (event.shiftKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      const next = move(index + (event.key === 'ArrowDown' ? 1 : -1))
+      if (next?.dataset.hostId) {
+        onSelect(next.dataset.hostId, 'range')
+      }
+      return
+    }
+
+    if (ctrl && event.key.toLowerCase() === 'a') {
+      event.preventDefault()
+      onSelectAll()
+      return
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onClearSelection()
+      return
+    }
+
+    if (row.dataset.hostId && event.key === 'Delete') {
+      event.preventDefault()
+      onDelete(row.dataset.hostId)
+      return
+    }
+
+    // Typeahead: letters and digits jump to the next row whose name starts with what's typed.
+    if (!ctrl && !event.altKey && /^[\p{L}\p{N}._-]$/u.test(event.key)) {
+      event.preventDefault()
+      const now = Date.now()
+      const text = (now - typeahead.current.at < TYPEAHEAD_MS ? typeahead.current.text : '') + event.key.toLowerCase()
+      typeahead.current = { text, at: now }
+      // A new search starts after the current row; a longer one may still match it.
+      const start = text.length === 1 ? index + 1 : index
+      const ordered = [...rows.slice(start), ...rows.slice(0, start)]
+      ordered.find((candidate) => candidate.dataset.label?.toLowerCase().startsWith(text))?.focus()
       return
     }
 
@@ -95,7 +169,7 @@ export function HostTree({ nodes, ...rest }: HostTreeProps) {
   }
 
   return (
-    <ul className={styles.tree} onKeyDown={handleKeyDown} aria-label="Hosts">
+    <ul ref={treeRef} className={styles.tree} onKeyDown={handleKeyDown} onFocus={handleFocus} aria-label="Hosts">
       <Nodes nodes={nodes} depth={0} {...rest} />
     </ul>
   )
@@ -117,6 +191,7 @@ function Nodes({ nodes, depth, ...rest }: NodesProps) {
           type="button"
           data-tree-row
           data-host-id={node.host.id}
+          data-label={node.host.name}
           className={`${styles.host} ${node.host.id === menuHostId ? styles.menuOpen : ''} ${bulkIds.has(node.host.id) ? styles.bulk : ''}`}
           style={{ '--depth': depth } as CSSProperties}
           aria-current={node.host.id === selectedHostId && bulkIds.size === 0 ? 'true' : undefined}
@@ -165,6 +240,7 @@ function GroupNode({ group, depth, ...rest }: Omit<NodesProps, 'nodes'> & { grou
         type="button"
         data-tree-row
         data-group-id={group.id}
+        data-label={group.label}
         className={`${styles.group} ${group.missing ? styles.missing : ''}`}
         style={{ '--depth': depth } as CSSProperties}
         aria-expanded={expanded}

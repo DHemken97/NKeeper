@@ -122,7 +122,21 @@ export function HostEditor({ host, cloneOf, onClone, knownTagNames, knownTagValu
   const title = host ? `Edit ${host.name}` : cloning ? `Clone ${cloneOf.name}` : 'New host'
 
   return (
-    <form className={styles.panel} onSubmit={handleSubmit} noValidate aria-label={title}>
+    <form
+      className={styles.panel}
+      onSubmit={handleSubmit}
+      // Ctrl+S saves, rather than the browser saving the page.
+      onKeyDown={(event) => {
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
+          event.preventDefault()
+          if (!saving) {
+            event.currentTarget.requestSubmit()
+          }
+        }
+      }}
+      noValidate
+      aria-label={title}
+    >
       <header className={styles.header}>
         <div className={styles.heading}>
           <h1 className={styles.title}>{title}</h1>
@@ -294,7 +308,7 @@ export function HostEditor({ host, cloneOf, onClone, knownTagNames, knownTagValu
         <Button variant="secondary" onClick={onCancel} disabled={saving}>
           Cancel
         </Button>
-        <Button type="submit" loading={saving}>
+        <Button type="submit" loading={saving} title="Save (Ctrl+S)" aria-keyshortcuts="Control+S">
           {host ? 'Save changes' : 'Create host'}
         </Button>
       </footer>
