@@ -66,8 +66,16 @@
   white-space: nowrap;
 }
 
+.shortcut {
+  flex-shrink: 0;
+  color: var(--color-text-subtle);
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+
 .item:focus .detail,
-.item.open .detail {
+.item.open .detail,
+.item:focus .shortcut {
   color: rgb(255 255 255 / 0.8);
 }
 

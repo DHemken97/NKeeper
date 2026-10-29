@@ -3,6 +3,7 @@ import { Button } from '../../../components/ui/Button'
 import { apiWebSocketUrl } from '../../../lib/api'
 import Guacamole from '../../../vendor/guacamole-common-js/guacamole.js'
 import { describeDesktopStatus } from '../desktopStatus'
+import { toggleFullscreen } from '../fullscreen'
 import type { RemoteSession, ServerMessage, SessionPhase } from '../types'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
 import styles from './Session.module.css'
@@ -285,19 +286,9 @@ export function DesktopSession({ session, active, onShowHost, onEnded }: Desktop
     viewportRef.current?.focus()
   }
 
-  async function toggleFullscreen() {
-    const area = areaRef.current
-    if (!area) {
-      return
-    }
-    if (document.fullscreenElement) {
-      await document.exitFullscreen()
-      return
-    }
-    await area.requestFullscreen()
+  async function showFullscreen() {
     // Chromium can then capture keys like Win, Alt+Tab and Esc for the remote desktop.
-    const keyboard = (navigator as Navigator & { keyboard?: { lock?: () => Promise<void> } }).keyboard
-    await keyboard?.lock?.().catch(() => {})
+    await toggleFullscreen(areaRef.current)
     viewportRef.current?.focus()
   }
 
@@ -321,7 +312,7 @@ export function DesktopSession({ session, active, onShowHost, onEnded }: Desktop
             <Button variant="ghost" size="sm" onClick={sendCtrlAltDel}>
               Ctrl+Alt+Del
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => void toggleFullscreen()}>
+            <Button variant="ghost" size="sm" onClick={() => void showFullscreen()}>
               Fullscreen
             </Button>
           </>

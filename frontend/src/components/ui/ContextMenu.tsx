@@ -8,6 +8,8 @@ export type MenuEntry =
       label: string
       /** Secondary text, e.g. a port or an account name. */
       detail?: string
+      /** The keyboard shortcut that does the same, e.g. "Ctrl+E". */
+      shortcut?: string
       disabled?: boolean
       onSelect?: () => void
       submenu?: MenuEntry[]
@@ -244,6 +246,7 @@ function MenuList({ label, entries, anchor, onCloseAll, onBack, level }: MenuLis
                 aria-disabled={entry.disabled || undefined}
                 aria-haspopup={hasSubmenu ? 'menu' : undefined}
                 aria-expanded={hasSubmenu ? openIndex === index : undefined}
+                aria-keyshortcuts={entry.shortcut}
                 onClick={() => activate(index)}
                 onKeyDown={(event) => handleKeyDown(event, index)}
                 onPointerEnter={() => {
@@ -257,6 +260,7 @@ function MenuList({ label, entries, anchor, onCloseAll, onBack, level }: MenuLis
               >
                 <span className={styles.label}>{entry.label}</span>
                 {entry.detail ? <span className={styles.detail}>{entry.detail}</span> : null}
+                {entry.shortcut ? <kbd className={styles.shortcut}>{entry.shortcut}</kbd> : null}
                 {hasSubmenu ? (
                   <svg className={styles.chevron} viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
                     <path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />

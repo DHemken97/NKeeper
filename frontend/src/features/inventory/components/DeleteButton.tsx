@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import styles from './DeleteButton.module.css'
 
@@ -8,11 +8,22 @@ interface DeleteButtonProps {
   onConfirm: () => void
   loading: boolean
   disabled?: boolean
+  /** Ask now, as if clicked (the Delete key in the host tree); `onAsked` then clears it. */
+  askNow?: boolean
+  onAsked?: () => void
 }
 
 /** Two-step delete: the first click asks, the second deletes. */
-export function DeleteButton({ question, onConfirm, loading, disabled }: DeleteButtonProps) {
+export function DeleteButton({ question, onConfirm, loading, disabled, askNow, onAsked }: DeleteButtonProps) {
   const [confirming, setConfirming] = useState(false)
+  if (askNow && !disabled && !confirming) {
+    setConfirming(true)
+  }
+  useEffect(() => {
+    if (askNow) {
+      onAsked?.()
+    }
+  }, [askNow, onAsked])
 
   if (!confirming) {
     return (

@@ -1,12 +1,14 @@
 import { useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { ChangePasswordDialog } from '../../features/account/components/ChangePasswordDialog'
 import { useAuth } from '../../features/auth/context'
 import { isAdministrator } from '../../features/auth/types'
+import { useHotkeys } from '../../lib/hotkeys'
 import { Alert } from '../ui/Alert'
 import { ContextMenu } from '../ui/ContextMenu'
 import { Logo } from '../ui/Logo'
 import styles from './AppLayout.module.css'
+import { ShortcutsDialog } from './ShortcutsDialog'
 
 /** Shell for authenticated pages: a compact top bar, and the page filling the rest of the window. */
 export function AppLayout() {
@@ -16,6 +18,17 @@ export function AppLayout() {
   const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
   const admin = isAdministrator(user)
   const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const [showingShortcuts, setShowingShortcuts] = useState(false)
+
+  useHotkeys([
+    { keys: ['?', 'Ctrl+/'], run: () => setShowingShortcuts(true) },
+    // On the Hosts page itself, the workspace takes Alt+Shift+H to the tree, keeping the view.
+    { keys: 'Alt+Shift+H', run: () => navigate('/'), enabled: pathname !== '/' },
+    { keys: 'Alt+Shift+R', run: () => navigate('/reports') },
+    { keys: 'Alt+Shift+U', run: () => navigate('/users'), enabled: admin },
+    { keys: 'Alt+Shift+S', run: () => navigate('/settings'), enabled: admin },
+  ])
 
   async function handleSignOut() {
     setNotice(null)
@@ -88,11 +101,13 @@ export function AppLayout() {
             // A domain account's password is changed in Windows; single sign-on accounts have none.
             ...(user?.isDirectoryAccount || user?.isSingleSignOnAccount ? [] : [{ kind: 'item', label: 'Change password', onSelect: () => setChangingPassword(true) } as const]),
             ...(admin ? [{ kind: 'item', label: 'Move to a new server…', onSelect: () => navigate('/transfer') } as const] : []),
+            { kind: 'item', label: 'Keyboard shortcuts', shortcut: '?', onSelect: () => setShowingShortcuts(true) },
             { kind: 'separator' },
             { kind: 'item', label: 'Sign out', onSelect: () => void handleSignOut() },
           ]}
         />
       ) : null}
+      {showingShortcuts ? <ShortcutsDialog onClose={() => setShowingShortcuts(false)} /> : null}
       {changingPassword ? (
         <ChangePasswordDialog
           onClose={() => setChangingPassword(false)}

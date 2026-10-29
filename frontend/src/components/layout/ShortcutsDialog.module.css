@@ -1,0 +1,68 @@
+.sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: var(--space-5) var(--space-6);
+}
+
+.section {
+  min-width: 0;
+}
+
+.title {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-subtle);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.note {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+.list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  font-size: 0.875rem;
+}
+
+.keys {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1);
+  width: 9.5rem;
+}
+
+.kbd {
+  padding: 0.05rem 0.4rem;
+  background: var(--color-input);
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.or {
+  color: var(--color-text-subtle);
+  font-size: 0.75rem;
+}
+
+.what {
+  margin: 0;
+  color: var(--color-text-muted);
+}
