@@ -7,6 +7,8 @@ namespace NKeeper.Api.Tests.Infrastructure;
 /// <summary>
 /// An OpenSSH server made to look like a storage host: fake <c>iscsiadm</c> (two known targets, one
 /// logged in), <c>multipath</c> (two maps) and <c>drbdadm</c>/<c>drbdsetup</c> (r0 up, r1 down).
+/// It's also Proxmox node san-test (of san-test and node2), with fake <c>pvesm</c> and LVM tools:
+/// mpatha is blank, and the other map is volume group vgsan, storage san, used only by node2.
 /// Like the real tools, the fakes need root, which the (non-root) test user gets with sudo. Actions
 /// change the state, so tests <see cref="ResetAsync"/> it first. Tests are skipped, not passed,
 /// when Docker is unavailable.
@@ -41,10 +43,16 @@ public sealed class StorageServerFixture : IAsyncLifetime
                 .Build();
             await _container.StartAsync();
 
-            foreach (var tool in new[] { "iscsiadm", "multipath", "drbdadm", "drbdsetup" })
+            foreach (var tool in new[] { "iscsiadm", "multipath", "drbdadm", "drbdsetup", "pvesm" })
             {
                 await _container.CopyAsync(
                     await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Storage", $"fake-{tool}.sh")), $"/usr/local/bin/{tool}", fileMode: Executable);
+            }
+
+            var lvm = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Storage", "fake-lvm.sh"));
+            foreach (var tool in new[] { "pvs", "pvcreate", "vgcreate", "vgchange", "lvs", "blkid", "lsblk" })
+            {
+                await _container.CopyAsync(lvm, $"/usr/local/bin/{tool}", fileMode: Executable);
             }
 
             await ResetAsync();
@@ -70,8 +78,11 @@ public sealed class StorageServerFixture : IAsyncLifetime
     {
         var setup = await _container!.ExecAsync([
             "sh", "-c",
-            "set -e; rm -rf /var/lib/fake-iscsi /var/lib/fake-multipath /var/lib/fake-drbd"
-            + " && mkdir -p /etc/iscsi /var/lib/fake-iscsi /var/lib/fake-multipath /var/lib/fake-drbd"
+            "set -e; rm -rf /var/lib/fake-iscsi /var/lib/fake-multipath /var/lib/fake-drbd /var/lib/fake-lvm /etc/pve"
+            + " && mkdir -p /etc/iscsi /var/lib/fake-iscsi /var/lib/fake-multipath /var/lib/fake-drbd /var/lib/fake-lvm"
+            + " /etc/pve/nodes/san-test/qemu-server /etc/pve/nodes/san-test/lxc /etc/pve/nodes/node2/qemu-server"
+            + " && printf 'dir: local\\n\\tpath /var/lib/vz\\n\\nlvm: san\\n\\tvgname vgsan\\n\\tcontent rootdir,images\\n\\tnodes node2\\n\\tshared 1\\n' > /etc/pve/storage.cfg"
+            + " && echo '/dev/mapper/36001405bbbbbbbbbbbbbbbbbbbbbbbbb|vgsan' > /var/lib/fake-lvm/pvs"
             + " && echo 'InitiatorName=iqn.1993-08.org.debian:01:san-test' > /etc/iscsi/initiatorname.iscsi && chmod 600 /etc/iscsi/initiatorname.iscsi"
             + " && printf '10.0.0.5:3260,1 iqn.2003-01.org.example.san:disk1\\n10.0.0.5:3260,1 iqn.2003-01.org.example.san:disk2\\n' > /var/lib/fake-iscsi/nodes"
             + " && echo '10.0.0.5:3260 iqn.2003-01.org.example.san:disk1' > /var/lib/fake-iscsi/sessions"

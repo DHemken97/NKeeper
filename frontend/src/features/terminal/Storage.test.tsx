@@ -179,6 +179,84 @@ describe('storage (iSCSI, multipath, DRBD)', () => {
     expect(actions).toEqual([expect.objectContaining({ action: 'iscsi.logout', target: 'iqn.2003-01.org.example.san:disk1', portal: '10.0.0.5:3260' })])
   })
 
+  it('on a Proxmox node, mounts a blank multipath map as new LVM storage, then guards what it’s on', async () => {
+    const lvm = { map: 'mpatha', volumeGroup: null, signature: null, storage: null, mounted: false }
+    const proxmox = (maps: unknown[]) => ({ node: 'app01', clusterNodes: ['app01'], allStorage: ['local'], storages: [], maps })
+    const actions: Record<string, unknown>[] = []
+    const { user } = renderWorkspace({
+      'POST /api/storage/status': () => ready({ ...status, proxmox: proxmox([lvm]) }),
+      'POST /api/storage/action': (_url, init) => {
+        actions.push(JSON.parse(String(init.body)))
+        const mounted = { ...lvm, volumeGroup: 'san-vms', storage: 'san-vms', mounted: true }
+        return ready({ ...status, proxmox: proxmox([mounted]) }, 'Mounted mpatha as Proxmox LVM storage san-vms (volume group san-vms) on app01.')
+      },
+    })
+
+    const panel = await openStorage(user)
+    const multipath = await within(panel).findByRole('region', { name: 'Multipath' })
+    const row = within(multipath).getByRole('row', { name: /mpatha/ })
+    expect(row).toHaveTextContent('Blank')
+    expect(within(row).getByRole('button', { name: 'Flush' })).toBeInTheDocument()
+    await user.click(within(row).getByRole('button', { name: 'Mount LVM' }))
+
+    // The storage ID is suggested from the map's iSCSI target.
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('looks blank')
+    const id = within(dialog).getByLabelText('Storage ID')
+    expect(id).toHaveValue('disk1')
+    await user.clear(id)
+    await user.type(id, 'san-vms')
+    await user.click(within(dialog).getByRole('button', { name: 'Initialize and mount' }))
+
+    expect(await within(panel).findByText(/Mounted mpatha/)).toBeInTheDocument()
+    expect(actions).toEqual([expect.objectContaining({ action: 'lvm.mount', name: 'mpatha', storage: 'san-vms' })])
+    const mountedRow = within(multipath).getByRole('row', { name: /mpatha/ })
+    expect(mountedRow).toHaveTextContent('Storage san-vms (VG san-vms)')
+    expect(within(mountedRow).getByRole('button', { name: 'Unmount LVM' })).toBeInTheDocument()
+    expect(within(mountedRow).queryByRole('button', { name: 'Flush' })).not.toBeInTheDocument()
+
+    // Its only path can't log out while it's mounted.
+    const disk1 = within(within(panel).getByRole('region', { name: 'iSCSI' })).getByRole('row', { name: /disk1/ })
+    expect(within(disk1).getByRole('button', { name: 'Log out' })).toBeDisabled()
+    expect(disk1).toHaveTextContent('mpatha is mounted: unmount it first')
+  })
+
+  it('logs in to a target and mounts its map on the storage its volume group already has', async () => {
+    const disk2 = 'iqn.2003-01.org.example.san:disk2'
+    const before = {
+      ...status,
+      proxmox: { node: 'app01', clusterNodes: ['app01', 'app02'], allStorage: ['san'], storages: [], maps: [] },
+    }
+    const after = {
+      ...before,
+      iscsi: { ...status.iscsi, sessions: [...status.iscsi.sessions, { target: disk2, portal: '10.0.0.5:3260', state: 'LOGGED_IN', disks: ['sdd'] }] },
+      multipath: [
+        ...status.multipath,
+        { name: 'mpathb', wwid: '36001405bbbb', dmDevice: 'dm-1', product: null, size: '2T', paths: [{ address: '5:0:0:0', device: 'sdd', dmState: 'active', pathState: 'ready', onlineState: 'running' }] },
+      ],
+      proxmox: { ...before.proxmox, maps: [{ map: 'mpathb', volumeGroup: 'vgsan', signature: null, storage: 'san', mounted: false }] },
+    }
+    const actions: Record<string, unknown>[] = []
+    const { user } = renderWorkspace({
+      'POST /api/storage/status': () => ready(before),
+      'POST /api/storage/action': (_url, init) => {
+        actions.push(JSON.parse(String(init.body)))
+        return ready(after, actions.length === 1 ? 'Logged in.' : 'Mounted mpathb.')
+      },
+    })
+
+    const panel = await openStorage(user)
+    const row = within(await within(panel).findByRole('region', { name: 'iSCSI' })).getByRole('row', { name: /disk2/ })
+    await user.click(within(row).getByRole('button', { name: 'Log in & mount LVM' }))
+
+    expect(await within(panel).findByText('Mounted mpathb.')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(actions).toEqual([
+      expect.objectContaining({ action: 'iscsi.login', target: disk2, portal: '10.0.0.5:3260' }),
+      expect.objectContaining({ action: 'lvm.mount', name: 'mpathb' }),
+    ])
+  })
+
   it('brings a DRBD resource up straight away, and says when no storage tools are installed', async () => {
     const actions: Record<string, unknown>[] = []
     const { user } = renderWorkspace({
