@@ -342,6 +342,35 @@ describe('SQL Server', () => {
     expect(sessions.bodies[2]).toMatchObject({ database: 'Sales' })
   })
 
+  it('opens each Management tool as its own tab, by double-click or right-click ▸ Open', async () => {
+    const sessions = sessionRoutes()
+    const { user } = renderWorkspace({
+      ...sessions.routes,
+      'GET /api/mssql/sessions/main/blocking': () => jsonResponse(200, { leads: [], blockedCount: 0, canSeeAllSessions: true, atUtc: '2026-11-03T12:00:00Z' }),
+      'GET /api/mssql/sessions/main/orphans': () => jsonResponse(200, { users: [], owners: [], logins: [], skipped: [], databasesChecked: 3 }),
+    })
+    await openSql(user)
+
+    const tree = await screen.findByRole('tree', { name: 'Objects' })
+    await user.dblClick(await within(tree).findByText('Management'))
+    await user.dblClick(await within(tree).findByText('Blocking Manager'))
+    expect(await screen.findByRole('tab', { name: 'Blocking Manager' })).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.contextMenu(within(tree).getByText('Orphaned Users'))
+    await user.click(screen.getByRole('menuitem', { name: 'Open' }))
+    expect(await screen.findByRole('tab', { name: 'Orphaned Users' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel', { name: 'Orphaned Users' })).toBeVisible()
+    const blockingPanel = screen.getAllByRole('tabpanel', { hidden: true }).find((panel) => panel.getAttribute('aria-label') === 'Blocking Manager')
+    expect(blockingPanel).not.toBeVisible()
+
+    // Opening one again goes back to its tab rather than opening another.
+    await user.dblClick(within(tree).getByText('Blocking Manager'))
+    expect(screen.getByRole('tab', { name: 'Blocking Manager' })).toHaveAttribute('aria-selected', 'true')
+    await user.dblClick(within(tree).getByText('Orphaned Users'))
+    expect(screen.getByRole('tab', { name: 'Orphaned Users' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getAllByRole('tab', { name: /Blocking Manager|Orphaned Users/ })).toHaveLength(2)
+  })
+
   it('finds orphaned users under Management, maps them to their logins, and creates a missing login', async () => {
     const sessions = sessionRoutes()
     const fixes: Record<string, unknown>[] = []
