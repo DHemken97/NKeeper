@@ -85,6 +85,16 @@ internal static class WindowsInternalScan
             notes.Add("The listening ports couldn't be read (this needs Windows 8 or Server 2012 or later).");
         }
 
+        IReadOnlyList<FoundSqlInstance> sqlInstances = [];
+        try
+        {
+            sqlInstances = SqlInstances(Connect(target.Address, @"root\default", options));
+        }
+        catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or COMException)
+        {
+            notes.Add($"SQL Server instances couldn't be read from the registry ({ex.Message}).");
+        }
+
         var users = new List<ScannedUser>();
         foreach (var account in Select(cimv2, "SELECT Name, FullName, SID FROM Win32_UserAccount WHERE LocalAccount = TRUE AND Disabled = FALSE AND Lockout = FALSE"))
         {
@@ -99,10 +109,69 @@ internal static class WindowsInternalScan
         var modules = Select(cimv2, "SELECT Capacity FROM Win32_PhysicalMemory").Select(m => m["Capacity"] is ulong capacity ? capacity : 0UL);
         var bios = Select(cimv2, "SELECT SerialNumber FROM Win32_BIOS").FirstOrDefault();
         return new ScanFindings(
-            hostname, ip, mac, osName, [.. ports.Select(ScanPorts.Describe)], false, users, notes, virtualization, [], [],
+            hostname, ip, mac, osName, SqlServerInstances.Apply(ports.Select(ScanPorts.Describe), sqlInstances, notes), false, users, notes, virtualization, [], [],
             WmiMapping.Cpus(system?["NumberOfLogicalProcessors"] is uint cpus ? cpus : null),
             WmiMapping.MemoryMiB(modules, system?["TotalPhysicalMemory"] is ulong total ? total : null),
             WmiMapping.Serial(Text(bios, "SerialNumber"), virtualization));
+    }
+
+    private const uint LocalMachine = 0x80000002;
+    private const string SqlServerKey = @"SOFTWARE\Microsoft\Microsoft SQL Server";
+
+    /// <summary>
+    /// SQL Server's instances from its registry (StdRegProv, read only): each name under
+    /// Instance Names\SQL, and its TCP settings (enabled; IPAll's static and dynamic ports).
+    /// </summary>
+    private static List<FoundSqlInstance> SqlInstances(ManagementScope scope)
+    {
+        using var registry = new ManagementClass(scope, new ManagementPath("StdRegProv"), null);
+        string[]? Names(string key)
+        {
+            using var input = registry.GetMethodParameters("EnumValues");
+            input["hDefKey"] = LocalMachine;
+            input["sSubKeyName"] = key;
+            using var output = registry.InvokeMethod("EnumValues", input, null);
+            return output?["sNames"] as string[];
+        }
+
+        string? Text(string key, string name)
+        {
+            using var input = registry.GetMethodParameters("GetStringValue");
+            input["hDefKey"] = LocalMachine;
+            input["sSubKeyName"] = key;
+            input["sValueName"] = name;
+            using var output = registry.InvokeMethod("GetStringValue", input, null);
+            return output?["sValue"] as string;
+        }
+
+        uint? Number(string key, string name)
+        {
+            using var input = registry.GetMethodParameters("GetDWORDValue");
+            input["hDefKey"] = LocalMachine;
+            input["sSubKeyName"] = key;
+            input["sValueName"] = name;
+            using var output = registry.InvokeMethod("GetDWORDValue", input, null);
+            return output?["uValue"] as uint?;
+        }
+
+        var instances = new List<FoundSqlInstance>();
+        var namesKey = $@"{SqlServerKey}\Instance Names\SQL";
+        foreach (var name in Names(namesKey) ?? [])
+        {
+            if (Text(namesKey, name) is not { Length: > 0 } id)
+            {
+                continue;
+            }
+
+            var tcp = $@"{SqlServerKey}\{id}\MSSQLServer\SuperSocketNetLib\Tcp";
+            instances.Add(new FoundSqlInstance(
+                name,
+                SqlServerInstances.Port(Text($@"{tcp}\IPAll", "TcpPort")),
+                SqlServerInstances.Port(Text($@"{tcp}\IPAll", "TcpDynamicPorts")),
+                Number(tcp, "Enabled") is not 0));
+        }
+
+        return instances;
     }
 
     private static ManagementScope Connect(string address, string path, ConnectionOptions options)

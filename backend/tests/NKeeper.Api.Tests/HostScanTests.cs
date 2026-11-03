@@ -97,6 +97,61 @@ public sealed class HostScanTests(PostgresServerFixture postgres, SshServerFixtu
         Assert.Equal([("10.0.0.1", "AA:BB:CC:00:00:01"), ("10.0.0.42", "DE:AD:BE:EF:00:42")], findings.Neighbors.Select(n => (n.IpAddress, n.MacAddress)));
     }
 
+    [Fact]
+    public void SqlServerInstances_AreOfferedWithTheirInstanceAndPort_AndProblemsExplained()
+    {
+        var notes = new List<string>();
+        var ports = SqlServerInstances.Apply(
+            [ScanPorts.Describe(22), ScanPorts.Describe(1433), ScanPorts.Describe(49712)],
+            [
+                new FoundSqlInstance("MSSQLSERVER", 1433, null, true),
+                new FoundSqlInstance("SQLEXPRESS", null, 49712, true),
+                new FoundSqlInstance("REPORTING", 14330, 49800, true),
+                new FoundSqlInstance("OLD", 1500, null, false),
+                new FoundSqlInstance("NEVERSTARTED", null, null, true),
+            ],
+            notes);
+
+        Assert.Equal([22, 1433, 14330, 49712], ports.Select(p => p.Port));
+        var sql = ports.Where(p => p.Protocol == ServiceProtocol.Ssms).ToList();
+        Assert.Equal([(1433, (string?)null, "SQL Server (default instance)"), (14330, "REPORTING", "SQL Server (REPORTING)"), (49712, "SQLEXPRESS", "SQL Server (SQLEXPRESS)")],
+            sql.Select(p => (p.Port, p.Instance, p.Name!)));
+        Assert.Contains(notes, n => n.Contains("SQLEXPRESS", StringComparison.Ordinal) && n.Contains("dynamic port (49712 now)", StringComparison.Ordinal));
+        Assert.Contains(notes, n => n.Contains("SQL Server (OLD) has TCP/IP turned off", StringComparison.Ordinal));
+        Assert.Contains(notes, n => n.Contains("NEVERSTARTED", StringComparison.Ordinal) && n.Contains("no TCP port yet", StringComparison.Ordinal));
+        // A static port wins over the dynamic one it last used.
+        Assert.DoesNotContain(notes, n => n.Contains("REPORTING", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("1433", 1433)]
+    [InlineData(" 49712 ", 49712)]
+    [InlineData("1433,1434", 1433)]
+    [InlineData("", null)]
+    [InlineData("0", null)]
+    [InlineData(null, null)]
+    public void SqlServerRegistryPorts_AreRead(string? value, int? port) => Assert.Equal(port, SqlServerInstances.Port(value));
+
+    [Fact]
+    public void SqlServerOnLinux_IsFoundFromItsProcessAndConfiguration()
+    {
+        var output = UbuntuOutput.Replace("@@libvirt\n", "@@libvirt\n@@sqlserver\ninstalled\ntcpport 14333\nlisten 0.0.0.0:14333\nlisten 127.0.0.1:1431\n", StringComparison.Ordinal)
+            .Replace("@@uidmin", "LISTEN 0      4096         0.0.0.0:14333      0.0.0.0:*\n@@uidmin", StringComparison.Ordinal);
+
+        var findings = InternalScan.Parse(output);
+
+        var sql = Assert.Single(findings.Ports, p => p.Protocol == ServiceProtocol.Ssms);
+        Assert.Equal((14333, (string?)null, "SQL Server (default instance)"), (sql.Port, sql.Instance, sql.Name));
+
+        // Installed but not running: said so, and still offered on its port.
+        var stopped = InternalScan.Parse(UbuntuOutput.Replace("@@libvirt\n", "@@libvirt\n@@sqlserver\ninstalled\n", StringComparison.Ordinal));
+        Assert.Equal(1433, Assert.Single(stopped.Ports, p => p.Protocol == ServiceProtocol.Ssms).Port);
+        Assert.Contains(stopped.Notes, n => n.Contains("isn't listening on port 1433", StringComparison.Ordinal));
+
+        // No SQL Server: nothing about it.
+        Assert.DoesNotContain(InternalScan.Parse(UbuntuOutput).Ports, p => p.Protocol == ServiceProtocol.Ssms);
+    }
+
     [Theory]
     // ip neigh show
     [InlineData("10.0.0.5 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE", "10.0.0.5", "AA:BB:CC:DD:EE:FF")]

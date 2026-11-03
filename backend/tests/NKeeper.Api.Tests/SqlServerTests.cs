@@ -57,6 +57,21 @@ public sealed class SqlServerTests(PostgresServerFixture postgres, SqlServerFixt
     }
 
     [Fact]
+    public async Task InternalScanScript_FindsSqlServerOnARealLinuxSqlServer()
+    {
+        sql.SkipIfUnavailable();
+
+        // The scan's own script, run on the SQL Server container as its service account.
+        var output = await sql.RunShellAsync(NKeeper.Api.Inventory.Scanning.InternalScan.Script);
+        var findings = NKeeper.Api.Inventory.Scanning.InternalScan.Parse(output);
+
+        var found = Assert.Single(findings.Ports, p => p.Protocol == ServiceProtocol.Ssms);
+        Assert.Equal(1433, found.Port);
+        Assert.Null(found.Instance);
+        Assert.Equal("SQL Server (default instance)", found.Name);
+    }
+
+    [Fact]
     public async Task Open_AsksToTrustTheServersCertificate_ThenSignsIn()
     {
         sql.SkipIfUnavailable();
@@ -269,6 +284,38 @@ public sealed class SqlServerTests(PostgresServerFixture postgres, SqlServerFixt
         await running.WaitAsync(TimeSpan.FromSeconds(30), Ct);
         Assert.False(await ConnectedAsync(busySpid));
         Assert.Equal(0, await NKeeperConnectionsAsync());
+    }
+
+    [Fact]
+    public async Task ASessionWhoseBrowserWentAway_IsClosed_EvenMidQuery()
+    {
+        sql.SkipIfUnavailable();
+        var clock = new ManualClock();
+        await using var factory = new NKeeperApiFactory(
+            await postgres.CreateDatabaseAsync(Ct), configureServices: services => services.AddSingleton<TimeProvider>(clock));
+        var admin = await factory.CreateSignedInClientAsync(Ct);
+        var host = await CreateHostAsync(admin);
+        var opened = await OpenSessionAsync(admin, host);
+        var session = opened.GetProperty("sessionId").GetString()!;
+        var spid = opened.GetProperty("server").GetProperty("sessionId").GetInt32();
+        var store = factory.Services.GetRequiredService<NKeeper.Api.SqlServer.SqlServerSessionStore>();
+
+        // While the tab checks in, the session stays open, however long it's been.
+        clock.Advance(TimeSpan.FromMinutes(2));
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.SendJsonAsync(HttpMethod.Post, $"/api/mssql/sessions/{session}/keepalive", null, Ct)).StatusCode);
+        clock.Advance(TimeSpan.FromMinutes(2));
+        store.RemoveExpired();
+        Assert.True(await ConnectedAsync(spid));
+
+        // The browser goes away in the middle of a long query: no more check-ins.
+        var running = admin.SendJsonAsync(HttpMethod.Post, $"/api/mssql/sessions/{session}/query", new { sql = "WAITFOR DELAY '00:10:00';" }, Ct);
+        await Task.Delay(1000, Ct);
+        clock.Advance(TimeSpan.FromMinutes(4));
+        store.RemoveExpired();
+
+        await running.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+        Assert.False(await ConnectedAsync(spid));
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.SendJsonAsync(HttpMethod.Post, $"/api/mssql/sessions/{session}/keepalive", null, Ct)).StatusCode);
     }
 
     /// <summary>Whether SQL Server still has NKeeper's connection with this SPID.</summary>
@@ -572,9 +619,24 @@ public sealed class SqlServerTests(PostgresServerFixture postgres, SqlServerFixt
         Assert.Contains($"KILL {leadId}", audit.GetRawText(), StringComparison.Ordinal);
     }
 
-    private async Task<HostResponse> CreateHostAsync()
+    private static async Task<JsonElement> OpenSessionAsync(HttpClient client, HostResponse host)
     {
-        var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        async Task<JsonElement> Post(object body)
+        {
+            var response = await client.SendJsonAsync(HttpMethod.Post, "/api/mssql/sessions", body, Ct);
+            Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(Ct));
+            return await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        }
+
+        var first = await Post(Request(host));
+        return first.GetProperty("status").GetString() == "ready"
+            ? first
+            : await Post(Request(host, trust: first.GetProperty("certificate").GetProperty("fingerprint").GetString()));
+    }
+
+    private async Task<HostResponse> CreateHostAsync(HttpClient? client = null)
+    {
+        var response = await (client ?? _admin).SendJsonAsync(HttpMethod.Post, "/api/hosts", new
         {
             name = "sql01",
             ipAddress = SqlServerFixture.Address,

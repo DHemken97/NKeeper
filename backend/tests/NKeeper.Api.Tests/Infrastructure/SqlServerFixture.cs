@@ -60,6 +60,13 @@ public sealed class SqlServerFixture : IAsyncLifetime
         return connection;
     }
 
+    /// <summary>Runs a shell script in the server's container (as its service account), returning what it printed.</summary>
+    public async Task<string> RunShellAsync(string script)
+    {
+        var result = await _container!.ExecAsync(["sh", "-c", script]);
+        return result.Stdout;
+    }
+
     public async Task ExecuteAsync(string sql, string database = "master", CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(database, cancellationToken);

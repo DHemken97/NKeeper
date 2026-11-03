@@ -84,9 +84,12 @@ public sealed class WebProxySettings
     [RegularExpression(@"^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$")]
     public string? BaseDomain { get; set; }
 
-    /// <summary>A session ends after this long without requests.</summary>
+    /// <summary>
+    /// A session ends after this long without requests or a keep-alive from its open NKeeper tab (sent
+    /// every minute), e.g. after the browser crashed or lost the network.
+    /// </summary>
     [Range(typeof(TimeSpan), "00:01:00", "1.00:00:00")]
-    public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(30);
+    public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(3);
 
     /// <summary>A session ends this long after it started, regardless of activity.</summary>
     [Range(typeof(TimeSpan), "00:05:00", "7.00:00:00")]

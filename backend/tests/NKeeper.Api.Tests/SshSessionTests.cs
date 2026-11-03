@@ -66,6 +66,35 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
         await second.ExpectAsync("connected", Ct);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ClosingTheTab_OrLosingTheBrowser_ClosesTheSshConnection(bool abort)
+    {
+        var host = await CreateHostAsync(new { username = SshServerFixture.UserName, password = SshServerFixture.Password });
+        await using (var trust = await StartAsync(host, credentialIndex: 0))
+        {
+            await trust.ExpectAsync("status", Ct);
+            await trust.ExpectAsync("hostKey", Ct);
+            await trust.SendJsonAsync(new { type = "hostKeyDecision", trust = true }, Ct);
+            await trust.ExpectAsync("connected", Ct);
+        }
+
+        var before = await ContainerConnections.WaitForAsync(ssh.OpenConnectionsAsync, 0, Ct);
+        var terminal = await StartAsync(host, credentialIndex: 0);
+        await terminal.ExpectAsync("status", Ct);
+        await terminal.ExpectAsync("connected", Ct);
+        Assert.Equal(before + 1, await ssh.OpenConnectionsAsync());
+
+        if (abort)
+        {
+            terminal.Abort();
+        }
+
+        await terminal.DisposeAsync();
+        Assert.Equal(before, await ContainerConnections.WaitForAsync(ssh.OpenConnectionsAsync, before, Ct));
+    }
+
     [Fact]
     public async Task RejectingTheHostKey_EndsTheSessionAndTrustsNothing()
     {

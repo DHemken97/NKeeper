@@ -179,6 +179,18 @@ public sealed class WebSessionStore(IOptions<WebProxySettings> settings, TimePro
         return true;
     }
 
+    /// <summary>The user's open NKeeper tab says the session is still in use (the site itself may be idle).</summary>
+    public bool TouchOwned(string id, Guid userId)
+    {
+        if (!_sessions.TryGetValue(id, out var session) || session.UserId != userId)
+        {
+            return false;
+        }
+
+        session.LastSeenUtc = timeProvider.GetUtcNow();
+        return true;
+    }
+
     /// <summary>Ends a session only if it belongs to the user (closing from the NKeeper tab).</summary>
     public bool EndOwned(string id, Guid userId) =>
         _sessions.TryGetValue(id, out var session) && session.UserId == userId && End(id, "closed by the user");

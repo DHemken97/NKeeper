@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { Spinner } from '../../../components/ui/Spinner'
 import { ApiError } from '../../../lib/api'
+import { useCloseOnPageExit } from '../../../lib/pageExit'
 import type { SessionRequest } from '../../terminal/types'
 import { errorHeading, formatElapsed, lineRange, outputText, scriptToRun } from '../format'
 import { sqlServerApi, type SqlQueryResult } from '../sqlServerApi'
@@ -106,6 +107,7 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
   }, [attempt])
 
   const sessionId = connection.state === 'ready' ? connection.id : null
+  useCloseOnPageExit(sessionId ? `/api/mssql/sessions/${sessionId}` : null)
   useKeepAlive(sessionId, () => setConnection({ state: 'ended', message: 'This window’s connection has ended.' }))
 
   useEffect(() => {

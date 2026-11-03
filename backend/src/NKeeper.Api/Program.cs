@@ -44,7 +44,9 @@ app.UseRateLimiter();
 app.UseAuthorization();
 
 // Remote sessions (/api/ssh/session, /api/rdp/session). Pings keep idle sessions alive through proxies.
-app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
+// Every 30 seconds each session's WebSocket is pinged; a browser that doesn't answer within 30 more
+// (asleep, off the network, powered off) is dropped, and its session and connection to the host end.
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30), KeepAliveTimeout = TimeSpan.FromSeconds(30) });
 
 if (app.Environment.IsDevelopment())
 {

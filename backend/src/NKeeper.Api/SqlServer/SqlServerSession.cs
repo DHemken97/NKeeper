@@ -149,8 +149,11 @@ public sealed class SqlServerSessionStore(TimeProvider timeProvider, Auditing.Au
     /// <summary>Each query window is a session of its own (as in SSMS), plus one per tab for its explorer.</summary>
     public const int MaxSessionsPerUser = 30;
 
-    /// <summary>An open tab keeps its session alive; one not heard from for this long is closed (e.g. the browser went away).</summary>
-    internal static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(15);
+    /// <summary>
+    /// An open tab says it's there every minute; a session not heard from for this long is closed, even
+    /// mid-query (the browser went away: crashed, asleep or off the network), so no connection is left behind.
+    /// </summary>
+    internal static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(3);
 
     private static readonly TimeSpan MaxLifetime = TimeSpan.FromHours(24);
 
@@ -213,7 +216,7 @@ public sealed class SqlServerSessionStore(TimeProvider timeProvider, Auditing.Au
     {
         var now = timeProvider.GetUtcNow();
         foreach (var session in _sessions.Values.Where(s =>
-            (!s.IsRunning && now - s.LastActivityUtc > IdleTimeout) || now - s.CreatedAtUtc > MaxLifetime).ToList())
+            now - s.LastActivityUtc > IdleTimeout || now - s.CreatedAtUtc > MaxLifetime).ToList())
         {
             _ = EndAsync(session.Id, "expired");
         }

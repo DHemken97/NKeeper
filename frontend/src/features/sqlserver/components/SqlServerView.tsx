@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { ApiError } from '../../../lib/api'
+import { useCloseOnPageExit } from '../../../lib/pageExit'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from '../../terminal/components/SessionChrome'
 import sessionStyles from '../../terminal/components/Session.module.css'
 import type { HostKeyMessage, RemoteSession, SessionPhase } from '../../terminal/types'
@@ -136,6 +137,7 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
     }
   }, [session.request, attempt])
 
+  useCloseOnPageExit(main ? `/api/mssql/sessions/${main.id}` : null)
   useKeepAlive(main?.id ?? null, () => setPhase({ kind: 'ended', message: 'This SQL Server session has ended. Connect again.' }))
 
   useEffect(() => {

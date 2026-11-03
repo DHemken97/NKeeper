@@ -28,7 +28,7 @@ The API reads `appsettings.json`, `appsettings.{Environment}.json`, user secrets
 | `ForwardedHeaders__ForwardLimit` | `1` | Proxy hops to unwind (`2` with another TLS proxy in front of the bundled nginx) |
 | `Guacd__Host` / `Guacd__Port` | `localhost` / `4822` | Where guacd listens (`guacd` in Compose; `127.0.0.1` in native installs) |
 | `WebProxy__BaseDomain` | empty = `web.<the name NKeeper is opened with>` | Parent domain of web-session origins (`nkw-<id>.<domain>`). Must have a wildcard DNS record. |
-| `WebProxy__IdleTimeout` | `00:30:00` | A web session ends after this long without requests |
+| `WebProxy__IdleTimeout` | `00:03:00` | A web session ends after this long without requests or a check-in from its open NKeeper tab (sent every minute), i.e. once the browser has gone away |
 | `WebProxy__MaxLifetime` | `12:00:00` | A web session ends this long after it started |
 | `BootstrapAdmin__Enabled`, `__AllowOutsideDevelopment`, `__UserName`, `__Email`, `__Password` | disabled | First administrator; see [Administration](administration.md#the-first-administrator) |
 | `ActiveDirectory__Enabled` | `false` | Let users sign in with their domain account; see [Administration](administration.md#active-directory-sign-in) |

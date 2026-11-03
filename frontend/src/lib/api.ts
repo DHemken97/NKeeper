@@ -60,11 +60,14 @@ interface AntiforgeryToken {
 }
 
 let antiforgeryToken: Promise<AntiforgeryToken> | null = null
+/** The token once it has arrived, for requests that can't wait for it (as the page closes). */
+let currentAntiforgeryToken: AntiforgeryToken | null = null
 const unauthorizedListeners = new Set<() => void>()
 
 /** Antiforgery tokens are bound to the signed-in user, so call this after login and logout. */
 export function resetAntiforgeryToken(): void {
   antiforgeryToken = null
+  currentAntiforgeryToken = null
 }
 
 /** Subscribe to 401 responses (session expired or revoked). Returns an unsubscribe function. */
@@ -74,10 +77,16 @@ export function onUnauthorized(listener: () => void): () => void {
 }
 
 function getAntiforgeryToken(): Promise<AntiforgeryToken> {
-  antiforgeryToken ??= send<AntiforgeryToken>('GET', '/api/auth/antiforgery', {}).catch((error: unknown) => {
-    antiforgeryToken = null
-    throw error
-  })
+  antiforgeryToken ??= send<AntiforgeryToken>('GET', '/api/auth/antiforgery', {}).then(
+    (token) => {
+      currentAntiforgeryToken = token
+      return token
+    },
+    (error: unknown) => {
+      antiforgeryToken = null
+      throw error
+    },
+  )
   return antiforgeryToken
 }
 
@@ -165,6 +174,22 @@ export function apiWebSocketUrl(path: string): string {
   const url = new URL(`${API_BASE_URL}${path}`, window.location.origin)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.toString()
+}
+
+/**
+ * Sends a DELETE while the page is closing: started at once and kept going after the page is gone
+ * (fetch keepalive), with the antiforgery token already held. Nothing to wait for or handle.
+ */
+export function deleteOnPageExit(path: string): void {
+  const headers: Record<string, string> = {}
+  if (currentAntiforgeryToken) {
+    headers[currentAntiforgeryToken.headerName] = currentAntiforgeryToken.token
+  }
+  try {
+    void fetch(`${API_BASE_URL}${path}`, { method: 'DELETE', headers, credentials: 'include', keepalive: true }).catch(() => {})
+  } catch {
+    // The page is going away; the server closes what it doesn't hear from.
+  }
 }
 
 export const api = {

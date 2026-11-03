@@ -24,6 +24,9 @@ public sealed class SshServerFixture : IAsyncLifetime
 
     public int Port => _container!.GetMappedPublicPort(SshPort);
 
+    /// <summary>SSH connections the server has open now.</summary>
+    public Task<int> OpenConnectionsAsync() => ContainerConnections.EstablishedAsync(_container!, SshPort);
+
     /// <summary>An unencrypted OpenSSH ed25519 private key authorized for <see cref="UserName"/>.</summary>
     public string PrivateKey { get; private set; } = string.Empty;
 

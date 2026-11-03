@@ -286,6 +286,8 @@ export interface ScannedPort {
   port: number
   name: string | null
   protocol: ServiceProtocol | null
+  /** A SQL Server instance's port: its named instance (null for the default instance). */
+  instance?: string | null
 }
 
 /** A local account that can log in, found by an internal scan. */

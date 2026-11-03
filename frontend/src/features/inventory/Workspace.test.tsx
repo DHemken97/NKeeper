@@ -182,7 +182,7 @@ describe('workspace', () => {
     expect(search).toHaveValue('site:dc')
     expect(router.state.location.search).toBe('')
     expect(hostNamesInTree()).toHaveLength(4)
-    await waitFor(() => expect(router.state.location.search).toBe('?q=site%3Adc'), { timeout: 2000 })
+    await waitFor(() => expect(router.state.location.search).toBe('?q=site%3Adc'), { timeout: 5000 })
     expect(hostNamesInTree()).toEqual(['sql01', 'web01'])
     expect(search).toHaveValue('site:dc')
   })

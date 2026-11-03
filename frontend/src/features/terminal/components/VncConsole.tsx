@@ -1,6 +1,7 @@
 import RFB from '@novnc/novnc'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
+import { closeOnPageExit } from '../../../lib/pageExit'
 import { api, ApiError, apiWebSocketUrl } from '../../../lib/api'
 import { certificatePrompt, hostKeyPrompt, kvmRequestBody, proxmoxConsoleBody, type CertificatePrompt, type HostKeyPrompt } from '../kvm'
 import { typeIntoVnc } from '../typeText'
@@ -46,6 +47,7 @@ export function VncConsole({ session, active, onShowHost, via = 'kvm' }: VncCons
     const screen = screenRef.current!
     let cancelled = false
     let sessionId: string | null = null
+    let forgetOnExit: (() => void) | null = null
     let connected = false
 
     const stop = () => {
@@ -83,6 +85,7 @@ export function VncConsole({ session, active, onShowHost, via = 'kvm' }: VncCons
         }
 
         sessionId = response.sessionId!
+        forgetOnExit = closeOnPageExit(`/api/vnc/consoles/${sessionId}`)
         const password = response.password
         let rfb: RFB
         try {
@@ -137,6 +140,7 @@ export function VncConsole({ session, active, onShowHost, via = 'kvm' }: VncCons
       cancelled = true
       stop()
       // Closing the tab ends the console (and its SSH tunnel) on the server.
+      forgetOnExit?.()
       if (sessionId) {
         void api.delete(`/api/vnc/consoles/${sessionId}`).catch(() => {})
       }

@@ -183,6 +183,9 @@ public sealed class TerminalClient : IAsyncDisposable
         return timeout;
     }
 
+    /// <summary>Drops the connection without closing it, as a crashed or killed browser tab does.</summary>
+    public void Abort() => _socket.Abort();
+
     public async ValueTask DisposeAsync()
     {
         if (_socket.State == WebSocketState.Open)

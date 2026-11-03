@@ -53,8 +53,9 @@ const opened = (sessionId: string, spid = 51, database = 'master') =>
 function sessionRoutes(trustFirst = false) {
   const bodies: Record<string, unknown>[] = []
   const closed: string[] = []
-  const close = (id: string) => () => {
-    closed.push(id)
+  const close = (id: string) => (_url: string, init: RequestInit) => {
+    // Sent as the page closes: it must outlive the page (keepalive).
+    closed.push(init.keepalive ? `${id} (page closed)` : id)
     return new Response(null, { status: 204 })
   }
   let next = 0
@@ -261,6 +262,18 @@ describe('SQL Server', () => {
     // Closing the tab closes the rest: the explorer's and the remaining window's.
     await user.click(screen.getByRole('button', { name: 'Close sql01' }))
     await waitFor(() => expect([...sessions.closed].sort()).toEqual(['main', 'win1', 'win2']))
+  })
+
+  it('closes every connection when the browser tab or window closes, not only the NKeeper tab', async () => {
+    const sessions = sessionRoutes()
+    const { user } = renderWorkspace(sessions.routes)
+    await openSql(user)
+    const tab = await screen.findByRole('tabpanel', { name: 'sql01 SQL Server' })
+    await within(tab).findByText('sa (53)')
+
+    window.dispatchEvent(new Event('pagehide'))
+
+    await waitFor(() => expect([...sessions.closed].sort()).toEqual(['main (page closed)', 'win1 (page closed)']))
   })
 
   it('runs the query with F5, shows grids, messages with the error’s line, and text', async () => {

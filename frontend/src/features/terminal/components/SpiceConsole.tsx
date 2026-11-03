@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
+import { closeOnPageExit } from '../../../lib/pageExit'
 import { api, ApiError, apiWebSocketUrl } from '../../../lib/api'
 import { SpiceMainConn, sendCtrlAltDel } from '../../../vendor/spice-html5/main.js'
 import { hostKeyPrompt, kvmRequestBody, type HostKeyPrompt } from '../kvm'
@@ -61,6 +62,7 @@ export function SpiceConsole({ session, active, onShowHost }: SpiceConsoleProps)
     const scroller = scrollerRef.current!
     let cancelled = false
     let sessionId: string | null = null
+    let forgetOnExit: (() => void) | null = null
     let connected = false
     let agent = false
 
@@ -95,6 +97,7 @@ export function SpiceConsole({ session, active, onShowHost }: SpiceConsoleProps)
         }
 
         sessionId = response.sessionId!
+        forgetOnExit = closeOnPageExit(`/api/spice/sessions/${sessionId}`)
         try {
           connectionRef.current = new SpiceMainConn({
             uri: apiWebSocketUrl(`/api/spice/channel/${sessionId}`),
@@ -140,6 +143,7 @@ export function SpiceConsole({ session, active, onShowHost }: SpiceConsoleProps)
       stop()
       document.getElementById(screenId)?.replaceChildren()
       // Closing the tab ends the console (and its SSH tunnel) on the server.
+      forgetOnExit?.()
       if (sessionId) {
         void api.delete(`/api/spice/sessions/${sessionId}`).catch(() => {})
       }

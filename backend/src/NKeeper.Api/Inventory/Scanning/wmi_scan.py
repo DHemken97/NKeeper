@@ -22,6 +22,35 @@ QUERIES = {
 }
 
 
+HKLM = 0x80000002
+SQL_KEY = "SOFTWARE\\Microsoft\\Microsoft SQL Server"
+
+
+def prop(item, name):
+    """A property of a WMI method's output, or None."""
+    properties = item.getProperties()
+    return properties[name]["value"] if name in properties else None
+
+
+def sql_instances(login):
+    """SQL Server's instances from its registry (StdRegProv, read only): each name, and its TCP settings."""
+    registry, _ = login.NTLMLogin("//./root/default", NULL, NULL).GetObject("StdRegProv")
+    names_key = SQL_KEY + "\\Instance Names\\SQL"
+    result = []
+    for name in prop(registry.EnumValues(HKLM, names_key), "sNames") or []:
+        instance_id = prop(registry.GetStringValue(HKLM, names_key, name), "sValue")
+        if not instance_id:
+            continue
+        tcp = SQL_KEY + "\\" + instance_id + "\\MSSQLServer\\SuperSocketNetLib\\Tcp"
+        result.append({
+            "name": name,
+            "enabled": prop(registry.GetDWORDValue(HKLM, tcp, "Enabled"), "uValue"),
+            "tcpPort": prop(registry.GetStringValue(HKLM, tcp + "\\IPAll", "TcpPort"), "sValue"),
+            "dynamicPort": prop(registry.GetStringValue(HKLM, tcp + "\\IPAll", "TcpDynamicPorts"), "sValue"),
+        })
+    return result
+
+
 def fail(kind, message):
     print(json.dumps({"error": message, "kind": kind}))
     sys.exit(1)
@@ -63,6 +92,11 @@ def main():
                     output[key] = []
                 else:
                     raise
+        try:
+            output["sqlInstances"] = sql_instances(login)
+        except Exception as ex:
+            notes.append("SQL Server instances couldn't be read from the registry ({}).".format(ex))
+            output["sqlInstances"] = []
         output["notes"] = notes
         print(json.dumps(output, default=str))
     except Exception as ex:

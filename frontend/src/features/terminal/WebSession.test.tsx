@@ -148,6 +148,26 @@ describe('web sessions', () => {
     expect(bodies[1]).toEqual({ hostId: 'h-router', serviceIndex: 0, trustFingerprint: 'AA:BB' })
   })
 
+  it('closes the session on the server when the browser tab or window closes', async () => {
+    const closed = vi.fn((_url: string, init: RequestInit) => {
+      expect(init.keepalive).toBe(true)
+      expect(new Headers(init.headers).get('X-XSRF-TOKEN')).toBe('csrf-token-1')
+      return jsonResponse(204)
+    })
+    const { user } = renderWorkspace({
+      'POST /api/web/sessions': () => jsonResponse(200, ready('0123456789abcdef0123456789abcdef')),
+      'DELETE /api/web/sessions/0123456789abcdef0123456789abcdef': closed,
+    })
+
+    await connect(user, /^HTTP:8080/)
+    await sessionFrame()
+    expect(closed).not.toHaveBeenCalled()
+
+    window.dispatchEvent(new Event('pagehide'))
+
+    await waitFor(() => expect(closed).toHaveBeenCalledTimes(1))
+  })
+
   it('“End session” ends it on the server and closes the tab, without opening anything', async () => {
     const closed = vi.fn(() => jsonResponse(204))
     const { user } = renderWorkspace({

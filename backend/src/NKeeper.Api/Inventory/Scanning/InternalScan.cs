@@ -38,6 +38,12 @@ internal static class InternalScan
         s uidmin; sed -n 's/^UID_MIN[[:space:]]*//p' /etc/login.defs 2>/dev/null
         s users; getent passwd 2>/dev/null || cat /etc/passwd 2>/dev/null
         s libvirt; command -v virsh >/dev/null 2>&1 && echo yes
+        s sqlserver
+        # SQL Server on Linux: installed, its configured port, and the ports its process listens on
+        # (seeing another user's process needs root: sudo only where it needs no password).
+        [ -x /opt/mssql/bin/sqlservr ] && echo installed
+        sed -n 's/^[[:space:]]*tcpport[[:space:]]*=[[:space:]]*\([0-9]*\).*/tcpport \1/p' /var/opt/mssql/mssql.conf 2>/dev/null
+        (sudo -n ss -Hltnp 2>/dev/null || ss -Hltnp 2>/dev/null) | grep '"sqlservr"' | awk '{print "listen", $4}'
         s virt; systemd-detect-virt 2>/dev/null
         s cpus; nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null
         s memory
@@ -161,6 +167,18 @@ internal static class InternalScan
             notes.Add("The listening ports couldn't be read (neither ss nor netstat is available).");
         }
 
+        var sqlProcessPorts = Lines(sections, "sqlserver")
+            .Where(l => l.StartsWith("listen ", StringComparison.Ordinal))
+            .Select(l => SplitEndpoint(l[7..].Trim()))
+            .Where(e => e is { } endpoint && !IsLoopback(endpoint.Item1))
+            .Select(e => e!.Value.Item2)
+            .ToHashSet();
+        var sqlConfigured = Lines(sections, "sqlserver").FirstOrDefault(l => l.StartsWith("tcpport ", StringComparison.Ordinal)) is { } configured
+            ? SqlServerInstances.Port(configured[8..])
+            : null;
+        var sqlInstance = SqlServerInstances.OnLinux(sqlProcessPorts, sqlConfigured, Lines(sections, "sqlserver").Contains("installed"), ports, notes);
+        var scannedPorts = SqlServerInstances.Apply(ports.Select(ScanPorts.Describe), sqlInstance is null ? [] : [sqlInstance], notes);
+
         var uidMin = int.TryParse(First(sections, "uidmin"), CultureInfo.InvariantCulture, out var min) ? min : 1000;
         var users = new List<ScannedUser>();
         foreach (var line in Lines(sections, "users"))
@@ -197,7 +215,7 @@ internal static class InternalScan
         // A VM's "serial number" is made up by its hypervisor: only hardware's is worth recording.
         var serial = virtualization is null ? Serial(First(sections, "serial"), notes) : null;
         return new ScanFindings(
-            hostname, serverIp, mac, os, [.. ports.Select(ScanPorts.Describe)], isKvmHost, users, notes, virtualization, guests, neighbors, cpus, MemoryMiB(sections), serial)
+            hostname, serverIp, mac, os, scannedPorts, isKvmHost, users, notes, virtualization, guests, neighbors, cpus, MemoryMiB(sections), serial)
         {
             GuestListIncomplete = guestListIncomplete,
             ClusterNodes = clusterNodes,

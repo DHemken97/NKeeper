@@ -21,7 +21,8 @@ public sealed record InternalScanRequest : SessionStartMessage
 }
 
 /// <summary>A listening (internal scan) or open (external scan) TCP port, with a well-known name when there is one.</summary>
-public sealed record ScannedPort(int Port, string? Name, ServiceProtocol? Protocol);
+/// <param name="Instance">For a SQL Server instance's port: its named instance (null for the default instance).</param>
+public sealed record ScannedPort(int Port, string? Name, ServiceProtocol? Protocol, string? Instance = null);
 
 /// <summary>A local account that can log in (a real shell), from the host's user database.</summary>
 public sealed record ScannedUser(string Username, int Uid, string? FullName, string Shell);

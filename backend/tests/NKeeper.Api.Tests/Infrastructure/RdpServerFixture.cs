@@ -35,6 +35,12 @@ public sealed class RdpServerFixture : IAsyncLifetime
 
     public int GuacdHostPort => _xrdp!.GetMappedPublicPort(GuacdPort);
 
+    /// <summary>Connections (from guacd) to the RDP server now.</summary>
+    public Task<int> OpenRdpConnectionsAsync() => ContainerConnections.EstablishedAsync(_xrdp!, Port);
+
+    /// <summary>Connections (from guacd) to the VNC server now.</summary>
+    public Task<int> OpenVncConnectionsAsync() => ContainerConnections.EstablishedAsync(_xrdp!, VncPort);
+
     /// <summary>The VNC port, identical inside the containers and on the host.</summary>
     public int VncPort { get; private set; }
 

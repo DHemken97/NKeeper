@@ -132,12 +132,13 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - the hostname and operating system;
   - the MAC address of the network interface NKeeper reached;
   - the TCP ports it listens on, except those that only listen on localhost;
+  - **SQL Server**: the port `sqlservr` listens on and the one set in `/var/opt/mssql/mssql.conf` (seeing SQL Server's process needs root, or `sudo` without a password; otherwise it's found by its install and configuration);
   - the local accounts that can log in (a real shell; root and regular users);
   - the CPU cores (`nproc`), installed memory (`lsmem`, else the kernel's total) and, on physical hardware, the serial number. Only root can read the serial number on most systems: scan as root, or as a user with passwordless sudo, to get it.
 
   **On the network, an internal scan is a single SSH login**, like an administrator's, so it suits places that don't allow scanning. The commands only read local state and contact no other machines. It needs Linux or another Unix with `sh`.
 
-  **Windows hosts** are scanned over an **RPC** service instead (**Tasks ▸ Scan ▸ Internal**, *Over RPC (WMI)*), with a Windows login and its domain. It makes read-only WMI queries: the computer name, manufacturer and model, the Windows version, network adapters, listening TCP ports, enabled local accounts, logical processors, installed memory (the memory modules added up) and the BIOS serial number. WMI uses RPC on port 135 plus Windows' dynamic RPC ports, so the firewall must allow those from the NKeeper server, and the account must be allowed remote WMI (an administrator is). On Linux, NKeeper uses Impacket for this: the Docker image and the Linux installer include it.
+  **Windows hosts** are scanned over an **RPC** service instead (**Tasks ▸ Scan ▸ Internal**, *Over RPC (WMI)*), with a Windows login and its domain. It makes read-only WMI queries: the computer name, manufacturer and model, the Windows version, network adapters, listening TCP ports, **SQL Server instances** (from SQL Server's own registry settings: each instance's name, whether TCP/IP is on, and its static or dynamic port), enabled local accounts, logical processors, installed memory (the memory modules added up) and the BIOS serial number. WMI uses RPC on port 135 plus Windows' dynamic RPC ports, so the firewall must allow those from the NKeeper server, and the account must be allowed remote WMI (an administrator is). On Linux, NKeeper uses Impacket for this: the Docker image and the Linux installer include it.
 - **External** (**Tasks ▸ Scan ▸ External**) is run by the NKeeper server against the host's saved address, after you confirm. It reads:
   - which common ports are open (SSH, RDP, VNC, web, file sharing, mail, directory and database ports);
   - the SSH banner, which often names the operating system;
@@ -149,6 +150,8 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - the hostname, IP address and MAC address;
   - the operating system, as an `os` tag that you can group by;
   - a service for each open port NKeeper has a service for. Other open ports are listed for information;
+
+  Internal scans offer each **SQL Server instance** they find as an MS SQL service with its instance name and port (e.g. *MS SQL · SQLEXPRESS, port 49712*), unless the host already has that instance. An instance on a dynamic port, one with TCP/IP turned off, or one installed but not running is explained in the scan's notes.
   - a **KVM** service when libvirt is installed, or the host is a Proxmox VE node (internal scans);
   - each local account as a **credential without a password**. Using it asks for the password; set the password in the host's editor to save it;
   - **Virtual machine**, when the scan finds the host runs under a hypervisor (it asks `systemd-detect-virt`);
@@ -183,6 +186,8 @@ Right-click a host in the tree, or press the Menu key or Shift+F10 on it, then c
 - Close a tab with its **×**, or middle-click it.
 
 A credential that can't work for the service is shown greyed out with the reason, for example "No username". A credential without a stored password (or SSH key) shows **Asks for password**: choosing it asks for the password, with its username filled in, and uses it once. To stop being asked, edit the host and set the password.
+
+**No connection is left open behind you.** Closing a session's tab closes its connection to the host. Closing the browser tab or window does too, for every session in it. If the browser just disappears (it crashed, the computer went to sleep, the network dropped), the server notices within about a minute for SSH, Telnet, RDP, VNC, RPC and VM consoles, and within about 3 minutes for web and SQL Server sessions, then closes their connections. That includes a SQL query still running.
 
 **The NKeeper server makes every connection**, not your PC. Hosts must be reachable and resolvable from the server. Your passwords and keys are decrypted only there, never sent to your browser.
 
@@ -287,7 +292,8 @@ For routers, iDRAC/iLO, NAS boxes, Proxmox and the like, **Connect ▸ HTTP/HTTP
 
 A web session belongs to you and ends:
 - when you close its tab or choose **End session**;
-- after 30 minutes without activity, or 12 hours in total;
+- when you close the browser tab or window it's open in, or about 3 minutes after the browser stops answering (asleep, off the network, crashed);
+- after 12 hours in total;
 - immediately if your account is disabled or you lose access to the host.
 
 **Reload** reloads the page inside the tab.
