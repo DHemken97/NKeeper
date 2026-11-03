@@ -11,6 +11,7 @@ namespace NKeeper.Api.SqlServer;
 /// <param name="BlockedBy">The session it waits on; null for a lead blocker.</param>
 /// <param name="WaitTimeMs">How long it has been waiting, for a blocked session.</param>
 /// <param name="Sql">The batch it is running, or last ran (a sleeping lead blocker's open transaction began somewhere in it).</param>
+/// <param name="Serial">Oracle's SERIAL# of the session: killing one takes it with the SID.</param>
 /// <param name="Placeholder">A blocker SQL Server reports but that isn't a session (e.g. -2, an orphaned distributed transaction).</param>
 public sealed record BlockingSession(
     int SessionId,
@@ -29,7 +30,8 @@ public sealed record BlockingSession(
     int Blocked,
     int BlockedVolume,
     IReadOnlyList<BlockingSession> BlockedSessions,
-    bool Placeholder = false);
+    bool Placeholder = false,
+    int? Serial = null);
 
 /// <param name="Leads">The lead blockers, each with the sessions it blocks under it.</param>
 /// <param name="CanSeeAllSessions">Whether the login has VIEW SERVER STATE; without it, only its own sessions are visible.</param>

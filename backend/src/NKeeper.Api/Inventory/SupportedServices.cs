@@ -22,6 +22,8 @@ internal static class SupportedServices
         ServiceProtocol.Idrac,
         ServiceProtocol.Proxmox,
         ServiceProtocol.Ssms,
+        ServiceProtocol.Oracle,
+        ServiceProtocol.Ase,
     ];
 
     public static bool IsSupported(ServiceProtocol protocol) => Protocols.Contains(protocol);

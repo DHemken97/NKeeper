@@ -298,7 +298,7 @@ public sealed class SqlServerTests(PostgresServerFixture postgres, SqlServerFixt
         var opened = await OpenSessionAsync(admin, host);
         var session = opened.GetProperty("sessionId").GetString()!;
         var spid = opened.GetProperty("server").GetProperty("sessionId").GetInt32();
-        var store = factory.Services.GetRequiredService<NKeeper.Api.SqlServer.SqlServerSessionStore>();
+        var store = factory.Services.GetRequiredService<NKeeper.Api.Databases.DatabaseSessionStore>();
 
         // While the tab checks in, the session stays open, however long it's been.
         clock.Advance(TimeSpan.FromMinutes(2));

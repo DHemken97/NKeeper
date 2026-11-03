@@ -98,7 +98,7 @@ public sealed class Host
 public sealed class HostService
 {
     /// <summary>SQL Server instance names are at most 16 characters.</summary>
-    public const int InstanceMaxLength = 16;
+    public const int InstanceMaxLength = 128;
 
     public Guid Id { get; set; }
 
@@ -250,6 +250,12 @@ public enum ServiceProtocol
 
     /// <summary>Microsoft SQL Server (the name is kept from when it was an SSMS launcher, as hosts store it by name).</summary>
     Ssms,
+
+    /// <summary>An Oracle database (11g and later), by its service name (stored as the service's instance).</summary>
+    Oracle,
+
+    /// <summary>SAP (Sybase) Adaptive Server Enterprise.</summary>
+    Ase,
     Telnet,
     Sftp,
     Ftp,

@@ -53,6 +53,8 @@ public sealed class HostHealthChecker(IServiceScopeFactory scopes, IOptions<Heal
         [ServiceProtocol.Idrac] = 443,
         [ServiceProtocol.Proxmox] = 8006,
         [ServiceProtocol.Ssms] = 1433,
+        [ServiceProtocol.Oracle] = 1521,
+        [ServiceProtocol.Ase] = 5000,
     };
 
     /// <summary>Checks every host; returns how many services were checked.</summary>

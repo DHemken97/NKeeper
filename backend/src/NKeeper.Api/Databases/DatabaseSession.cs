@@ -1,42 +1,56 @@
 using System.Collections.Concurrent;
+using System.Data.Common;
 using System.Security.Cryptography;
-using Microsoft.Data.SqlClient;
 using NKeeper.Api.RemoteSessions;
 
-namespace NKeeper.Api.SqlServer;
+namespace NKeeper.Api.Databases;
 
-/// <summary>What a SQL Server says about itself when a session opens.</summary>
-public sealed record SqlServerInfo(string ServerName, string ProductVersion, string? ProductLevel, string? Edition, string Login, int SessionId);
+/// <summary>What a database server says about itself when a session opens.</summary>
+/// <param name="ServerName">SQL Server's @@SERVERNAME, Oracle's instance (and database), ASE's @@servername.</param>
+/// <param name="SessionId">The session's own ID on the server: SQL Server's and ASE's SPID, Oracle's SID.</param>
+public sealed record DatabaseServerInfo(string ServerName, string ProductVersion, string? ProductLevel, string? Edition, string Login, int SessionId);
 
 /// <summary>
-/// A SQL Server tab: its own connection, which keeps the session's state (the current database,
-/// temporary tables, open transactions) between queries, as a query window in SSMS does. The object
-/// explorer, scripting and the blocking manager use short connections of their own with the same
-/// login, so they work while a query runs.
+/// A database tab: its own connection, which keeps the session's state (the current database or
+/// schema, temporary tables, open transactions) between queries, as a query window in SSMS does. The
+/// object explorer, scripting and the blocking manager use short connections of their own with the
+/// same login, so they work while a query runs.
 /// </summary>
-public sealed class SqlServerSession : IAsyncDisposable
+public sealed class DatabaseSession : IAsyncDisposable
 {
     private readonly SemaphoreSlim _queryLock = new(1, 1);
-    private readonly JumpTunnel? _tunnel;
-    private readonly string? _certificateFile;
+    private readonly Func<CancellationToken, Task<DbConnection>> _openToolConnection;
+    private readonly Action? _cleanup;
     private CancellationTokenSource? _running;
 
-    internal SqlServerSession(
-        Guid userId, Guid hostId, string display, SqlConnectionStringBuilder settings, SqlConnection connection, SqlServerInfo server, JumpTunnel? tunnel, string? certificateFile, DateTimeOffset now)
+    /// <param name="openToolConnection">Opens another connection with the session's login.</param>
+    /// <param name="cleanup">Releases what the session holds besides its connection (a jump host tunnel, a pinned certificate's file).</param>
+    internal DatabaseSession(
+        DatabaseEngine engine,
+        Guid userId,
+        Guid hostId,
+        string display,
+        DbConnection connection,
+        DatabaseServerInfo server,
+        Func<CancellationToken, Task<DbConnection>> openToolConnection,
+        Action? cleanup,
+        DateTimeOffset now)
     {
         Id = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+        Engine = engine;
         UserId = userId;
         HostId = hostId;
         Display = display;
-        Settings = settings;
         Connection = connection;
         Server = server;
-        _tunnel = tunnel;
-        _certificateFile = certificateFile;
+        _openToolConnection = openToolConnection;
+        _cleanup = cleanup;
         CreatedAtUtc = LastActivityUtc = now;
     }
 
     public string Id { get; }
+
+    public DatabaseEngine Engine { get; }
 
     public Guid UserId { get; }
 
@@ -45,13 +59,10 @@ public sealed class SqlServerSession : IAsyncDisposable
     /// <summary>e.g. <c>sa@10.0.0.5:1433</c>, for messages and the audit trail.</summary>
     public string Display { get; }
 
-    public SqlServerInfo Server { get; }
-
-    /// <summary>How to connect again (includes the password: it stays in this process's memory).</summary>
-    internal SqlConnectionStringBuilder Settings { get; }
+    public DatabaseServerInfo Server { get; }
 
     /// <summary>The query window's connection. Only use it while holding the lock (<see cref="TryBeginQuery"/>).</summary>
-    internal SqlConnection Connection { get; }
+    internal DbConnection Connection { get; }
 
     public DateTimeOffset CreatedAtUtc { get; }
 
@@ -97,40 +108,16 @@ public sealed class SqlServerSession : IAsyncDisposable
     }
 
     /// <summary>A new connection with the session's login, for explorer, scripting and blocking requests.</summary>
-    internal async Task<SqlConnection> OpenToolConnectionAsync(CancellationToken cancellationToken)
-    {
-        var connection = new SqlConnection(Settings.ConnectionString);
-        try
-        {
-            await connection.OpenAsync(cancellationToken);
-            return connection;
-        }
-        catch
-        {
-            await connection.DisposeAsync();
-            throw;
-        }
-    }
+    internal Task<DbConnection> OpenToolConnectionAsync(CancellationToken cancellationToken) => _openToolConnection(cancellationToken);
 
     public async ValueTask DisposeAsync()
     {
         Cancel();
         await Connection.DisposeAsync();
-        _tunnel?.Dispose();
-        if (_certificateFile is not null)
-        {
-            try
-            {
-                File.Delete(_certificateFile);
-            }
-            catch (IOException)
-            {
-                // A temporary file of a public certificate: nothing to worry about if it stays.
-            }
-        }
+        _cleanup?.Invoke();
     }
 
-    internal sealed class QueryLease(SqlServerSession session, CancellationTokenSource cancel) : IDisposable
+    internal sealed class QueryLease(DatabaseSession session, CancellationTokenSource cancel) : IDisposable
     {
         public CancellationToken Token => cancel.Token;
 
@@ -143,10 +130,10 @@ public sealed class SqlServerSession : IAsyncDisposable
     }
 }
 
-/// <summary>Open SQL Server sessions, in memory (per API instance).</summary>
-public sealed class SqlServerSessionStore(TimeProvider timeProvider, Auditing.AuditLog audit, ILogger<SqlServerSessionStore> logger) : IAsyncDisposable
+/// <summary>Open database sessions (SQL Server, Oracle, SAP ASE), in memory (per API instance).</summary>
+public sealed class DatabaseSessionStore(TimeProvider timeProvider, Auditing.AuditLog audit, ILogger<DatabaseSessionStore> logger) : IAsyncDisposable
 {
-    /// <summary>Each query window is a session of its own (as in SSMS), plus one per tab for its explorer.</summary>
+    /// <summary>Each query window is a session of its own (as in SSMS), plus one per tab for its explorer; across every kind of database.</summary>
     public const int MaxSessionsPerUser = 30;
 
     /// <summary>
@@ -157,10 +144,10 @@ public sealed class SqlServerSessionStore(TimeProvider timeProvider, Auditing.Au
 
     private static readonly TimeSpan MaxLifetime = TimeSpan.FromHours(24);
 
-    private readonly ConcurrentDictionary<string, SqlServerSession> _sessions = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, DatabaseSession> _sessions = new(StringComparer.Ordinal);
 
     /// <summary>Adds a session, unless the user has too many open; the caller then disposes it.</summary>
-    internal bool TryAdd(SqlServerSession session)
+    internal bool TryAdd(DatabaseSession session)
     {
         RemoveExpired();
         if (_sessions.Values.Count(s => s.UserId == session.UserId) >= MaxSessionsPerUser)
@@ -169,17 +156,22 @@ public sealed class SqlServerSessionStore(TimeProvider timeProvider, Auditing.Au
         }
 
         _sessions[session.Id] = session;
-        logger.LogInformation("SQL Server session {SessionId} opened by user {UserId} to {Target} on host {HostId}", session.Id, session.UserId, session.Display, session.HostId);
-        _ = audit.RecordAsync(new Auditing.AuditEntry(Auditing.AuditActions.SessionStart, session.HostId, $"MS SQL · {session.Display}", session.Id, UserId: session.UserId));
+        logger.LogInformation(
+            "{Engine} session {SessionId} opened by user {UserId} to {Target} on host {HostId}", session.Engine, session.Id, session.UserId, session.Display, session.HostId);
+        _ = audit.RecordAsync(new Auditing.AuditEntry(
+            Auditing.AuditActions.SessionStart, session.HostId, $"{DatabaseEngines.Label(session.Engine)} · {session.Display}", session.Id, UserId: session.UserId));
         return true;
     }
 
-    /// <summary>The user's own session; a session of someone else is reported exactly like a missing one.</summary>
-    internal SqlServerSession Get(string id, Guid userId)
+    /// <summary>
+    /// The user's own session of that kind of database; a session of someone else (or opened as another
+    /// kind) is reported exactly like a missing one.
+    /// </summary>
+    internal DatabaseSession Get(string id, Guid userId, DatabaseEngine engine)
     {
-        if (!_sessions.TryGetValue(id, out var session) || session.UserId != userId)
+        if (!_sessions.TryGetValue(id, out var session) || session.UserId != userId || session.Engine != engine)
         {
-            throw new SessionException(SessionErrorCodes.SessionNotFound, "This SQL Server session has ended. Connect again.");
+            throw new SessionException(SessionErrorCodes.SessionNotFound, $"This {DatabaseEngines.Product(engine)} session has ended. Connect again.");
         }
 
         session.LastActivityUtc = timeProvider.GetUtcNow();
@@ -193,11 +185,11 @@ public sealed class SqlServerSessionStore(TimeProvider timeProvider, Auditing.Au
             return false;
         }
 
-        logger.LogInformation("SQL Server session {SessionId} of user {UserId} ended: {Reason}", id, session.UserId, reason);
+        logger.LogInformation("{Engine} session {SessionId} of user {UserId} ended: {Reason}", session.Engine, id, session.UserId, reason);
         _ = audit.RecordAsync(new Auditing.AuditEntry(
             Auditing.AuditActions.SessionEnd,
             session.HostId,
-            $"MS SQL · {session.Display} · after {Auditing.AuditedSession.FormatDuration(timeProvider.GetUtcNow() - session.CreatedAtUtc)} · {reason}",
+            $"{DatabaseEngines.Label(session.Engine)} · {session.Display} · after {Auditing.AuditedSession.FormatDuration(timeProvider.GetUtcNow() - session.CreatedAtUtc)} · {reason}",
             session.Id,
             UserId: session.UserId));
         await session.DisposeAsync();
@@ -233,8 +225,8 @@ public sealed class SqlServerSessionStore(TimeProvider timeProvider, Auditing.Au
     }
 }
 
-/// <summary>Closes idle and over-age SQL Server sessions once a minute.</summary>
-internal sealed class SqlServerSessionSweeper(SqlServerSessionStore store) : BackgroundService
+/// <summary>Closes idle and over-age database sessions once a minute.</summary>
+internal sealed class DatabaseSessionSweeper(DatabaseSessionStore store) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

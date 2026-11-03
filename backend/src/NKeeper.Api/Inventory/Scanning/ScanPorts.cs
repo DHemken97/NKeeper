@@ -38,6 +38,7 @@ internal static class ScanPorts
         443 or 8443 or 9090 => ServiceProtocol.Https,
         8006 => ServiceProtocol.Proxmox,
         1433 => ServiceProtocol.Ssms,
+        1521 => ServiceProtocol.Oracle,
         _ => null,
     };
 
