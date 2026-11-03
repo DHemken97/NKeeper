@@ -7,6 +7,8 @@ import { errorHeading, formatElapsed, lineRange, outputText, scriptToRun } from 
 import { sqlServerApi, type SqlQueryResult } from '../sqlServerApi'
 import { useKeepAlive } from '../useKeepAlive'
 import { ResultGrid } from './ResultGrid'
+import { storedNumber, storeNumber } from '../storedSize'
+import { Splitter } from './Splitter'
 import styles from './SqlServer.module.css'
 
 interface QueryWindowProps {
@@ -21,6 +23,14 @@ interface QueryWindowProps {
   runOnOpen?: boolean
   active: boolean
 }
+
+const EDITOR_SHARE_KEY = 'nkeeper.sql.editorShare'
+/** The editor's share of the height it splits with the results, as in SSMS's default. */
+const DEFAULT_EDITOR_SHARE = 0.45
+const MIN_SHARE = 0.1
+const MAX_SHARE = 0.9
+
+const clampShare = (share: number) => Math.min(Math.max(share, MIN_SHARE), MAX_SHARE)
 
 type Connection =
   | { state: 'opening' }
@@ -46,6 +56,23 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
   const editorRef = useRef<HTMLTextAreaElement>(null)
   const gutterRef = useRef<HTMLDivElement>(null)
   const ranOnOpen = useRef(false)
+  const editorPaneRef = useRef<HTMLDivElement>(null)
+  const resultsPaneRef = useRef<HTMLDivElement>(null)
+  // Shared by every window in this browser: the last split you chose.
+  const [editorShare, setEditorShare] = useState(() => clampShare(storedNumber(EDITOR_SHARE_KEY, DEFAULT_EDITOR_SHARE)))
+
+  function resizeEditor(share: number) {
+    const next = clampShare(share)
+    setEditorShare(next)
+    storeNumber(EDITOR_SHARE_KEY, next)
+  }
+
+  /** The pointer's height as a share of the editor and results together. */
+  function shareAt(clientY: number): number {
+    const top = editorPaneRef.current?.getBoundingClientRect().top ?? 0
+    const bottom = resultsPaneRef.current?.getBoundingClientRect().bottom ?? top + 1
+    return (clientY - top) / Math.max(bottom - top, 1)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -230,7 +257,7 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
         </div>
       ) : null}
 
-      <div className={styles.editor}>
+      <div className={styles.editor} ref={editorPaneRef} style={{ flexGrow: editorShare }}>
         <div className={styles.gutter} ref={gutterRef} aria-hidden="true">
           {Array.from({ length: lines }, (_, i) => (
             <div key={i}>{i + 1}</div>
@@ -256,7 +283,18 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
         />
       </div>
 
-      <div className={styles.results} aria-label="Results">
+      <Splitter
+        direction="rows"
+        label="Resize editor and results"
+        value={editorShare * 100}
+        min={MIN_SHARE * 100}
+        max={MAX_SHARE * 100}
+        onMove={(y) => resizeEditor(shareAt(y))}
+        onStep={(direction, big) => resizeEditor(editorShare + direction * (big ? 0.15 : 0.05))}
+        onReset={() => resizeEditor(DEFAULT_EDITOR_SHARE)}
+      />
+
+      <div className={styles.results} aria-label="Results" ref={resultsPaneRef} style={{ flexGrow: 1 - editorShare }}>
         {result || runError || running ? (
           view === 'grid' ? (
             <>

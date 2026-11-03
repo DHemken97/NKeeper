@@ -16,21 +16,14 @@
 .workspace {
   position: absolute;
   inset: 0;
-  display: grid;
-  grid-template-columns: minmax(200px, 22%) 1fr;
+  display: flex;
   min-height: 0;
-}
-
-@media (max-width: 720px) {
-  .workspace {
-    grid-template-columns: 1fr;
-    grid-template-rows: 35% 1fr;
-  }
 }
 
 .explorer {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   min-width: 0;
   min-height: 0;
   background: var(--color-surface);
@@ -121,6 +114,7 @@
 
 .documents {
   display: flex;
+  flex: 1;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
@@ -128,6 +122,7 @@
 
 .documentTabs {
   display: flex;
+  flex-shrink: 0;
   overflow-x: auto;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
@@ -185,10 +180,56 @@
 /* Query window */
 
 .queryWindow {
-  display: grid;
-  grid-template-rows: auto auto minmax(80px, 2fr) minmax(80px, 3fr) auto;
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-height: 0;
+}
+
+/* Draggable bars between panes (Splitter). */
+
+.splitterColumns,
+.splitterRows {
+  position: relative;
+  flex-shrink: 0;
+  background: var(--color-border);
+  touch-action: none;
+}
+
+.splitterColumns {
+  width: 5px;
+  cursor: col-resize;
+}
+
+.splitterRows {
+  height: 5px;
+  cursor: row-resize;
+}
+
+.splitterColumns:hover,
+.splitterRows:hover,
+.splitterColumns:focus-visible,
+.splitterRows:focus-visible {
+  background: var(--color-accent);
+  outline: none;
+}
+
+/* On a narrow screen the explorer sits above the documents, at a fixed height. */
+@media (max-width: 720px) {
+  .workspace {
+    flex-direction: column;
+  }
+
+  .explorer {
+    width: auto !important;
+    height: 35%;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .workspace > .splitterColumns {
+    display: none;
+  }
 }
 
 .queryWindow[hidden],
@@ -268,7 +309,8 @@
 
 .editor {
   display: flex;
-  min-height: 0;
+  flex-basis: 0;
+  min-height: 60px;
   background: #0b1220;
   border-bottom: 1px solid var(--color-border);
 }
@@ -306,8 +348,9 @@
 
 .results {
   display: flex;
+  flex-basis: 0;
   flex-direction: column;
-  min-height: 0;
+  min-height: 60px;
   background: var(--color-bg);
 }
 

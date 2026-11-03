@@ -201,6 +201,39 @@ describe('SQL Server', () => {
     expect(sessions.bodies[2]).toMatchObject({ serviceIndex: 1, credentialId: 'c-sa' })
   })
 
+  it('resizes the explorer and the editor against the results, and remembers it; the blocking manager is only under Management', async () => {
+    window.localStorage.clear()
+    const sessions = sessionRoutes()
+    const { user } = renderWorkspace(sessions.routes)
+    await openSql(user)
+
+    const tab = await screen.findByRole('tabpanel', { name: 'sql01 SQL Server' })
+    await within(tab).findByRole('tree', { name: 'Objects' })
+    expect(within(tab).getByRole('button', { name: 'New Query' })).toBeInTheDocument()
+    expect(within(tab).queryByRole('button', { name: 'Blocking Manager' })).not.toBeInTheDocument()
+
+    const explorer = within(tab).getByRole('complementary', { name: 'Object Explorer' })
+    const explorerBar = within(tab).getByRole('separator', { name: 'Resize Object Explorer' })
+    expect(explorer).toHaveStyle({ width: '280px' })
+    fireEvent.keyDown(explorerBar, { key: 'ArrowRight' })
+    fireEvent.keyDown(explorerBar, { key: 'ArrowRight', shiftKey: true })
+    expect(explorer).toHaveStyle({ width: '376px' })
+    expect(explorerBar).toHaveAttribute('aria-valuenow', '376')
+    fireEvent.doubleClick(explorerBar)
+    expect(explorer).toHaveStyle({ width: '280px' })
+    fireEvent.keyDown(explorerBar, { key: 'ArrowLeft', shiftKey: true })
+    fireEvent.keyDown(explorerBar, { key: 'ArrowLeft', shiftKey: true })
+    // Never narrower than its minimum.
+    expect(explorer).toHaveStyle({ width: '160px' })
+
+    const editorBar = await within(tab).findByRole('separator', { name: 'Resize editor and results' })
+    expect(editorBar).toHaveAttribute('aria-valuenow', '45')
+    fireEvent.keyDown(editorBar, { key: 'ArrowDown', shiftKey: true })
+    expect(editorBar).toHaveAttribute('aria-valuenow', '60')
+    expect(window.localStorage.getItem('nkeeper.sql.editorShare')).toBe('0.6')
+    expect(window.localStorage.getItem('nkeeper.sql.explorerWidth')).toBe('160')
+  })
+
   it('runs the query with F5, shows grids, messages with the error’s line, and text', async () => {
     const sessions = sessionRoutes()
     const queries: Record<string, unknown>[] = []

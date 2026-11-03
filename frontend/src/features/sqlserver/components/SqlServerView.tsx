@@ -9,6 +9,8 @@ import { useKeepAlive } from '../useKeepAlive'
 import { BlockingManager } from './BlockingManager'
 import { ObjectExplorer } from './ObjectExplorer'
 import { QueryWindow } from './QueryWindow'
+import { storedNumber, storeNumber } from '../storedSize'
+import { Splitter } from './Splitter'
 import styles from './SqlServer.module.css'
 
 interface SqlServerViewProps {
@@ -26,6 +28,12 @@ type SqlDocument =
 type NewDocument = { kind: 'query'; sql: string; database?: string; runOnOpen?: boolean; title?: string } | { kind: 'blocking'; title?: string }
 
 let nextDocument = 1
+
+const EXPLORER_WIDTH_KEY = 'nkeeper.sql.explorerWidth'
+const DEFAULT_EXPLORER_WIDTH = 280
+const MIN_EXPLORER_WIDTH = 160
+/** The query windows keep at least this much room beside the explorer. */
+const MIN_DOCUMENTS_WIDTH = 320
 
 /** The certificate prompt for a SQL Server (trust on first use). */
 function certificatePrompt(response: SqlOpenResponse): HostKeyMessage {
@@ -48,8 +56,8 @@ const SQL_CERTIFICATE_NOTE = {
 }
 
 /**
- * A SQL Server instance, like a small SSMS: the object explorer on the left, query windows and the
- * blocking manager as tabs on the right. The explorer and blocking manager use this tab's own
+ * A SQL Server instance, like a small SSMS: the object explorer on the left (resizable), query windows
+ * and the blocking manager (opened from Management) as tabs on the right. The explorer and blocking manager use this tab's own
  * session; each query window opens another with the same login.
  */
 export function SqlServerView({ session, active, onShowHost }: SqlServerViewProps) {
@@ -62,6 +70,19 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
   const [databases, setDatabases] = useState<string[]>([])
   const [explorerError, setExplorerError] = useState<string | null>(null)
   const trustRef = useRef<string | undefined>(undefined)
+  const workspaceRef = useRef<HTMLDivElement>(null)
+  const [explorerWidth, setExplorerWidth] = useState(() => storedNumber(EXPLORER_WIDTH_KEY, DEFAULT_EXPLORER_WIDTH))
+
+  function maxExplorerWidth(): number {
+    const total = workspaceRef.current?.getBoundingClientRect().width || 1200
+    return Math.max(MIN_EXPLORER_WIDTH, total - MIN_DOCUMENTS_WIDTH)
+  }
+
+  function resizeExplorer(width: number) {
+    const next = Math.min(Math.max(width, MIN_EXPLORER_WIDTH), maxExplorerWidth())
+    setExplorerWidth(next)
+    storeNumber(EXPLORER_WIDTH_KEY, next)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -203,9 +224,6 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
             <Button variant="ghost" size="sm" onClick={() => addDocument({ kind: 'query', sql: '' })}>
               New Query
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => addDocument({ kind: 'blocking' })}>
-              Blocking Manager
-            </Button>
           </>
         ) : null}
       </SessionStatusBar>
@@ -230,8 +248,8 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
         ) : null}
 
         {connected ? (
-          <div className={styles.workspace}>
-            <aside className={styles.explorer} aria-label="Object Explorer">
+          <div className={styles.workspace} ref={workspaceRef}>
+            <aside className={styles.explorer} aria-label="Object Explorer" style={{ width: explorerWidth }}>
               <div className={styles.paneTitle}>Object Explorer</div>
               {explorerError ? (
                 <p className={styles.paneError} role="alert">
@@ -246,6 +264,16 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
                 onOpenTool={() => addDocument({ kind: 'blocking' })}
               />
             </aside>
+            <Splitter
+              direction="columns"
+              label="Resize Object Explorer"
+              value={explorerWidth}
+              min={MIN_EXPLORER_WIDTH}
+              max={maxExplorerWidth()}
+              onMove={(x) => resizeExplorer(x - (workspaceRef.current?.getBoundingClientRect().left ?? 0))}
+              onStep={(direction, big) => resizeExplorer(explorerWidth + direction * (big ? 80 : 16))}
+              onReset={() => resizeExplorer(DEFAULT_EXPLORER_WIDTH)}
+            />
 
             <section className={styles.documents}>
               <div className={styles.documentTabs} role="tablist" aria-label="Query windows">
