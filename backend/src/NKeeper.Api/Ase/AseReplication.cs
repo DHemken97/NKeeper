@@ -8,16 +8,6 @@ using Kinds = NKeeper.Api.SqlServer.SqlObjectExplorer.Kinds;
 
 namespace NKeeper.Api.Ase;
 
-/// <summary>What one command of the report said: its result sets and messages, or why it failed.</summary>
-public sealed record ReplicationSection(string Title, string Command, IReadOnlyList<SqlOutput> Results, string? Error);
-
-/// <summary>A DSI connection that is suspended or down: resuming it applies its queue to the replicate again.</summary>
-/// <param name="Connection">"server.database", as <c>resume connection to</c> takes it.</param>
-public sealed record SuspendedConnection(string Connection, string Thread, string State);
-
-/// <param name="Warnings">What needs looking at, worst first; empty when all is well.</param>
-public sealed record ReplicationReport(IReadOnlyList<string> Warnings, IReadOnlyList<SuspendedConnection> Suspended, IReadOnlyList<ReplicationSection> Sections, DateTimeOffset AtUtc);
-
 /// <summary>
 /// Replication health. On ASE (the primary side): each database's transaction log, whether replication
 /// holds its truncation point, and the Rep Agents. On Replication Server: what's down, its threads, queues,
@@ -39,10 +29,10 @@ internal static partial class AseReplication
 
     // ---- ASE (primary) ----
 
-    public static async Task<ReplicationReport> PrimaryAsync(DbConnection connection, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ToolReport> PrimaryAsync(DbConnection connection, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var warnings = new List<string>();
-        var sections = new List<ReplicationSection>();
+        var sections = new List<ToolSection>();
 
         const string logSql = """
             SELECT d.name,
@@ -107,7 +97,7 @@ internal static partial class AseReplication
                 new("Replication point since", "datetime", false),
                 new("Oldest open transaction", "varchar", false),
             ];
-            sections.Add(new ReplicationSection(
+            sections.Add(new ToolSection(
                 "Transaction logs",
                 "master..sysusages, lct_admin('logsegment_freepages'), master..syslogshold",
                 [new SqlOutput("results", Columns: columns, Rows: rows, RowCount: rows.Count)],
@@ -115,16 +105,16 @@ internal static partial class AseReplication
         }
         catch (DbException ex)
         {
-            sections.Add(new ReplicationSection("Transaction logs", "master..sysusages, master..syslogshold", [], ex.Message));
+            sections.Add(new ToolSection("Transaction logs", "master..sysusages, master..syslogshold", [], ex.Message));
         }
 
         sections.Add(await SectionAsync(connection, "Rep Agents", "sp_help_rep_agent", cancellationToken));
-        return new ReplicationReport(warnings, [], sections, now);
+        return new ToolReport(warnings, [], sections, now);
     }
 
     // ---- Replication Server ----
 
-    public static async Task<ReplicationReport> ReplicationServerAsync(DbConnection connection, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ToolReport> ReplicationServerAsync(DbConnection connection, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var warnings = new List<string>();
         var suspended = new Dictionary<string, SuspendedConnection>(StringComparer.OrdinalIgnoreCase);
@@ -136,7 +126,7 @@ internal static partial class AseReplication
         var disk = await SectionAsync(connection, "Stable devices", "admin disk_space", cancellationToken);
         var standby = await SectionAsync(connection, "Warm standby", "admin logical_status", cancellationToken);
 
-        var downCount = Rows(down).Count();
+        var downCount = ToolReports.Rows(down).Count();
         if (downCount > 0)
         {
             warnings.Add($"{downCount} thread{(downCount == 1 ? " is" : "s are")} down or suspended (admin who_is_down).");
@@ -144,11 +134,11 @@ internal static partial class AseReplication
 
         foreach (var section in new[] { down, who })
         {
-            foreach (var (columns, row) in Rows(section))
+            foreach (var (columns, row) in ToolReports.Rows(section))
             {
-                var name = Cell(columns, row, "Name");
-                var state = Cell(columns, row, "State");
-                var info = Cell(columns, row, "Info");
+                var name = ToolReports.Cell(columns, row, "Name");
+                var state = ToolReports.Cell(columns, row, "State");
+                var info = ToolReports.Cell(columns, row, "Info");
                 if (name is null || state is null || info is null || !name.StartsWith("DSI", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -162,23 +152,23 @@ internal static partial class AseReplication
             }
         }
 
-        foreach (var (columns, row) in Rows(disk))
+        foreach (var (columns, row) in ToolReports.Rows(disk))
         {
-            if (long.TryParse(Cell(columns, row, "Total Segs"), CultureInfo.InvariantCulture, out var total)
-                && long.TryParse(Cell(columns, row, "Used Segs"), CultureInfo.InvariantCulture, out var used)
+            if (long.TryParse(ToolReports.Cell(columns, row, "Total Segs"), CultureInfo.InvariantCulture, out var total)
+                && long.TryParse(ToolReports.Cell(columns, row, "Used Segs"), CultureInfo.InvariantCulture, out var used)
                 && total > 0
                 && 100.0 * used / total >= FullQueuePercent)
             {
-                warnings.Add($"Stable device {Cell(columns, row, "Partition") ?? Cell(columns, row, "Logical") ?? "?"} is {100.0 * used / total:0}% full: when it fills, replication stops.");
+                warnings.Add($"Stable device {ToolReports.Cell(columns, row, "Partition") ?? ToolReports.Cell(columns, row, "Logical") ?? "?"} is {100.0 * used / total:0}% full: when it fills, replication stops.");
             }
         }
 
-        if (health.Error is null && Rows(health).Any(x => x.Row.Any(cell => cell?.Contains("SUSPECT", StringComparison.OrdinalIgnoreCase) == true)))
+        if (health.Error is null && ToolReports.Rows(health).Any(x => x.Row.Any(cell => cell?.Contains("SUSPECT", StringComparison.OrdinalIgnoreCase) == true)))
         {
             warnings.Insert(0, "Replication Server reports itself SUSPECT (admin health).");
         }
 
-        return new ReplicationReport(warnings, [.. suspended.Values], [health, down, who, queues, disk, standby], now);
+        return new ToolReport(warnings, [.. suspended.Values], [health, down, who, queues, disk, standby], now);
     }
 
     /// <summary>Resumes a suspended DSI connection, optionally skipping the transaction that failed (it goes to the exceptions log).</summary>
@@ -195,7 +185,7 @@ internal static partial class AseReplication
     // ---- Helpers ----
 
     /// <summary>Runs a command and keeps everything it returned; a failure is the section's error, not the report's.</summary>
-    private static async Task<ReplicationSection> SectionAsync(DbConnection connection, string title, string command, CancellationToken cancellationToken)
+    private static async Task<ToolSection> SectionAsync(DbConnection connection, string title, string command, CancellationToken cancellationToken)
     {
         var results = new List<SqlOutput>();
         var ase = connection as AseConnection;
@@ -238,11 +228,11 @@ internal static partial class AseReplication
             }
             while (await reader.NextResultAsync(cancellationToken));
 
-            return new ReplicationSection(title, command, results, null);
+            return new ToolSection(title, command, results, null);
         }
         catch (DbException ex)
         {
-            return new ReplicationSection(title, command, results, ex.Message);
+            return new ToolSection(title, command, results, ex.Message);
         }
         finally
         {
@@ -251,22 +241,6 @@ internal static partial class AseReplication
                 ase.InfoMessage -= OnInfo;
             }
         }
-    }
-
-    private static IEnumerable<(IReadOnlyList<SqlColumn> Columns, string?[] Row)> Rows(ReplicationSection section) =>
-        section.Results.Where(r => r.Kind == "results" && r.Columns is not null && r.Rows is not null).SelectMany(r => r.Rows!.Select(row => (r.Columns!, row)));
-
-    private static string? Cell(IReadOnlyList<SqlColumn> columns, string?[] row, string name)
-    {
-        for (var i = 0; i < columns.Count && i < row.Length; i++)
-        {
-            if (string.Equals(columns[i].Name.Trim(), name, StringComparison.OrdinalIgnoreCase))
-            {
-                return row[i]?.Trim();
-            }
-        }
-
-        return null;
     }
 
     /// <summary>A DSI thread's Info, e.g. "101 PDS.pdb" or "102(1) LDS.ldb": the connection is the server.database part.</summary>

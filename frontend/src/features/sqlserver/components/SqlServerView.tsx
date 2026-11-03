@@ -6,13 +6,13 @@ import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from '../../termi
 import sessionStyles from '../../terminal/components/Session.module.css'
 import type { HostKeyMessage, RemoteSession, SessionPhase } from '../../terminal/types'
 import { DbEngineContext } from '../engineContext'
-import { dbApi, DB_ENGINES, type DbEngine, type SqlObjectNode, type SqlOpenResponse, type SqlScriptAction, type SqlServerInfo } from '../sqlServerApi'
+import { dbApi, DB_ENGINES, type DbEngine, type ToolKind, type SqlObjectNode, type SqlOpenResponse, type SqlScriptAction, type SqlServerInfo } from '../sqlServerApi'
 import { useKeepAlive } from '../useKeepAlive'
 import { BlockingManager } from './BlockingManager'
 import { ObjectExplorer } from './ObjectExplorer'
 import { OrphanedUsers } from './OrphanedUsers'
 import { QueryWindow } from './QueryWindow'
-import { ReplicationHealth } from './ReplicationHealth'
+import { ToolReportView } from './ToolReportView'
 import { storedNumber, storeNumber } from '../storedSize'
 import { Splitter } from './Splitter'
 import styles from './SqlServer.module.css'
@@ -33,10 +33,14 @@ type SqlDocument =
 /** A document to open; it's titled SQLQueryN unless it says otherwise. */
 type NewDocument = { kind: 'query'; sql: string; database?: string; runOnOpen?: boolean; title?: string } | { kind: ToolKind; title?: string }
 
-/** The tools under Management, by the name the explorer gives them. */
-type ToolKind = 'blocking' | 'orphans' | 'replication'
-
-const TOOL_TITLES: Record<ToolKind, string> = { blocking: 'Blocking Manager', orphans: 'Orphaned Users', replication: 'Replication Health' }
+const TOOL_TITLES: Record<ToolKind, string> = {
+  blocking: 'Blocking Manager',
+  orphans: 'Orphaned Users',
+  replication: 'Replication Health',
+  storage: 'Storage',
+  backups: 'Backups',
+  health: 'Health',
+}
 
 let nextDocument = 1
 
@@ -336,8 +340,14 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
                     runOnOpen={document.runOnOpen}
                     active={active && document.id === activeDocument}
                   />
-                ) : document.kind === 'replication' ? (
-                  <ReplicationHealth key={document.id} sessionId={main.id} active={active && document.id === activeDocument} />
+                ) : document.kind === 'replication' || document.kind === 'storage' || document.kind === 'backups' || document.kind === 'health' ? (
+                  <ToolReportView
+                    key={document.id}
+                    tool={document.kind}
+                    sessionId={main.id}
+                    active={active && document.id === activeDocument}
+                    onOpenQuery={(sql) => addDocument({ kind: 'query', sql })}
+                  />
                 ) : document.kind === 'orphans' ? (
                   <OrphanedUsers key={document.id} sessionId={main.id} active={active && document.id === activeDocument} />
                 ) : (

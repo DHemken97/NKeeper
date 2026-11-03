@@ -567,6 +567,13 @@
   color: var(--color-text-muted, inherit);
 }
 
+.reportScripts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+
 .replicationGrid {
   display: flex;
   flex-direction: column;

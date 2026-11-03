@@ -4,25 +4,40 @@ import { Button } from '../../../components/ui/Button'
 import { Dialog } from '../../../components/ui/Dialog'
 import { ApiError } from '../../../lib/api'
 import { useDbApi, useDbEngine } from '../engineContext'
-import type { ReplicationReport, SuspendedConnection } from '../sqlServerApi'
+import type { SuspendedConnection, ToolKind, ToolReport, ToolScript } from '../sqlServerApi'
 import { ResultGrid } from './ResultGrid'
 import styles from './SqlServer.module.css'
 
-interface ReplicationHealthProps {
+/** The tools that are reports: replication (ASE, Replication Server) and Oracle's. */
+export type ReportTool = Extract<ToolKind, 'replication' | 'storage' | 'backups' | 'health'>
+
+const HEADINGS: Record<ReportTool, { title: string; subtitle: (repServer: boolean) => string }> = {
+  replication: { title: 'Replication Health', subtitle: (repServer) => (repServer ? 'Threads, Queues and Stable Devices' : 'Transaction Logs and Rep Agents') },
+  storage: { title: 'Storage', subtitle: () => 'Tablespaces and Datafiles' },
+  backups: { title: 'Backups (RMAN)', subtitle: () => 'Backup History and Recovery Area' },
+  health: { title: 'Health', subtitle: () => 'Limits, Alerts and Invalid Objects' },
+}
+
+interface ToolReportViewProps {
+  tool: ReportTool
   /** The tab's own session (the report runs on a short connection of its own). */
   sessionId: string
   active: boolean
+  /** Opens SQL a report offers in a new query window. */
+  onOpenQuery: (sql: string) => void
 }
 
 /**
- * Replication Health. On ASE (the primary): each database's log, whether replication holds its truncation
+ * A Management report: warnings, then each section's results, with scripts to act on them (SQL opens in a
+ * query window; RMAN commands are copied). Replication Health on ASE (the primary): each database's log, whether replication holds its truncation
  * point, and the Rep Agents. On Replication Server: what's down, threads, queues, stable devices and warm
  * standby, with Resume for suspended connections (optionally skipping the transaction that failed).
  */
-export function ReplicationHealth({ sessionId, active }: ReplicationHealthProps) {
+export function ToolReportView({ tool, sessionId, active, onOpenQuery }: ToolReportViewProps) {
   const db = useDbApi()
   const engine = useDbEngine()
-  const [report, setReport] = useState<ReplicationReport | null>(null)
+  const [report, setReport] = useState<ToolReport | null>(null)
+  const [shown, setShown] = useState<ToolScript | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -34,13 +49,13 @@ export function ReplicationHealth({ sessionId, active }: ReplicationHealthProps)
     setLoading(true)
     setError(null)
     try {
-      setReport(await db.replication(sessionId))
+      setReport(await (tool === 'replication' ? db.replication(sessionId) : db.report(sessionId, tool)))
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Couldn’t read replication health.')
+      setError(e instanceof ApiError ? e.message : `Couldn’t read ${HEADINGS[tool].title}.`)
     } finally {
       setLoading(false)
     }
-  }, [db, sessionId])
+  }, [db, sessionId, tool])
 
   useEffect(() => {
     if (!active) {
@@ -69,11 +84,11 @@ export function ReplicationHealth({ sessionId, active }: ReplicationHealthProps)
   const repServer = engine === 'rs'
 
   return (
-    <div className={styles.blocking} hidden={!active} role="tabpanel" aria-label="Replication Health">
+    <div className={styles.blocking} hidden={!active} role="tabpanel" aria-label={HEADINGS[tool].title}>
       <header className={styles.blockingHeader}>
         <div>
-          <h2>Replication Health</h2>
-          <p>{repServer ? 'Threads, Queues and Stable Devices' : 'Transaction Logs and Rep Agents'}</p>
+          <h2>{HEADINGS[tool].title}</h2>
+          <p>{HEADINGS[tool].subtitle(repServer)}</p>
         </div>
         <div className={styles.blockingActions}>
           <span className={styles.toolbarNote}>{report ? new Date(report.atUtc).toLocaleTimeString() : null}</span>
@@ -131,6 +146,7 @@ export function ReplicationHealth({ sessionId, active }: ReplicationHealthProps)
           <h3>
             {section.title} <code>{section.command}</code>
           </h3>
+          {section.note ? <p className={styles.hint}>{section.note}</p> : null}
           {section.error ? <Alert variant="error">{section.error}</Alert> : null}
           {section.results.map((result, index) =>
             result.kind === 'results' ? (
@@ -144,8 +160,44 @@ export function ReplicationHealth({ sessionId, active }: ReplicationHealthProps)
             ),
           )}
           {!section.error && section.results.length === 0 ? <p className={styles.hint}>Nothing returned.</p> : null}
+          {section.scripts && section.scripts.length > 0 ? (
+            <div className={styles.reportScripts} aria-label={`Scripts for ${section.title}`}>
+              {section.scripts.map((script) => (
+                <Button
+                  key={script.label}
+                  size="sm"
+                  variant="secondary"
+                  title={script.text}
+                  onClick={() => (script.kind === 'sql' ? onOpenQuery(script.text) : setShown(script))}
+                >
+                  {script.label}
+                  {script.kind === 'sql' ? '' : '…'}
+                </Button>
+              ))}
+            </div>
+          ) : null}
         </section>
       ))}
+
+      {shown ? (
+        <Dialog
+          title={shown.label}
+          onClose={() => setShown(null)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setShown(null)}>
+                Close
+              </Button>
+              <Button onClick={() => void navigator.clipboard?.writeText(shown.text).catch(() => {})}>Copy</Button>
+            </>
+          }
+        >
+          <p>
+            Run this on the database server: RMAN commands in <code>rman target /</code>, scripts starting with @ in SQL*Plus as SYSDBA.
+          </p>
+          <pre className={styles.replicationMessage}>{shown.text}</pre>
+        </Dialog>
+      ) : null}
 
       {resuming ? (
         <Dialog

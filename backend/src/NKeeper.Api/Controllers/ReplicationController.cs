@@ -32,7 +32,7 @@ public sealed class ReplicationController(DatabaseSessionStore sessions, AuditLo
     private DatabaseEngine Engine => DatabaseEngines.FromRoute(RouteData.Values["engine"] as string) ?? DatabaseEngine.Ase;
 
     [HttpGet]
-    public Task<ActionResult<ReplicationReport>> Report(string id, CancellationToken cancellationToken) =>
+    public Task<ActionResult<ToolReport>> Report(string id, CancellationToken cancellationToken) =>
         DatabaseController.WithToolConnectionAsync(this, sessions, Engine, id, connection =>
             Engine == DatabaseEngine.RepServer
                 ? AseReplication.ReplicationServerAsync(connection, timeProvider.GetUtcNow(), cancellationToken)

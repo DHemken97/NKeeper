@@ -215,7 +215,7 @@ internal sealed partial class OracleDialect : IDatabaseDialect
         }
     }
 
-    private static async Task<SqlOutput> ReadResultAsync(OracleDataReader reader, int budget, CancellationToken cancellationToken)
+    internal static async Task<SqlOutput> ReadResultAsync(OracleDataReader reader, int budget, CancellationToken cancellationToken)
     {
         var columns = Enumerable.Range(0, reader.FieldCount)
             .Select(i => new SqlColumn(reader.GetName(i), reader.GetDataTypeName(i).ToUpperInvariant(), DbValueText.IsNumeric(reader.GetFieldType(i))))
@@ -385,7 +385,11 @@ internal sealed partial class OracleDialect : IDatabaseDialect
                 r => new SqlObjectNode { Kind = Kinds.Login, Label = DbQuery.Text(r, 0)!, Detail = r.IsDBNull(1) ? null : $"created {r.GetDateTime(1):yyyy-MM-dd}" },
                 cancellationToken),
             Kinds.ServerRoles => await RolesAsync(connection, cancellationToken),
-            Kinds.Management => [new SqlObjectNode { Kind = Kinds.Tool, Label = "Blocking Manager", Detail = "Blocking chains", Name = SqlObjectExplorer.BlockingManagerTool }],
+            Kinds.Management =>
+            [
+                new SqlObjectNode { Kind = Kinds.Tool, Label = "Blocking Manager", Detail = "Blocking chains", Name = SqlObjectExplorer.BlockingManagerTool },
+                .. OracleDba.ToolNodes,
+            ],
             _ => throw new SqlExplorerException($"“{node.Kind}” has no children."),
         };
     }
