@@ -8,6 +8,7 @@ import { sqlServerApi, type SqlObjectNode, type SqlOpenResponse, type SqlScriptA
 import { useKeepAlive } from '../useKeepAlive'
 import { BlockingManager } from './BlockingManager'
 import { ObjectExplorer } from './ObjectExplorer'
+import { OrphanedUsers } from './OrphanedUsers'
 import { QueryWindow } from './QueryWindow'
 import { storedNumber, storeNumber } from '../storedSize'
 import { Splitter } from './Splitter'
@@ -19,13 +20,18 @@ interface SqlServerViewProps {
   onShowHost: (hostId: string) => void
 }
 
-/** A document tab: a query window (its own connection, as in SSMS), or the blocking manager. */
+/** A document tab: a query window (its own connection, as in SSMS), or a Management tool. */
 type SqlDocument =
   | { id: string; kind: 'query'; title: string; sql: string; database?: string; runOnOpen?: boolean }
-  | { id: string; kind: 'blocking'; title: string }
+  | { id: string; kind: ToolKind; title: string }
 
 /** A document to open; it's titled SQLQueryN unless it says otherwise. */
-type NewDocument = { kind: 'query'; sql: string; database?: string; runOnOpen?: boolean; title?: string } | { kind: 'blocking'; title?: string }
+type NewDocument = { kind: 'query'; sql: string; database?: string; runOnOpen?: boolean; title?: string } | { kind: ToolKind; title?: string }
+
+/** The tools under Management, by the name the explorer gives them. */
+type ToolKind = 'blocking' | 'orphans'
+
+const TOOL_TITLES: Record<ToolKind, string> = { blocking: 'Blocking Manager', orphans: 'Orphaned Users' }
 
 let nextDocument = 1
 
@@ -165,8 +171,9 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
   }
 
   function addDocument(document: NewDocument) {
-    if (document.kind === 'blocking') {
-      const existing = documents.find((d) => d.kind === 'blocking')
+    if (document.kind !== 'query') {
+      // One of each tool: opening it again shows the one that's open.
+      const existing = documents.find((d) => d.kind === document.kind)
       if (existing) {
         setActiveDocument(existing.id)
         return
@@ -174,7 +181,7 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
     }
     const queries = documents.filter((d) => d.kind === 'query').length
     const id = `doc-${nextDocument++}`
-    const title = document.title ?? (document.kind === 'blocking' ? 'Blocking Manager' : `SQLQuery${queries + 1}`)
+    const title = document.title ?? (document.kind === 'query' ? `SQLQuery${queries + 1}` : TOOL_TITLES[document.kind])
     setDocuments((current) => [...current, { ...document, id, title } as SqlDocument])
     setActiveDocument(id)
   }
@@ -261,7 +268,11 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
                 server={main.server}
                 onNewQuery={(database) => addDocument({ kind: 'query', sql: '', database })}
                 onScript={(node, action) => void script(node, action)}
-                onOpenTool={() => addDocument({ kind: 'blocking' })}
+                onOpenTool={(name) => {
+                  if (name === 'blocking' || name === 'orphans') {
+                    addDocument({ kind: name })
+                  }
+                }}
               />
             </aside>
             <Splitter
@@ -315,6 +326,8 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
                     runOnOpen={document.runOnOpen}
                     active={active && document.id === activeDocument}
                   />
+                ) : document.kind === 'orphans' ? (
+                  <OrphanedUsers key={document.id} sessionId={main.id} active={active && document.id === activeDocument} />
                 ) : (
                   <BlockingManager
                     key={document.id}

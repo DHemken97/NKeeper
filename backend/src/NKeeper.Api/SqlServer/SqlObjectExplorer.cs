@@ -36,7 +36,8 @@ public sealed record SqlObjectNode
 /// <summary>
 /// The object explorer's tree, as SSMS shows it: the server's databases (system ones in their own
 /// folder), each database's tables, views, synonyms, programmability and security, a table's columns,
-/// keys, indexes and triggers; the server's logins and roles; and Management (the blocking manager).
+/// keys, indexes and triggers; the server's logins and roles; and Management (the blocking manager and
+/// orphaned users).
 /// Every name is passed as a parameter or quoted, never pasted into SQL as it is.
 /// </summary>
 internal static class SqlObjectExplorer
@@ -89,6 +90,8 @@ internal static class SqlObjectExplorer
 
     public const string BlockingManagerTool = "blocking";
 
+    public const string OrphanedUsersTool = "orphans";
+
     /// <summary>Lists are long in big databases; the explorer shows this many children at most.</summary>
     public const int MaxChildren = 5000;
 
@@ -135,7 +138,11 @@ internal static class SqlObjectExplorer
             Kinds.ServerSecurity => [Folder(Kinds.Logins, "Logins"), Folder(Kinds.ServerRoles, "Server Roles")],
             Kinds.Logins => await LoginsAsync(connection, roles: false, cancellationToken),
             Kinds.ServerRoles => await LoginsAsync(connection, roles: true, cancellationToken),
-            Kinds.Management => [new SqlObjectNode { Kind = Kinds.Tool, Label = "Blocking Manager", Detail = "Blocking chains", Name = BlockingManagerTool }],
+            Kinds.Management =>
+            [
+                new SqlObjectNode { Kind = Kinds.Tool, Label = "Blocking Manager", Detail = "Blocking chains", Name = BlockingManagerTool },
+                new SqlObjectNode { Kind = Kinds.Tool, Label = "Orphaned Users", Detail = "Fix broken logins", Name = OrphanedUsersTool },
+            ],
             _ => throw new SqlExplorerException($"“{node.Kind}” has no children."),
         };
     }

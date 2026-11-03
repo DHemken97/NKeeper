@@ -348,7 +348,7 @@ public sealed class SqlServerTests(PostgresServerFixture postgres, SqlServerFixt
             (await ExploreAsync(session, procedure)).Select(n => $"{n.GetProperty("label").GetString()}: {n.GetProperty("detail").GetString()}"));
 
         var management = await ExploreAsync(session, server[2]);
-        Assert.Equal("Blocking Manager", Assert.Single(management).GetProperty("label").GetString());
+        Assert.Equal(["Blocking Manager", "Orphaned Users"], management.Select(n => n.GetProperty("label").GetString()));
 
         // Scripts, as SSMS writes them.
         var select = await ScriptAsync(session, customers, "selectTop");
@@ -365,6 +365,103 @@ public sealed class SqlServerTests(PostgresServerFixture postgres, SqlServerFixt
         var odd = await _admin.SendJsonAsync(HttpMethod.Post, $"/api/mssql/sessions/{session}/explore", new { node = new { kind = "tables", database = "x]; DROP DATABASE master; --" } }, Ct);
         Assert.Equal(HttpStatusCode.BadRequest, odd.StatusCode);
         Assert.Contains("sql_error", await odd.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task OrphanedUsers_AreFound_AndFixedByMappingCreatingOrDropping()
+    {
+        sql.SkipIfUnavailable();
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var database = $"nk_{suffix}";
+        string Name(string name) => $"{name}_{suffix}";
+        await sql.ExecuteAsync(
+            $"""
+            CREATE DATABASE [{database}];
+            CREATE LOGIN [{Name("gone")}] WITH PASSWORD = 'Old-Passw0rd!', CHECK_POLICY = OFF;
+            CREATE LOGIN [{Name("moved")}] WITH PASSWORD = 'Old-Passw0rd!', CHECK_POLICY = OFF;
+            CREATE LOGIN [{Name("dropme")}] WITH PASSWORD = 'Old-Passw0rd!', CHECK_POLICY = OFF;
+            CREATE LOGIN [{Name("owner")}] WITH PASSWORD = 'Old-Passw0rd!', CHECK_POLICY = OFF;
+            CREATE LOGIN [{Name("spare")}] WITH PASSWORD = 'Old-Passw0rd!', CHECK_POLICY = OFF;
+            """,
+            cancellationToken: Ct);
+        await sql.ExecuteAsync(
+            $"""
+            CREATE USER [{Name("gone")}] FOR LOGIN [{Name("gone")}];
+            CREATE USER [{Name("moved")}] FOR LOGIN [{Name("moved")}];
+            CREATE USER [{Name("dropme")}] FOR LOGIN [{Name("dropme")}];
+            CREATE USER [{Name("owner")}] FOR LOGIN [{Name("owner")}];
+            CREATE USER [nologin_{suffix}] WITHOUT LOGIN;
+            EXEC ('CREATE SCHEMA [sales_{suffix}] AUTHORIZATION [{Name("owner")}]');
+            """,
+            database,
+            Ct);
+
+        // As after restoring the database on another server: the logins are gone, or new ones have other SIDs.
+        await sql.ExecuteAsync(
+            $"""
+            DROP LOGIN [{Name("gone")}];
+            DROP LOGIN [{Name("dropme")}];
+            DROP LOGIN [{Name("owner")}];
+            DROP LOGIN [{Name("moved")}];
+            CREATE LOGIN [{Name("moved")}] WITH PASSWORD = 'New-Passw0rd!', CHECK_POLICY = OFF;
+            """,
+            cancellationToken: Ct);
+        var session = await OpenAsync(await CreateHostAsync());
+
+        List<JsonElement> Orphans(JsonElement report) =>
+            [.. report.GetProperty("users").EnumerateArray().Where(u => u.GetProperty("database").GetString() == database)];
+        List<string?> Users(JsonElement report) => [.. Orphans(report).Select(u => u.GetProperty("user").GetString())];
+
+        var report = await _admin.GetFromJsonAsync<JsonElement>($"/api/mssql/sessions/{session}/orphans", Ct);
+
+        // Users without a login on purpose aren't orphans.
+        Assert.Equal([Name("dropme"), Name("gone"), Name("moved"), Name("owner")], Users(report).Order());
+        var orphans = Orphans(report);
+        var moved = orphans.Single(u => u.GetProperty("user").GetString() == Name("moved"));
+        Assert.Equal(Name("moved"), moved.GetProperty("matchingLogin").GetString());
+        Assert.Equal("SQL user", moved.GetProperty("type").GetString());
+        var gone = orphans.Single(u => u.GetProperty("user").GetString() == Name("gone"));
+        Assert.Equal(JsonValueKind.Null, gone.GetProperty("matchingLogin").ValueKind);
+        Assert.StartsWith("0x", gone.GetProperty("sid").GetString(), StringComparison.Ordinal);
+        Assert.Equal(
+            [$"sales_{suffix}"],
+            orphans.Single(u => u.GetProperty("user").GetString() == Name("owner")).GetProperty("ownedSchemas").EnumerateArray().Select(v => v.GetString()));
+
+        // The usual repair: map every user to the login of its own name.
+        var matched = await PostAsync($"/api/mssql/sessions/{session}/orphans/fix-matched", new { });
+        Assert.Contains("Mapped", matched.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(Name("moved"), Users(matched.GetProperty("report")));
+
+        // A new login with the user's SID, so other copies of the database map to it too.
+        var created = await PostAsync(
+            $"/api/mssql/sessions/{session}/orphans/fix", new { action = "create", database, user = Name("gone"), password = "Brand-New-Passw0rd!" });
+        Assert.DoesNotContain(Name("gone"), Users(created.GetProperty("report")));
+        await using (var check = await sql.OpenAsync(database, Ct))
+        await using (var command = new Microsoft.Data.SqlClient.SqlCommand(
+            "SELECT COUNT(*) FROM sys.database_principals u JOIN sys.server_principals p ON p.sid = u.sid WHERE u.name = @user AND p.name = @user", check))
+        {
+            command.Parameters.AddWithValue("@user", Name("gone"));
+            Assert.Equal(1, (int)(await command.ExecuteScalarAsync(Ct))!);
+        }
+
+        // A user that owns a schema can't be dropped; it can be mapped to another login.
+        var refused = await _admin.SendJsonAsync(
+            HttpMethod.Post, $"/api/mssql/sessions/{session}/orphans/fix", new { action = "drop", database, user = Name("owner") }, Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Contains($"sales_{suffix}", await refused.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+        await PostAsync($"/api/mssql/sessions/{session}/orphans/fix", new { action = "map", database, user = Name("owner"), login = Name("spare") });
+
+        var dropped = await PostAsync($"/api/mssql/sessions/{session}/orphans/fix", new { action = "drop", database, user = Name("dropme") });
+        Assert.Empty(Orphans(dropped.GetProperty("report")));
+
+        // Only users the check found can be changed through here.
+        var other = await _admin.SendJsonAsync(
+            HttpMethod.Post, $"/api/mssql/sessions/{session}/orphans/fix", new { action = "drop", database, user = $"nologin_{suffix}" }, Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, other.StatusCode);
+
+        var audit = await _admin.GetFromJsonAsync<JsonElement>("/api/audit/events?category=mssql", Ct);
+        Assert.Contains($"user {Name("dropme")} dropped", audit.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Brand-New-Passw0rd!", audit.GetRawText(), StringComparison.Ordinal);
     }
 
     [Fact]

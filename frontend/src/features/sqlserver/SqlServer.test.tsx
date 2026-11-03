@@ -6,7 +6,7 @@ import { routes } from '../../app/router'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
 import { AuthProvider } from '../auth/components/AuthProvider'
 import type { Host } from '../inventory/types'
-import type { BlockingReport, SqlQueryResult } from './sqlServerApi'
+import type { BlockingReport, OrphanReport, SqlQueryResult } from './sqlServerApi'
 
 const admin = { id: 'u1', userName: 'admin', email: 'admin@example.com', roles: ['Administrator'], mustChangePassword: false }
 
@@ -111,7 +111,10 @@ function renderWorkspace(routesOverride: Parameters<typeof mockFetch>[0]) {
               : node.kind === 'tables'
                 ? [{ kind: 'table', label: 'dbo.Orders', expandable: true, database: 'Sales', schema: 'dbo', name: 'Orders', objectId: 901 }]
                 : node.kind === 'management'
-                  ? [{ kind: 'tool', label: 'Blocking Manager', detail: 'Blocking chains', expandable: false, name: 'blocking' }]
+                  ? [
+                      { kind: 'tool', label: 'Blocking Manager', detail: 'Blocking chains', expandable: false, name: 'blocking' },
+                      { kind: 'tool', label: 'Orphaned Users', detail: 'Fix broken logins', expandable: false, name: 'orphans' },
+                    ]
                   : [],
       )
     },
@@ -337,6 +340,73 @@ describe('SQL Server', () => {
     expect(ran[0]).toEqual({ sql: 'SELECT TOP (1000) [Id]\n  FROM [Sales].[dbo].[Orders]', lineOffset: 0 })
     // The window starts in the table's database.
     expect(sessions.bodies[2]).toMatchObject({ database: 'Sales' })
+  })
+
+  it('finds orphaned users under Management, maps them to their logins, and creates a missing login', async () => {
+    const sessions = sessionRoutes()
+    const fixes: Record<string, unknown>[] = []
+    const report: OrphanReport = {
+      users: [
+        { database: 'Sales', user: 'app', type: 'SQL user', sid: '0xAB12', defaultSchema: 'dbo', matchingLogin: 'app', ownedSchemas: [] },
+        { database: 'Sales', user: 'report', type: 'SQL user', sid: '0xCD34', defaultSchema: 'dbo', matchingLogin: null, ownedSchemas: ['reporting'] },
+      ],
+      owners: [{ database: 'Archive', ownerSid: '0x0105' }],
+      logins: [
+        { name: 'app', windows: false, disabled: false },
+        { name: 'sa', windows: false, disabled: false },
+        { name: 'CORP\\dba', windows: true, disabled: false },
+      ],
+      skipped: ['Old: offline'],
+      databasesChecked: 5,
+    }
+    let current = report
+    const { user } = renderWorkspace({
+      ...sessions.routes,
+      'GET /api/mssql/sessions/main/orphans': () => jsonResponse(200, current),
+      'POST /api/mssql/sessions/main/orphans/fix': (_url, init) => {
+        const fix = JSON.parse(String(init.body))
+        fixes.push(fix)
+        current = { ...current, users: current.users.filter((u) => u.user !== fix.user) }
+        return jsonResponse(200, { report: current, message: `Fixed ${fix.user}.` })
+      },
+    })
+    await openSql(user)
+
+    const tree = await screen.findByRole('tree', { name: 'Objects' })
+    await user.dblClick(await within(tree).findByText('Management'))
+    await user.dblClick(await within(tree).findByText('Orphaned Users'))
+
+    const tool = await screen.findByRole('tabpanel', { name: 'Orphaned Users' })
+    const table = await within(tool).findByRole('table', { name: 'Orphaned users' })
+    expect(within(table).getAllByRole('row')).toHaveLength(3)
+    expect(within(tool).getByRole('button', { name: 'Fix all matched by name (1)' })).toBeEnabled()
+    expect(within(tool).getByText('1 database wasn’t checked')).toBeInTheDocument()
+    expect(within(tool).getByRole('table', { name: 'Databases without an owner' })).toHaveTextContent('Archive')
+
+    // The usual fix: the login of its own name.
+    await user.click(within(table).getByRole('button', { name: 'Map to app' }))
+    await waitFor(() => expect(fixes[0]).toEqual({ action: 'map', database: 'Sales', user: 'app' }))
+    expect(await within(tool).findByText('Fixed app.')).toBeInTheDocument()
+
+    // A user that owns a schema can't be dropped: the dialog says so.
+    fireEvent.contextMenu(within(table).getByText('report'))
+    await user.click(screen.getByRole('menuitem', { name: 'Drop user…' }))
+    const drop = await screen.findByRole('dialog', { name: 'Drop report?' })
+    expect(within(drop).getByText(/owns reporting/)).toBeInTheDocument()
+    expect(within(drop).getByRole('button', { name: 'Drop user' })).toBeDisabled()
+    await user.click(within(drop).getByRole('button', { name: 'Cancel' }))
+
+    // No login of its name: create one, keeping the user's SID.
+    await user.click(within(table).getByRole('button', { name: 'Create login…' }))
+    const create = await screen.findByRole('dialog', { name: 'Create a login for report' })
+    expect(within(create).getByLabelText('Login name')).toHaveValue('report')
+    expect(within(create).getByRole('button', { name: 'Create and map' })).toBeDisabled()
+    await user.type(within(create).getByLabelText('Password'), 'S3cret-pass!')
+    await user.click(within(create).getByRole('button', { name: 'Create and map' }))
+    await waitFor(() =>
+      expect(fixes[1]).toEqual({ action: 'create', database: 'Sales', user: 'report', login: 'report', password: 'S3cret-pass!', checkPolicy: true }),
+    )
+    expect(await within(tool).findByText('Fixed report.')).toBeInTheDocument()
   })
 
   it('shows blocking chains under their lead blocker, collapsed, and kills a session after confirming', async () => {

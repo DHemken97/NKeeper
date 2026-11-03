@@ -97,6 +97,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'proxmox.migrate': 'Proxmox migration',
   'storage.action': 'Storage action',
   'mssql.kill': 'SQL Server session killed',
+  'mssql.login_fix': 'SQL Server login fixed',
   'migration.start': 'Migration started',
   'migration.end': 'Migration ended',
   'transfer.export': 'Data exported',
@@ -118,7 +119,7 @@ export const CATEGORIES = [
   { value: 'files', label: 'File transfers' },
   { value: 'idrac', label: 'iDRAC power' },
   { value: 'storage', label: 'Storage (iSCSI, multipath, DRBD)' },
-  { value: 'mssql', label: 'SQL Server (killed sessions)' },
+  { value: 'mssql', label: 'SQL Server (killed sessions, login fixes)' },
   { value: 'migration', label: 'VM migrations' },
   { value: 'transfer', label: 'Moves to a new server' },
 ]

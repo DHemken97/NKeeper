@@ -70,6 +70,9 @@ public sealed record SqlKillRequest
 
 public sealed record SqlScriptResponse(string Sql);
 
+/// <summary>The orphaned users after a fix, and what was done.</summary>
+public sealed record SqlOrphanFixResponse(OrphanReport Report, string Message);
+
 /// <summary>
 /// SQL Server, like a small SSMS: query windows on a session of their own (results as grids or text,
 /// with messages), an object explorer, scripts of objects, and the blocking manager (blocking chains
@@ -247,6 +250,45 @@ public sealed class SqlServerController(SqlServerSessionStore sessions, AuditLog
 
         await audit.RecordAsync(new AuditEntry("mssql.kill", session!.HostId, $"KILL {request.SessionId} · {session.Display}"));
         return NoContent();
+    }
+
+    /// <summary>Database users whose login is missing or no longer has their SID (e.g. after a restore), and databases without an owner.</summary>
+    [HttpGet("sessions/{id}/orphans")]
+    [ProducesResponseType<OrphanReport>(StatusCodes.Status200OK)]
+    public Task<ActionResult<OrphanReport>> Orphans(string id, CancellationToken cancellationToken) =>
+        WithToolConnectionAsync(id, connection => SqlOrphans.ReadAsync(connection, cancellationToken));
+
+    /// <summary>Fixes one orphaned user (map, create its login, drop) or a missing owner, then lists what's left. Audited.</summary>
+    [HttpPost("sessions/{id}/orphans/fix")]
+    [ProducesResponseType<SqlOrphanFixResponse>(StatusCodes.Status200OK)]
+    public Task<ActionResult<SqlOrphanFixResponse>> FixOrphan(string id, SqlOrphanFix fix, CancellationToken cancellationToken) =>
+        WithToolConnectionAsync(id, async connection =>
+        {
+            var done = await SqlOrphans.FixAsync(connection, fix, cancellationToken);
+            await AuditFixAsync(id, done);
+            return new SqlOrphanFixResponse(await SqlOrphans.ReadAsync(connection, cancellationToken), done + ".");
+        });
+
+    /// <summary>Maps every orphaned user that has a login of its own name to it (the usual repair after a restore). Audited.</summary>
+    [HttpPost("sessions/{id}/orphans/fix-matched")]
+    [ProducesResponseType<SqlOrphanFixResponse>(StatusCodes.Status200OK)]
+    public Task<ActionResult<SqlOrphanFixResponse>> FixMatchedOrphans(string id, CancellationToken cancellationToken) =>
+        WithToolConnectionAsync(id, async connection =>
+        {
+            var done = await SqlOrphans.FixAllMatchedAsync(connection, cancellationToken);
+            foreach (var line in done)
+            {
+                await AuditFixAsync(id, line);
+            }
+
+            var message = done.Count == 0 ? "No orphaned user has a login of its own name." : $"Mapped {done.Count} {(done.Count == 1 ? "user" : "users")} to their logins.";
+            return new SqlOrphanFixResponse(await SqlOrphans.ReadAsync(connection, cancellationToken), message);
+        });
+
+    private Task AuditFixAsync(string id, string detail)
+    {
+        var session = sessions.Get(id, User.GetUserId());
+        return audit.RecordAsync(new AuditEntry("mssql.login_fix", session.HostId, $"{detail} · {session.Display}"));
     }
 
     /// <summary>Runs on a short connection of the session's own (so it works while a query runs); SQL Server's errors are passed on.</summary>

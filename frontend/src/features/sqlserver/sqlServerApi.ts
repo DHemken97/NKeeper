@@ -105,6 +105,36 @@ export interface BlockingReport {
   atUtc: string
 }
 
+/** A database user whose login is gone or no longer has its SID (e.g. after a restore). */
+export interface OrphanedUser {
+  database: string
+  user: string
+  type: 'SQL user' | 'Windows user' | 'Windows group'
+  /** 0x… : a login created with it maps to the user. */
+  sid: string
+  defaultSchema: string | null
+  /** A login of the same name and kind, to map the user to. */
+  matchingLogin: string | null
+  /** Schemas it owns: it can't be dropped while it owns any. */
+  ownedSchemas: string[]
+}
+
+export interface OrphanReport {
+  users: OrphanedUser[]
+  /** Databases whose owner isn't a login here. */
+  owners: { database: string; ownerSid: string }[]
+  logins: { name: string; windows: boolean; disabled: boolean }[]
+  /** Databases that couldn't be checked, with why. */
+  skipped: string[]
+  databasesChecked: number
+}
+
+export type OrphanFix =
+  | { action: 'map'; database: string; user: string; login?: string }
+  | { action: 'create'; database: string; user: string; login?: string; password?: string; checkPolicy?: boolean }
+  | { action: 'drop'; database: string; user: string }
+  | { action: 'owner'; database: string; login: string }
+
 /** The body that opens a session: the tab's host, service and login, a certificate the user trusted, and a database to start in. */
 export function openRequestBody(request: SessionRequest, trustFingerprint?: string, database?: string) {
   return {
@@ -133,6 +163,9 @@ export const sqlServerApi = {
   script: (sessionId: string, node: SqlObjectNode, action: SqlScriptAction) =>
     api.post<{ sql: string }>(`${base(sessionId)}/script`, { body: { node, action } }),
   blocking: (sessionId: string) => api.get<BlockingReport>(`${base(sessionId)}/blocking`),
+  orphans: (sessionId: string) => api.get<OrphanReport>(`${base(sessionId)}/orphans`),
+  fixOrphan: (sessionId: string, fix: OrphanFix) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix`, { body: fix }),
+  fixMatchedOrphans: (sessionId: string) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix-matched`),
   kill: (sessionId: string, spid: number) => api.post<void>(`${base(sessionId)}/kill`, { body: { sessionId: spid } }),
 }
 
