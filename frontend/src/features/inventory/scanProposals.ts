@@ -170,8 +170,9 @@ export function scanProposals(host: Host, findings: ScanFindings, sshPort: numbe
       key: `service-${protocol}-${port}`,
       group: 'Services',
       label: protocol === 'Ssms' && instance ? `${PROTOCOL_INFO[protocol].label} · ${instance}` : PROTOCOL_INFO[protocol].label,
-      detail: `port ${port}${name && name !== PROTOCOL_INFO[protocol].label ? ` · ${name}` : ''}`,
-      checked: true,
+      detail: `port ${port}${name && name !== PROTOCOL_INFO[protocol].label ? ` · ${name}` : ''}${protocol === 'Oracle' ? ' · add its service name' : ''}`,
+      // A scan can't tell an Oracle listener's service names: the user adds one before saving.
+      checked: protocol !== 'Oracle',
       apply: (draft) => void draft.services.push(newServiceDraft(protocol, stored, null, null, null, protocol === 'Ssms' ? (instance ?? null) : null)),
     })
   }

@@ -43,6 +43,7 @@ import {
   IDRAC_MODES,
   guestId,
   serviceLabel,
+  oracleServiceLabel,
   sqlInstanceLabel,
   WEB_PROTOCOLS,
   type HostMenuActions,
@@ -120,6 +121,12 @@ function sessionProtocol(protocol: ServiceProtocol, mode?: OpenMode): RemoteSess
   }
   if (protocol === 'Ssms') {
     return 'mssql'
+  }
+  if (protocol === 'Oracle') {
+    return 'oracle'
+  }
+  if (protocol === 'Ase') {
+    return 'ase'
   }
   return protocol === 'Telnet' ? 'telnet' : protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : protocol === 'Rpc' ? 'rpc' : 'ssh'
 }
@@ -407,7 +414,9 @@ export function WorkspacePage() {
           ? 'Storage'
           : service.protocol === 'Ssms'
             ? sqlInstanceLabel(service)
-            : service.protocol !== 'Idrac'
+            : service.protocol === 'Oracle'
+              ? oracleServiceLabel(service)
+              : service.protocol !== 'Idrac'
               ? null
               : mode === 'web'
                 ? 'Web interface'
@@ -1040,8 +1049,8 @@ export function WorkspacePage() {
               />
             ) : session.protocol === 'sftp' ? (
               <FileBrowser key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
-            ) : session.protocol === 'mssql' ? (
-              <SqlServerView key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'mssql' || session.protocol === 'oracle' || session.protocol === 'ase' ? (
+              <SqlServerView key={session.id} session={session} engine={session.protocol} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'storage' ? (
               <StorageView key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'idrac' ? (

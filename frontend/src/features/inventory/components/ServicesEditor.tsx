@@ -31,7 +31,7 @@ export function ServicesEditor({
   errors,
   dropped = [],
   protocols = SUPPORTED_PROTOCOLS,
-  hint = 'How you connect to this host. Leave the port empty to use the default. An iDRAC has its own address; its port is the HTTPS (Redfish) port. A SQL Server named instance without a port is found with the SQL Server Browser.',
+  hint = 'How you connect to this host. Leave the port empty to use the default. An iDRAC has its own address; its port is the HTTPS (Redfish) port. A SQL Server named instance without a port is found with the SQL Server Browser. An Oracle service needs its service name (or SID).',
   emptyText = 'No services yet.',
   reorderable = true,
   note,
@@ -182,6 +182,22 @@ export function ServicesEditor({
                     maxLength={16}
                     spellCheck={false}
                     aria-label={`Instance for ${position}`}
+                    aria-invalid={errors[`services[${index}].instance`] ? true : undefined}
+                  />
+                </label>
+              ) : null}
+              {service.protocol === 'Oracle' ? (
+                <label className={styles.option}>
+                  <span>Service name</span>
+                  <input
+                    className={styles.input}
+                    value={service.instance}
+                    onChange={(event) => update(service.key, { instance: event.target.value })}
+                    placeholder="e.g. ORCLPDB1 or XE"
+                    maxLength={128}
+                    required
+                    spellCheck={false}
+                    aria-label={`Service name for ${position}`}
                     aria-invalid={errors[`services[${index}].instance`] ? true : undefined}
                   />
                 </label>

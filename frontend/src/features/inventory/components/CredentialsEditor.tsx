@@ -18,7 +18,7 @@ interface CredentialsEditorProps {
 
 /** A service as the "Use with" list names it, e.g. "MS SQL · SQLEXPRESS :14330". */
 function serviceName(service: ServiceDraft): string {
-  return [PROTOCOL_INFO[service.protocol].label, service.protocol === 'Ssms' ? service.instance.trim() : '', service.label.trim()]
+  return [PROTOCOL_INFO[service.protocol].label, service.protocol === 'Ssms' || service.protocol === 'Oracle' ? service.instance.trim() : '', service.label.trim()]
     .filter(Boolean)
     .join(' · ') + (service.port ? ` :${service.port}` : '')
 }
