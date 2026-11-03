@@ -438,6 +438,66 @@ describe('SQL Server', () => {
     expect(await within(tool).findByText('Fixed report.')).toBeInTheDocument()
   })
 
+  it('selects orphaned users in bulk and drops them after confirming, listing the ones that couldn’t be', async () => {
+    const sessions = sessionRoutes()
+    const bulk: Record<string, unknown>[] = []
+    const users: OrphanReport['users'] = [
+      { database: 'Sales', user: 'app', type: 'SQL user', sid: '0x01', defaultSchema: 'dbo', matchingLogin: 'app', ownedSchemas: [] },
+      { database: 'Sales', user: 'old1', type: 'SQL user', sid: '0x02', defaultSchema: 'dbo', matchingLogin: null, ownedSchemas: [] },
+      { database: 'HR', user: 'old2', type: 'SQL user', sid: '0x03', defaultSchema: 'dbo', matchingLogin: null, ownedSchemas: ['legacy'] },
+    ]
+    const report: OrphanReport = { users, owners: [], logins: [{ name: 'app', windows: false, disabled: false }], skipped: [], databasesChecked: 2 }
+    const { user } = renderWorkspace({
+      ...sessions.routes,
+      'GET /api/mssql/sessions/main/orphans': () => jsonResponse(200, report),
+      'POST /api/mssql/sessions/main/orphans/fix-many': (_url, init) => {
+        bulk.push(JSON.parse(String(init.body)))
+        return jsonResponse(200, {
+          report: { ...report, users: users.filter((u) => u.user !== 'old1') },
+          message: 'Dropped 1 user. 1 couldn’t be.',
+          results: [
+            { database: 'Sales', user: 'old1', succeeded: true, message: 'Sales: user old1 dropped' },
+            { database: 'HR', user: 'old2', succeeded: false, message: '“old2” owns the schema legacy, so it can’t be dropped.' },
+          ],
+        })
+      },
+    })
+    await openSql(user)
+    const tree = await screen.findByRole('tree', { name: 'Objects' })
+    await user.dblClick(await within(tree).findByText('Management'))
+    await user.dblClick(await within(tree).findByText('Orphaned Users'))
+    const tool = await screen.findByRole('tabpanel', { name: 'Orphaned Users' })
+    await within(tool).findByRole('table', { name: 'Orphaned users' })
+
+    // Select the ones that can't simply be mapped back.
+    await user.click(within(tool).getByRole('button', { name: 'Without a login of their name' }))
+    expect(within(tool).getByRole('checkbox', { name: 'Select old1 in Sales' })).toBeChecked()
+    expect(within(tool).getByRole('checkbox', { name: 'Select old2 in HR' })).toBeChecked()
+    expect(within(tool).getByRole('checkbox', { name: 'Select app in Sales' })).not.toBeChecked()
+    expect(within(tool).getByRole('checkbox', { name: 'Select all users' })).toBePartiallyChecked()
+    expect(within(tool).getByRole('button', { name: 'Map selected to their logins (0)' })).toBeDisabled()
+
+    await user.click(within(tool).getByRole('button', { name: 'Drop selected (2)…' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Drop 2 users?' })
+    expect(within(dialog).getByText(/old2 own schemas/)).toBeInTheDocument()
+    expect(bulk).toHaveLength(0)
+    await user.click(within(dialog).getByRole('button', { name: 'Drop 2 users' }))
+
+    await waitFor(() =>
+      expect(bulk).toEqual([
+        {
+          fixes: [
+            { action: 'drop', database: 'Sales', user: 'old1' },
+            { action: 'drop', database: 'HR', user: 'old2' },
+          ],
+        },
+      ]),
+    )
+    expect(await within(tool).findByText('Dropped 1 user. 1 couldn’t be.')).toBeInTheDocument()
+    expect(within(tool).getByRole('list', { name: 'Couldn’t fix' })).toHaveTextContent('HR · old2: “old2” owns the schema legacy')
+    expect(within(tool).getByRole('checkbox', { name: 'Select all users' })).not.toBeChecked()
+  })
+
   it('shows blocking chains under their lead blocker, collapsed, and kills a session after confirming', async () => {
     const sessions = sessionRoutes()
     const killed: Record<string, unknown>[] = []

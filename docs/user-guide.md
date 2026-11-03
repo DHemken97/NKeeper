@@ -239,6 +239,8 @@ Add a **Microsoft SQL Server** service to the host for each instance. Leave **In
   - **Create its login…**: a SQL login with a password you choose and the user's own SID, so the same user in other databases restored from the same server maps to it too; or a Windows login (`FROM WINDOWS`).
   - **Drop user…**, after confirming. A user that owns schemas can't be dropped.
 
+  **In bulk:** tick users (or use **Select: All / Without a login of their name / With a login of their name**), then **Map selected to their logins** or **Drop selected…** (after confirming). Each user is fixed on its own: the ones that can't be (e.g. a user that owns schemas) are listed with why, and the rest go ahead.
+
   Right-click a user (or Shift+F10) for every fix. Databases whose owner login is missing are listed below, with **Set owner…**. Users created without a login on purpose, and contained users, aren't orphans. Fixes are recorded in the audit log (category *SQL Server*), never with the password; they need permission to alter users and create logins (sysadmin, or securityadmin and db_owner).
 - **Encryption and trust**: the connection is always encrypted. The server's certificate is trusted like an HTTPS server's: once, then pinned. A SQL Server without a certificate of its own makes a new self-signed one (*SSL_Self_Signed_Fallback*) every time it starts, so NKeeper asks you to trust the new one after a restart instead of refusing to connect. Give the server a real certificate to have any change refused outright.
 - **Jump hosts**: SQL Server goes through the host's jump host. A named instance then needs its port set on the service (the SQL Server Browser can't be asked through the tunnel).

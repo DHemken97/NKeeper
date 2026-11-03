@@ -465,6 +465,51 @@ public sealed class SqlServerTests(PostgresServerFixture postgres, SqlServerFixt
     }
 
     [Fact]
+    public async Task OrphanedUsers_CanBeDroppedInBulk_EachSayingWhetherItWorked()
+    {
+        sql.SkipIfUnavailable();
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var database = $"nk_{suffix}";
+        string Name(string name) => $"{name}_{suffix}";
+        await sql.ExecuteAsync(
+            $"""
+            CREATE DATABASE [{database}];
+            CREATE LOGIN [{Name("a")}] WITH PASSWORD = 'Old-Passw0rd!', CHECK_POLICY = OFF;
+            CREATE LOGIN [{Name("b")}] WITH PASSWORD = 'Old-Passw0rd!', CHECK_POLICY = OFF;
+            CREATE LOGIN [{Name("keeper")}] WITH PASSWORD = 'Old-Passw0rd!', CHECK_POLICY = OFF;
+            """,
+            cancellationToken: Ct);
+        await sql.ExecuteAsync(
+            $"""
+            CREATE USER [{Name("a")}] FOR LOGIN [{Name("a")}];
+            CREATE USER [{Name("b")}] FOR LOGIN [{Name("b")}];
+            CREATE USER [{Name("keeper")}] FOR LOGIN [{Name("keeper")}];
+            EXEC ('CREATE SCHEMA [kept_{suffix}] AUTHORIZATION [{Name("keeper")}]');
+            """,
+            database,
+            Ct);
+        await sql.ExecuteAsync($"DROP LOGIN [{Name("a")}]; DROP LOGIN [{Name("b")}]; DROP LOGIN [{Name("keeper")}];", cancellationToken: Ct);
+        var session = await OpenAsync(await CreateHostAsync());
+
+        var bulk = await PostAsync($"/api/mssql/sessions/{session}/orphans/fix-many", new
+        {
+            fixes = new[] { Name("a"), Name("b"), Name("keeper") }.Select(user => new { action = "drop", database, user }),
+        });
+
+        Assert.Equal("Dropped 2 users. 1 couldn't be.", bulk.GetProperty("message").GetString());
+        var results = bulk.GetProperty("results").EnumerateArray().ToList();
+        Assert.Equal([true, true, false], results.Select(r => r.GetProperty("succeeded").GetBoolean()));
+        Assert.Contains($"kept_{suffix}", results[2].GetProperty("message").GetString(), StringComparison.Ordinal);
+        var left = bulk.GetProperty("report").GetProperty("users").EnumerateArray().Where(u => u.GetProperty("database").GetString() == database);
+        Assert.Equal([Name("keeper")], left.Select(u => u.GetProperty("user").GetString()));
+
+        // Creating logins needs a password each: one at a time.
+        var create = await _admin.SendJsonAsync(
+            HttpMethod.Post, $"/api/mssql/sessions/{session}/orphans/fix-many", new { fixes = new[] { new { action = "create", database, user = Name("keeper") } } }, Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, create.StatusCode);
+    }
+
+    [Fact]
     public async Task BlockingManager_ShowsChainsUnderTheirLeadBlocker_AndKillsIt()
     {
         sql.SkipIfUnavailable();

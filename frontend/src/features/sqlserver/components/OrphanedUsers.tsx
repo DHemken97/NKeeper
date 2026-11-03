@@ -22,6 +22,10 @@ type Pending =
   | { kind: 'create'; user: OrphanedUser }
   | { kind: 'drop'; user: OrphanedUser }
   | { kind: 'owner'; database: string; ownerSid: string }
+  | { kind: 'bulkDrop'; users: OrphanedUser[] }
+
+/** A user's identity in the list (names repeat across databases). */
+const keyOf = (user: OrphanedUser) => `${user.database}/${user.user}`
 
 /**
  * Orphaned users: database users whose login is gone or no longer has their SID, as after restoring a
@@ -41,6 +45,8 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [checkPolicy, setCheckPolicy] = useState(true)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [failures, setFailures] = useState<{ database: string; user: string; message: string }[]>([])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -65,6 +71,53 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
   const users = report?.users ?? []
   const owners = report?.owners ?? []
   const matched = users.filter((u) => u.matchingLogin)
+  // Only users still in the list count as selected (a fix or refresh removes the others).
+  const chosen = users.filter((u) => selected.has(keyOf(u)))
+  const chosenMatched = chosen.filter((u) => u.matchingLogin)
+  const allChosen = users.length > 0 && chosen.length === users.length
+
+  function select(which: OrphanedUser[]) {
+    setSelected(new Set(which.map(keyOf)))
+  }
+
+  function toggle(user: OrphanedUser) {
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(keyOf(user))) {
+        next.delete(keyOf(user))
+      } else {
+        next.add(keyOf(user))
+      }
+      return next
+    })
+  }
+
+  /** Maps or drops the chosen users; the ones that couldn't be stay listed, with why. */
+  async function applyMany(action: 'map' | 'drop', targets: OrphanedUser[]) {
+    setBusy(true)
+    setDialogError(null)
+    try {
+      const result = await sqlServerApi.fixManyOrphans(
+        sessionId,
+        targets.map((u) => ({ action, database: u.database, user: u.user })),
+      )
+      setReport(result.report)
+      setNotice(result.message)
+      setFailures(result.results.filter((r) => !r.succeeded))
+      setSelected(new Set())
+      setPending(null)
+      setError(null)
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : 'Couldn’t fix those users.'
+      if (pending) {
+        setDialogError(message)
+      } else {
+        setError(message)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
 
   /** Logins a user can be mapped to: SQL logins for SQL users, Windows ones for Windows users and groups. */
   const loginsFor = (user: OrphanedUser) => (report?.logins ?? []).filter((l) => l.windows === (user.type !== 'SQL user'))
@@ -93,6 +146,7 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
       const result = await sqlServerApi.fixOrphan(sessionId, fix)
       setReport(result.report)
       setNotice(result.message)
+      setFailures([])
       setPending(null)
     } catch (e) {
       const message = e instanceof ApiError ? e.message : 'Couldn’t fix that.'
@@ -112,6 +166,7 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
       const result = await sqlServerApi.fixMatchedOrphans(sessionId)
       setReport(result.report)
       setNotice(result.message)
+      setFailures([])
       setError(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Couldn’t map the users.')
@@ -124,7 +179,9 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
     if (!pending) {
       return
     }
-    if (pending.kind === 'owner') {
+    if (pending.kind === 'bulkDrop') {
+      void applyMany('drop', pending.users)
+    } else if (pending.kind === 'owner') {
       void apply({ action: 'owner', database: pending.database, login })
     } else if (pending.kind === 'map') {
       void apply({ action: 'map', database: pending.user.database, user: pending.user.user, login })
@@ -156,7 +213,9 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
   const createsSqlLogin = pending?.kind === 'create' && pending.user.type === 'SQL user'
   const canConfirm =
     !busy &&
-    (pending?.kind === 'drop'
+    (pending?.kind === 'bulkDrop'
+      ? pending.users.length > 0
+      : pending?.kind === 'drop'
       ? pending.user.ownedSchemas.length === 0
       : pending?.kind === 'create'
         ? login.trim() !== '' && (!createsSqlLogin || password !== '')
@@ -181,6 +240,20 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
       </header>
 
       {notice ? <Alert variant="info">{notice}</Alert> : null}
+      {failures.length > 0 ? (
+        <Alert variant="error">
+          <ul className={styles.failures} aria-label="Couldn’t fix">
+            {failures.map((f) => (
+              <li key={`${f.database}/${f.user}`}>
+                <strong>
+                  {f.database} · {f.user}
+                </strong>
+                : {f.message}
+              </li>
+            ))}
+          </ul>
+        </Alert>
+      ) : null}
       {error ? <Alert variant="error">{error}</Alert> : null}
       {report && report.skipped.length > 0 ? (
         <details className={styles.skipped}>
@@ -199,9 +272,46 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
 
       {users.length > 0 ? (
         <div className={styles.blockingTableWrap}>
+          <div className={styles.bulkBar} role="toolbar" aria-label="Selected users">
+            <span className={styles.toolbarNote}>Select:</span>
+            <Button size="sm" variant="ghost" onClick={() => select(users)}>
+              All
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => select(users.filter((u) => !u.matchingLogin))} disabled={users.every((u) => u.matchingLogin)}>
+              Without a login of their name
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => select(matched)} disabled={matched.length === 0}>
+              With a login of their name
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => select([])} disabled={chosen.length === 0}>
+              None
+            </Button>
+            <span className={styles.bulkActions}>
+              <span className={styles.toolbarNote}>{chosen.length} selected</span>
+              <Button size="sm" variant="secondary" onClick={() => void applyMany('map', chosenMatched)} disabled={busy || chosenMatched.length === 0}>
+                Map selected to their logins ({chosenMatched.length})
+              </Button>
+              <Button size="sm" variant="danger" onClick={() => open({ kind: 'bulkDrop', users: chosen })} disabled={busy || chosen.length === 0}>
+                Drop selected ({chosen.length})…
+              </Button>
+            </span>
+          </div>
           <table className={styles.blockingTable} aria-label="Orphaned users">
             <thead>
               <tr>
+                <th scope="col" className={styles.checkCell}>
+                  <input
+                    type="checkbox"
+                    checked={allChosen}
+                    ref={(box) => {
+                      if (box) {
+                        box.indeterminate = chosen.length > 0 && !allChosen
+                      }
+                    }}
+                    onChange={() => select(allChosen ? [] : users)}
+                    aria-label="Select all users"
+                  />
+                </th>
                 <th scope="col">Database</th>
                 <th scope="col">User</th>
                 <th scope="col">Type</th>
@@ -224,6 +334,9 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
                     }
                   }}
                 >
+                  <td className={styles.checkCell}>
+                    <input type="checkbox" checked={selected.has(keyOf(user))} onChange={() => toggle(user)} aria-label={`Select ${user.user} in ${user.database}`} />
+                  </td>
                   <td>{user.database}</td>
                   <td>
                     {user.user}
@@ -295,7 +408,9 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
       {pending ? (
         <Dialog
           title={
-            pending.kind === 'owner'
+            pending.kind === 'bulkDrop'
+              ? `Drop ${pending.users.length} ${pending.users.length === 1 ? 'user' : 'users'}?`
+              : pending.kind === 'owner'
               ? `Set the owner of ${pending.database}`
               : pending.kind === 'map'
                 ? `Map ${pending.user.user} to a login`
@@ -303,7 +418,7 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
                   ? `Create a login for ${pending.user.user}`
                   : `Drop ${pending.user.user}?`
           }
-          description={pending.kind === 'owner' ? undefined : `In ${pending.user.database}`}
+          description={pending.kind === 'owner' || pending.kind === 'bulkDrop' ? undefined : `In ${pending.user.database}`}
           onClose={() => !busy && setPending(null)}
           footer={
             <>
@@ -311,7 +426,15 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
                 Cancel
               </Button>
               <Button variant={pending.kind === 'drop' ? 'danger' : 'primary'} onClick={confirm} disabled={!canConfirm} loading={busy}>
-                {pending.kind === 'owner' ? 'Set owner' : pending.kind === 'map' ? 'Map' : pending.kind === 'create' ? 'Create and map' : 'Drop user'}
+                {pending.kind === 'bulkDrop'
+                  ? `Drop ${pending.users.length} ${pending.users.length === 1 ? 'user' : 'users'}`
+                  : pending.kind === 'owner'
+                    ? 'Set owner'
+                    : pending.kind === 'map'
+                      ? 'Map'
+                      : pending.kind === 'create'
+                        ? 'Create and map'
+                        : 'Drop user'}
               </Button>
             </>
           }
@@ -350,6 +473,24 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
             </>
           ) : null}
 
+          {pending.kind === 'bulkDrop' ? (
+            <>
+              <p>DROP USER removes each from its database, with its permissions there. Their objects and data stay.</p>
+              <ul className={styles.bulkList}>
+                {pending.users.map((u) => (
+                  <li key={keyOf(u)}>
+                    {u.database} · {u.user}
+                  </li>
+                ))}
+              </ul>
+              {pending.users.some((u) => u.ownedSchemas.length > 0) ? (
+                <Alert variant="error">
+                  {pending.users.filter((u) => u.ownedSchemas.length > 0).map((u) => u.user).join(', ')} own schemas, so they can’t be dropped and are left as
+                  they are. The others are dropped.
+                </Alert>
+              ) : null}
+            </>
+          ) : null}
           {pending.kind === 'drop' ? (
             pending.user.ownedSchemas.length > 0 ? (
               <Alert variant="error">

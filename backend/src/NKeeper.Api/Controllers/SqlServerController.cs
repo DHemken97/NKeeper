@@ -73,6 +73,9 @@ public sealed record SqlScriptResponse(string Sql);
 /// <summary>The orphaned users after a fix, and what was done.</summary>
 public sealed record SqlOrphanFixResponse(OrphanReport Report, string Message);
 
+/// <summary>The orphaned users after several fixes, and what each did.</summary>
+public sealed record SqlOrphanBulkResponse(OrphanReport Report, string Message, IReadOnlyList<SqlOrphanResult> Results);
+
 /// <summary>
 /// SQL Server, like a small SSMS: query windows on a session of their own (results as grids or text,
 /// with messages), an object explorer, scripts of objects, and the blocking manager (blocking chains
@@ -267,6 +270,25 @@ public sealed class SqlServerController(SqlServerSessionStore sessions, AuditLog
             var done = await SqlOrphans.FixAsync(connection, fix, cancellationToken);
             await AuditFixAsync(id, done);
             return new SqlOrphanFixResponse(await SqlOrphans.ReadAsync(connection, cancellationToken), done + ".");
+        });
+
+    /// <summary>Maps or drops several orphaned users; each that worked is audited, and each that didn't says why.</summary>
+    [HttpPost("sessions/{id}/orphans/fix-many")]
+    [ProducesResponseType<SqlOrphanBulkResponse>(StatusCodes.Status200OK)]
+    public Task<ActionResult<SqlOrphanBulkResponse>> FixManyOrphans(string id, SqlOrphanBulkFix request, CancellationToken cancellationToken) =>
+        WithToolConnectionAsync(id, async connection =>
+        {
+            var results = await SqlOrphans.FixManyAsync(connection, request.Fixes, cancellationToken);
+            foreach (var done in results.Where(r => r.Succeeded))
+            {
+                await AuditFixAsync(id, done.Message);
+            }
+
+            var succeeded = results.Count(r => r.Succeeded);
+            var failed = results.Count - succeeded;
+            var verb = request.Fixes.All(f => f.Action == SqlOrphans.Drop) ? "Dropped" : request.Fixes.All(f => f.Action == SqlOrphans.Map) ? "Mapped" : "Fixed";
+            var message = $"{verb} {succeeded} {(succeeded == 1 ? "user" : "users")}." + (failed == 0 ? "" : $" {failed} couldn't be.");
+            return new SqlOrphanBulkResponse(await SqlOrphans.ReadAsync(connection, cancellationToken), message, results);
         });
 
     /// <summary>Maps every orphaned user that has a login of its own name to it (the usual repair after a restore). Audited.</summary>

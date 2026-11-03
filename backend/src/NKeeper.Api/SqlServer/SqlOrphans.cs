@@ -132,9 +132,34 @@ internal static partial class SqlOrphans
 
     /// <summary>Runs one fix, and describes it for the audit log (never with the password).</summary>
     /// <exception cref="SqlExplorerException">The fix doesn't apply to that user, or a value is missing.</exception>
-    public static async Task<string> FixAsync(SqlConnection connection, SqlOrphanFix fix, CancellationToken cancellationToken)
+    public static async Task<string> FixAsync(SqlConnection connection, SqlOrphanFix fix, CancellationToken cancellationToken) =>
+        await FixAsync(connection, fix, await ReadAsync(connection, cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// Runs several fixes (map or drop) against one check of the server, each on its own: one that
+    /// fails (a user that owns schemas, a permission) doesn't stop the others.
+    /// </summary>
+    public static async Task<IReadOnlyList<SqlOrphanResult>> FixManyAsync(SqlConnection connection, IReadOnlyList<SqlOrphanFix> fixes, CancellationToken cancellationToken)
     {
         var report = await ReadAsync(connection, cancellationToken);
+        var results = new List<SqlOrphanResult>();
+        foreach (var fix in fixes)
+        {
+            try
+            {
+                results.Add(new SqlOrphanResult(fix.Database, fix.User ?? string.Empty, true, await FixAsync(connection, fix, report, cancellationToken)));
+            }
+            catch (Exception ex) when (ex is SqlException or SqlExplorerException)
+            {
+                results.Add(new SqlOrphanResult(fix.Database, fix.User ?? string.Empty, false, ex.Message));
+            }
+        }
+
+        return results;
+    }
+
+    private static async Task<string> FixAsync(SqlConnection connection, SqlOrphanFix fix, OrphanReport report, CancellationToken cancellationToken)
+    {
         if (fix.Action == Owner)
         {
             var owner = report.Owners.FirstOrDefault(o => o.Database == fix.Database)
@@ -256,6 +281,29 @@ internal static partial class SqlOrphans
 
     [GeneratedRegex("^0x[0-9A-Fa-f]{2,170}$")]
     private static partial Regex SidPattern();
+}
+
+/// <summary>What one fix of several did: <see cref="Message"/> says what was done, or why it wasn't.</summary>
+public sealed record SqlOrphanResult(string Database, string User, bool Succeeded, string Message);
+
+/// <summary>Several fixes at once: mapping users to the logins of their names, or dropping them.</summary>
+public sealed record SqlOrphanBulkFix : System.ComponentModel.DataAnnotations.IValidatableObject
+{
+    public const int MaxFixes = 1000;
+
+    [System.ComponentModel.DataAnnotations.Required]
+    [System.ComponentModel.DataAnnotations.MinLength(1, ErrorMessage = "Choose some users.")]
+    [System.ComponentModel.DataAnnotations.MaxLength(MaxFixes, ErrorMessage = "Fix at most 1000 users at a time.")]
+    public SqlOrphanFix[] Fixes { get; init; } = [];
+
+    public IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(System.ComponentModel.DataAnnotations.ValidationContext validationContext)
+    {
+        // Creating logins needs a password each, and owners aren't users: those are one at a time.
+        if (Fixes.Any(f => f.Action is not (SqlOrphans.Map or SqlOrphans.Drop) || string.IsNullOrEmpty(f.User)))
+        {
+            yield return new System.ComponentModel.DataAnnotations.ValidationResult("Only mapping and dropping users can be done in bulk.", ["fixes"]);
+        }
+    }
 }
 
 /// <summary>One fix for an orphaned user (or a database's missing owner).</summary>

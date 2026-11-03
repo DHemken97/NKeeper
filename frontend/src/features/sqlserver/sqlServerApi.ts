@@ -165,6 +165,11 @@ export const sqlServerApi = {
   blocking: (sessionId: string) => api.get<BlockingReport>(`${base(sessionId)}/blocking`),
   orphans: (sessionId: string) => api.get<OrphanReport>(`${base(sessionId)}/orphans`),
   fixOrphan: (sessionId: string, fix: OrphanFix) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix`, { body: fix }),
+  fixManyOrphans: (sessionId: string, fixes: { action: 'map' | 'drop'; database: string; user: string }[]) =>
+    api.post<{ report: OrphanReport; message: string; results: { database: string; user: string; succeeded: boolean; message: string }[] }>(
+      `${base(sessionId)}/orphans/fix-many`,
+      { body: { fixes } },
+    ),
   fixMatchedOrphans: (sessionId: string) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix-matched`),
   kill: (sessionId: string, spid: number) => api.post<void>(`${base(sessionId)}/kill`, { body: { sessionId: spid } }),
 }
