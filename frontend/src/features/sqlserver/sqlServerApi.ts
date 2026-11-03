@@ -2,7 +2,7 @@ import { api } from '../../lib/api'
 import type { CertificatePrompt } from '../terminal/kvm'
 import type { SessionRequest } from '../terminal/types'
 
-/** What a SQL Server says about itself when a session opens. */
+/** What a database server says about itself when a session opens. */
 export interface SqlServerInfo {
   serverName: string
   productVersion: string
@@ -96,6 +96,8 @@ export interface BlockingSession {
   blockedSessions: BlockingSession[]
   /** A blocker that isn't a session (e.g. -2, an orphaned distributed transaction): it can't be killed. */
   placeholder?: boolean
+  /** Oracle's serial#: with the SID, it names the session to kill. */
+  serial?: number | null
 }
 
 export interface BlockingReport {
@@ -148,37 +150,80 @@ export function openRequestBody(request: SessionRequest, trustFingerprint?: stri
   }
 }
 
-const base = (sessionId: string) => `/api/mssql/sessions/${encodeURIComponent(sessionId)}`
+/** The database engines the explorer works with, by the API path they're under. */
+export type DbEngine = 'mssql' | 'oracle' | 'ase'
 
-export const sqlServerApi = {
-  open: (request: SessionRequest, trustFingerprint?: string, database?: string) =>
-    api.post<SqlOpenResponse>('/api/mssql/sessions', { body: openRequestBody(request, trustFingerprint, database) }),
-  close: (sessionId: string) => api.delete<void>(base(sessionId)),
-  keepAlive: (sessionId: string) => api.post<void>(`${base(sessionId)}/keepalive`),
-  query: (sessionId: string, sql: string, lineOffset: number) => api.post<SqlQueryResult>(`${base(sessionId)}/query`, { body: { sql, lineOffset } }),
-  cancel: (sessionId: string) => api.post<void>(`${base(sessionId)}/cancel`),
-  databases: (sessionId: string) => api.get<string[]>(`${base(sessionId)}/databases`),
-  changeDatabase: (sessionId: string, name: string) => api.post<{ name: string }>(`${base(sessionId)}/database`, { body: { name } }),
-  explore: (sessionId: string, node: SqlObjectNode) => api.post<SqlObjectNode[]>(`${base(sessionId)}/explore`, { body: { node } }),
-  script: (sessionId: string, node: SqlObjectNode, action: SqlScriptAction) =>
-    api.post<{ sql: string }>(`${base(sessionId)}/script`, { body: { node, action } }),
-  blocking: (sessionId: string) => api.get<BlockingReport>(`${base(sessionId)}/blocking`),
-  orphans: (sessionId: string) => api.get<OrphanReport>(`${base(sessionId)}/orphans`),
-  fixOrphan: (sessionId: string, fix: OrphanFix) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix`, { body: fix }),
-  fixManyOrphans: (sessionId: string, fixes: { action: 'map' | 'drop'; database: string; user: string }[]) =>
-    api.post<{ report: OrphanReport; message: string; results: { database: string; user: string; succeeded: boolean; message: string }[] }>(
-      `${base(sessionId)}/orphans/fix-many`,
-      { body: { fixes } },
-    ),
-  fixMatchedOrphans: (sessionId: string) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix-matched`),
-  kill: (sessionId: string, spid: number) => api.post<void>(`${base(sessionId)}/kill`, { body: { sessionId: spid } }),
+export interface DbEngineInfo {
+  /** e.g. "SQL Server": the product, as the tab and messages name it. */
+  product: string
+  /** What a query window's database list holds: Oracle switches schemas. */
+  databaseLabel: string
+  /** The Management tools this engine has. */
+  tools: ('blocking' | 'orphans')[]
 }
 
+export const DB_ENGINES: Record<DbEngine, DbEngineInfo> = {
+  mssql: { product: 'SQL Server', databaseLabel: 'Database', tools: ['blocking', 'orphans'] },
+  oracle: { product: 'Oracle', databaseLabel: 'Schema', tools: ['blocking'] },
+  ase: { product: 'SAP ASE', databaseLabel: 'Database', tools: ['blocking'] },
+}
+
+function createDbApi(engine: DbEngine) {
+  const root = `/api/${engine}/sessions`
+  const base = (sessionId: string) => `${root}/${encodeURIComponent(sessionId)}`
+  return {
+    engine,
+    /** The session's path, e.g. to close it when the page goes away. */
+    sessionPath: base,
+    open: (request: SessionRequest, trustFingerprint?: string, database?: string) =>
+      api.post<SqlOpenResponse>(root, { body: openRequestBody(request, trustFingerprint, database) }),
+    close: (sessionId: string) => api.delete<void>(base(sessionId)),
+    keepAlive: (sessionId: string) => api.post<void>(`${base(sessionId)}/keepalive`),
+    query: (sessionId: string, sql: string, lineOffset: number) => api.post<SqlQueryResult>(`${base(sessionId)}/query`, { body: { sql, lineOffset } }),
+    cancel: (sessionId: string) => api.post<void>(`${base(sessionId)}/cancel`),
+    databases: (sessionId: string) => api.get<string[]>(`${base(sessionId)}/databases`),
+    changeDatabase: (sessionId: string, name: string) => api.post<{ name: string }>(`${base(sessionId)}/database`, { body: { name } }),
+    explore: (sessionId: string, node: SqlObjectNode) => api.post<SqlObjectNode[]>(`${base(sessionId)}/explore`, { body: { node } }),
+    script: (sessionId: string, node: SqlObjectNode, action: SqlScriptAction) =>
+      api.post<{ sql: string }>(`${base(sessionId)}/script`, { body: { node, action } }),
+    blocking: (sessionId: string) => api.get<BlockingReport>(`${base(sessionId)}/blocking`),
+    orphans: (sessionId: string) => api.get<OrphanReport>(`${base(sessionId)}/orphans`),
+    fixOrphan: (sessionId: string, fix: OrphanFix) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix`, { body: fix }),
+    fixManyOrphans: (sessionId: string, fixes: { action: 'map' | 'drop'; database: string; user: string }[]) =>
+      api.post<{ report: OrphanReport; message: string; results: { database: string; user: string; succeeded: boolean; message: string }[] }>(
+        `${base(sessionId)}/orphans/fix-many`,
+        { body: { fixes } },
+      ),
+    fixMatchedOrphans: (sessionId: string) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix-matched`),
+    /** Ends a session; Oracle also needs its serial#. */
+    kill: (sessionId: string, spid: number, serial?: number | null) =>
+      api.post<void>(`${base(sessionId)}/kill`, { body: serial == null ? { sessionId: spid } : { sessionId: spid, serial } }),
+  }
+}
+
+export type DbApi = ReturnType<typeof createDbApi>
+
+const apis = new Map<DbEngine, DbApi>()
+
+/** The API for an engine (the same object each time). */
+export function dbApi(engine: DbEngine): DbApi {
+  let found = apis.get(engine)
+  if (!found) {
+    found = createDbApi(engine)
+    apis.set(engine, found)
+  }
+  return found
+}
+
+export const sqlServerApi = dbApi('mssql')
+
 /** The scripts the explorer offers for a node, as its menu labels them. */
-export function scriptsFor(kind: string): { action: SqlScriptAction; label: string }[] {
+export function scriptsFor(kind: string, engine: DbEngine = 'mssql'): { action: SqlScriptAction; label: string }[] {
+  const selectable = engine === 'ase' ? ['table', 'view'] : ['table', 'view', 'synonym']
+  const creatable = ['table', 'view', 'procedure', 'function', 'trigger', ...(engine === 'oracle' ? ['package', 'sequence', 'synonym'] : [])]
   return [
-    ...(['table', 'view', 'synonym'].includes(kind) ? [{ action: 'selectTop' as const, label: 'Select Top 1000 Rows' }] : []),
-    ...(['table', 'view', 'procedure', 'function', 'trigger'].includes(kind) ? [{ action: 'create' as const, label: 'Script as CREATE' }] : []),
+    ...(selectable.includes(kind) ? [{ action: 'selectTop' as const, label: 'Select Top 1000 Rows' }] : []),
+    ...(creatable.includes(kind) ? [{ action: 'create' as const, label: 'Script as CREATE' }] : []),
     ...(kind === 'procedure' ? [{ action: 'execute' as const, label: 'Script as EXECUTE' }] : []),
   ]
 }

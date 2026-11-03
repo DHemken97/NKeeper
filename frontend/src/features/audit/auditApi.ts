@@ -98,6 +98,8 @@ export const ACTION_LABELS: Record<string, string> = {
   'storage.action': 'Storage action',
   'mssql.kill': 'SQL Server session killed',
   'mssql.login_fix': 'SQL Server login fixed',
+  'oracle.kill': 'Oracle session killed',
+  'ase.kill': 'SAP ASE session killed',
   'migration.start': 'Migration started',
   'migration.end': 'Migration ended',
   'transfer.export': 'Data exported',
@@ -120,6 +122,8 @@ export const CATEGORIES = [
   { value: 'idrac', label: 'iDRAC power' },
   { value: 'storage', label: 'Storage (iSCSI, multipath, DRBD)' },
   { value: 'mssql', label: 'SQL Server (killed sessions, login fixes)' },
+  { value: 'oracle', label: 'Oracle (killed sessions)' },
+  { value: 'ase', label: 'SAP ASE (killed sessions)' },
   { value: 'migration', label: 'VM migrations' },
   { value: 'transfer', label: 'Moves to a new server' },
 ]

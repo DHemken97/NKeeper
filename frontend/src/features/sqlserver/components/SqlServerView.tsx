@@ -5,7 +5,8 @@ import { useCloseOnPageExit } from '../../../lib/pageExit'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from '../../terminal/components/SessionChrome'
 import sessionStyles from '../../terminal/components/Session.module.css'
 import type { HostKeyMessage, RemoteSession, SessionPhase } from '../../terminal/types'
-import { sqlServerApi, type SqlObjectNode, type SqlOpenResponse, type SqlScriptAction, type SqlServerInfo } from '../sqlServerApi'
+import { DbEngineContext } from '../engineContext'
+import { dbApi, DB_ENGINES, type DbEngine, type SqlObjectNode, type SqlOpenResponse, type SqlScriptAction, type SqlServerInfo } from '../sqlServerApi'
 import { useKeepAlive } from '../useKeepAlive'
 import { BlockingManager } from './BlockingManager'
 import { ObjectExplorer } from './ObjectExplorer'
@@ -19,6 +20,8 @@ interface SqlServerViewProps {
   session: RemoteSession
   active: boolean
   onShowHost: (hostId: string) => void
+  /** SQL Server unless it says otherwise. */
+  engine?: DbEngine
 }
 
 /** A document tab: a query window (its own connection, as in SSMS), or a Management tool. */
@@ -67,7 +70,10 @@ const SQL_CERTIFICATE_NOTE = {
  * and the blocking manager (opened from Management) as tabs on the right. The explorer and blocking manager use this tab's own
  * session; each query window opens another with the same login.
  */
-export function SqlServerView({ session, active, onShowHost }: SqlServerViewProps) {
+export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }: SqlServerViewProps) {
+  const db = dbApi(engine)
+  const info = DB_ENGINES[engine]
+  const product = info.product
   const [phase, setPhase] = useState<SessionPhase>({ kind: 'connecting' })
   const [renewed, setRenewed] = useState(false)
   const [main, setMain] = useState<{ id: string; server: SqlServerInfo; target: string } | null>(null)
@@ -94,11 +100,11 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
   useEffect(() => {
     let cancelled = false
     let opened: string | null = null
-    sqlServerApi.open(session.request, trustRef.current).then(
+    db.open(session.request, trustRef.current).then(
       (response) => {
         if (cancelled) {
           if (response.sessionId) {
-            void sqlServerApi.close(response.sessionId).catch(() => {})
+            void db.close(response.sessionId).catch(() => {})
           }
           return
         }
@@ -124,7 +130,7 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
           setPhase({
             kind: 'ended',
             code: error instanceof ApiError ? error.code : undefined,
-            message: error instanceof ApiError ? error.message : 'Couldn’t connect to the SQL Server.',
+            message: error instanceof ApiError ? error.message : `Couldn’t connect to the ${product} server.`,
           })
         }
       },
@@ -132,27 +138,27 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
     return () => {
       cancelled = true
       if (opened) {
-        void sqlServerApi.close(opened).catch(() => {})
+        void db.close(opened).catch(() => {})
       }
     }
-  }, [session.request, attempt])
+  }, [db, product, session.request, attempt])
 
-  useCloseOnPageExit(main ? `/api/mssql/sessions/${main.id}` : null)
-  useKeepAlive(main?.id ?? null, () => setPhase({ kind: 'ended', message: 'This SQL Server session has ended. Connect again.' }))
+  useCloseOnPageExit(main ? db.sessionPath(main.id) : null)
+  useKeepAlive(main?.id ?? null, () => setPhase({ kind: 'ended', message: `This ${product} session has ended. Connect again.` }))
 
   useEffect(() => {
     if (!main) {
       return
     }
     let cancelled = false
-    sqlServerApi.databases(main.id).then(
+    db.databases(main.id).then(
       (names) => !cancelled && setDatabases(names),
       () => {},
     )
     return () => {
       cancelled = true
     }
-  }, [main])
+  }, [db, main])
 
   function decide(trust: boolean) {
     if (phase.kind !== 'hostKey') {
@@ -205,7 +211,7 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
     }
     setExplorerError(null)
     try {
-      const { sql } = await sqlServerApi.script(main.id, node, action)
+      const { sql } = await db.script(main.id, node, action)
       addDocument({
         kind: 'query',
         sql,
@@ -222,12 +228,13 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
   const connected = phase.kind === 'connected' && main
 
   return (
-    <div className={sessionStyles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} SQL Server`}>
+    <DbEngineContext.Provider value={engine}>
+    <div className={sessionStyles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} ${product}`}>
       <SessionStatusBar phase={phase}>
         {connected ? (
           <>
             <span className={styles.serverInfo}>
-              SQL Server {main.server.productVersion}
+              {product} {main.server.productVersion}
               {main.server.edition ? ` · ${main.server.edition}` : ''}
             </span>
             <Button variant="ghost" size="sm" onClick={() => addDocument({ kind: 'query', sql: '' })}>
@@ -271,8 +278,8 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
                 onNewQuery={(database) => addDocument({ kind: 'query', sql: '', database })}
                 onScript={(node, action) => void script(node, action)}
                 onOpenTool={(name) => {
-                  if (name === 'blocking' || name === 'orphans') {
-                    addDocument({ kind: name })
+                  if ((info.tools as string[]).includes(name)) {
+                    addDocument({ kind: name as ToolKind })
                   }
                 }}
               />
@@ -344,5 +351,6 @@ export function SqlServerView({ session, active, onShowHost }: SqlServerViewProp
         ) : null}
       </div>
     </div>
+    </DbEngineContext.Provider>
   )
 }

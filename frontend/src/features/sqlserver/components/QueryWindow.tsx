@@ -5,7 +5,8 @@ import { ApiError } from '../../../lib/api'
 import { useCloseOnPageExit } from '../../../lib/pageExit'
 import type { SessionRequest } from '../../terminal/types'
 import { errorHeading, formatElapsed, lineRange, outputText, scriptToRun } from '../format'
-import { sqlServerApi, type SqlQueryResult } from '../sqlServerApi'
+import { useDbApi, useDbEngineInfo } from '../engineContext'
+import { type SqlQueryResult } from '../sqlServerApi'
 import { useKeepAlive } from '../useKeepAlive'
 import { ResultGrid } from './ResultGrid'
 import { storedNumber, storeNumber } from '../storedSize'
@@ -47,6 +48,8 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
   const [connection, setConnection] = useState<Connection>({ state: 'opening' })
   const [attempt, setAttempt] = useState(0)
   const [sql, setSql] = useState(initialSql)
+  const db = useDbApi()
+  const { databaseLabel } = useDbEngineInfo()
   const [database, setDatabase] = useState(initialDatabase ?? '')
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<SqlQueryResult | null>(null)
@@ -78,16 +81,16 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
   useEffect(() => {
     let cancelled = false
     let opened: string | null = null
-    sqlServerApi.open(request, undefined, initialDatabase).then(
+    db.open(request, undefined, initialDatabase).then(
       (response) => {
         if (cancelled) {
           if (response.sessionId) {
-            void sqlServerApi.close(response.sessionId).catch(() => {})
+            void db.close(response.sessionId).catch(() => {})
           }
           return
         }
         if (response.status !== 'ready' || !response.sessionId || !response.server) {
-          setConnection({ state: 'ended', message: 'The server’s certificate needs to be trusted again. Reconnect the SQL Server tab.' })
+          setConnection({ state: 'ended', message: 'The server’s certificate needs to be trusted again. Reconnect the database tab.' })
           return
         }
         opened = response.sessionId
@@ -99,15 +102,15 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
     return () => {
       cancelled = true
       if (opened) {
-        void sqlServerApi.close(opened).catch(() => {})
+        void db.close(opened).catch(() => {})
       }
     }
     // The request and starting database are fixed for the window's life; `attempt` reconnects.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt])
+  }, [attempt, db])
 
   const sessionId = connection.state === 'ready' ? connection.id : null
-  useCloseOnPageExit(sessionId ? `/api/mssql/sessions/${sessionId}` : null)
+  useCloseOnPageExit(sessionId ? db.sessionPath(sessionId) : null)
   useKeepAlive(sessionId, () => setConnection({ state: 'ended', message: 'This window’s connection has ended.' }))
 
   useEffect(() => {
@@ -137,7 +140,7 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
     setRunning(true)
     setRunError(null)
     try {
-      const next = await sqlServerApi.query(sessionId, script, lineOffset)
+      const next = await db.query(sessionId, script, lineOffset)
       setResult(next)
       setFinishedAt(new Date())
       setTab(next.output.some((o) => o.kind === 'results') ? 'results' : 'messages')
@@ -160,7 +163,7 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
 
   function cancel() {
     if (sessionId) {
-      void sqlServerApi.cancel(sessionId).catch(() => {})
+      void db.cancel(sessionId).catch(() => {})
     }
   }
 
@@ -170,7 +173,7 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
     }
     setRunError(null)
     try {
-      setDatabase((await sqlServerApi.changeDatabase(sessionId, name)).name)
+      setDatabase((await db.changeDatabase(sessionId, name)).name)
     } catch (error) {
       setRunError(error instanceof ApiError ? error.message : 'Couldn’t change the database.')
     }
@@ -223,8 +226,8 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
           </Button>
         )}
         <label className={styles.toolbarField}>
-          <span>Database</span>
-          <select value={database} onChange={(event) => void changeDatabase(event.target.value)} disabled={!sessionId || running} aria-label="Database">
+          <span>{databaseLabel}</span>
+          <select value={database} onChange={(event) => void changeDatabase(event.target.value)} disabled={!sessionId || running} aria-label={databaseLabel}>
             {databaseOptions.map((name) => (
               <option key={name} value={name}>
                 {name}

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from
 import { ContextMenu, type MenuEntry } from '../../../components/ui/ContextMenu'
 import { Spinner } from '../../../components/ui/Spinner'
 import { ApiError } from '../../../lib/api'
-import { scriptsFor, sqlServerApi, type SqlObjectNode, type SqlScriptAction, type SqlServerInfo } from '../sqlServerApi'
+import { useDbApi, useDbEngine, useDbEngineInfo } from '../engineContext'
+import { scriptsFor, type SqlObjectNode, type SqlScriptAction, type SqlServerInfo } from '../sqlServerApi'
 import styles from './SqlServer.module.css'
 
 interface ObjectExplorerProps {
@@ -40,9 +41,12 @@ function quotedName(node: SqlObjectNode): string {
  * Shift+F10) for scripts: Select Top 1000 Rows, Script as CREATE or EXECUTE, and New Query.
  */
 export function ObjectExplorer({ sessionId, server, onNewQuery, onScript, onOpenTool }: ObjectExplorerProps) {
+  const db = useDbApi()
+  const engine = useDbEngine()
+  const { product } = useDbEngineInfo()
   const root: SqlObjectNode = {
     kind: 'server',
-    label: `${server.serverName} (SQL Server ${server.productVersion} - ${server.login})`,
+    label: `${server.serverName} (${product} ${server.productVersion} - ${server.login})`,
     expandable: true,
   }
   const [children, setChildren] = useState<Record<string, SqlObjectNode[]>>({})
@@ -61,7 +65,7 @@ export function ObjectExplorer({ sessionId, server, onNewQuery, onScript, onOpen
       return next
     })
     try {
-      const list = await sqlServerApi.explore(sessionId, node)
+      const list = await db.explore(sessionId, node)
       setChildren((current) => ({ ...current, [key]: list }))
     } catch (error) {
       setErrors((current) => ({ ...current, [key]: error instanceof ApiError ? error.message : 'Couldn’t load this.' }))
@@ -78,7 +82,7 @@ export function ObjectExplorer({ sessionId, server, onNewQuery, onScript, onOpen
     void load(ROOT_KEY, { kind: 'server', label: '', expandable: true })
     // The root loads once per session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId])
+  }, [db, sessionId])
 
   function toggle(placed: Placed, open?: boolean) {
     if (!placed.node.expandable) {
@@ -181,7 +185,7 @@ export function ObjectExplorer({ sessionId, server, onNewQuery, onScript, onOpen
   }
 
   function menuEntries({ key, node }: Placed): MenuEntry[] {
-    const scripts = scriptsFor(node.kind).map((s): MenuEntry => ({ kind: 'item', label: s.label, onSelect: () => onScript(node, s.action) }))
+    const scripts = scriptsFor(node.kind, engine).map((s): MenuEntry => ({ kind: 'item', label: s.label, onSelect: () => onScript(node, s.action) }))
     const entries: MenuEntry[] = [{ kind: 'header', label: node.label }]
     if (node.kind === 'tool') {
       entries.push({ kind: 'item', label: 'Open', onSelect: () => onOpenTool(node.name ?? '') })
