@@ -85,7 +85,7 @@ internal sealed class InstanceExporter(NKeeperDbContext db, CredentialProtector 
             [.. hosts.Select(h => new BundleHost(
                 h.Id, h.Name, h.Hostname, h.IpAddress, h.MacAddress, h.Description, h.IsVirtualMachine, h.HypervisorId, h.VirtualMachineId,
                 h.HypervisorSeenAtUtc, h.CpuCores, h.MemoryMiB, h.SerialNumber, h.CreatedAtUtc, h.UpdatedAtUtc, h.CreatedByUserId, h.UpdatedByUserId,
-                [.. h.Services.OrderBy(s => s.Position).Select(s => new BundleService(s.Id, s.Protocol, s.Port, s.Label, s.Position, s.RdpSecurity, s.Address))],
+                [.. h.Services.OrderBy(s => s.Position).Select(s => new BundleService(s.Id, s.Protocol, s.Port, s.Label, s.Position, s.RdpSecurity, s.Address, s.Instance))],
                 [.. h.Tags.Select(t => new BundleTag(t.Id, t.Name, t.Value, t.Inheritable))],
                 [.. h.Credentials.OrderBy(c => c.Position).Select(c => new BundleCredential(
                     c.Id, c.Label, c.Username, c.Domain,

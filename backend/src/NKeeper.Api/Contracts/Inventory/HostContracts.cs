@@ -21,6 +21,10 @@ public sealed record HostServiceRequest
     /// <summary>iDRAC services only (required there): the iDRAC's own IP address or hostname. Ignored for other services.</summary>
     [StringLength(253)]
     public string? Address { get; init; }
+
+    /// <summary>SQL Server services only: the named instance, or empty for the default instance. Ignored for other services.</summary>
+    [StringLength(HostService.InstanceMaxLength, ErrorMessage = "Instance names are at most 16 characters.")]
+    public string? Instance { get; init; }
 }
 
 /// <summary>A <c>name: value</c> tag. The value is optional.</summary>
@@ -191,6 +195,14 @@ public sealed record HostRequest : IValidatableObject
                 yield return new ValidationResult($"NKeeper can't connect with {protocol} services, so they can't be added.", [$"services[{index}].protocol"]);
             }
 
+            if (Services[index].Protocol == ServiceProtocol.Ssms
+                && SqlServerInstance.Normalize(Services[index].Instance) is { } instance
+                && !SqlServerInstance.IsValid(instance))
+            {
+                yield return new ValidationResult(
+                    "Instance names start with a letter or underscore, and contain only letters, digits, _, $ and #.", [$"services[{index}].instance"]);
+            }
+
             if (Services[index].Protocol != ServiceProtocol.Idrac)
             {
                 continue;
@@ -248,9 +260,9 @@ public sealed record HostTagResponse(string Name, string? Value, bool Inheritabl
 
 /// <summary>
 /// A connection method. <see cref="RdpSecurity"/> is set for RDP services only, <see cref="Address"/>
-/// for services with their own address (iDRAC) only.
+/// for services with their own address (iDRAC) only, <see cref="Instance"/> for SQL Server's named instances only.
 /// </summary>
-public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity, string? Address = null);
+public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity, string? Address = null, string? Instance = null);
 
 /// <summary>A credential as seen by clients. Secret values are never included.</summary>
 public sealed record HostCredentialResponse(

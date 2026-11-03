@@ -37,6 +37,15 @@ internal sealed class TrustedKeyStore(NKeeperDbContext db, TimeProvider timeProv
         }
     }
 
+    /// <summary>Trusts a new identity in place of the one trusted before (the user confirmed the change).</summary>
+    public async Task ReplaceAsync(Guid hostId, int port, ServiceProtocol protocol, string algorithm, string fingerprint, Guid userId)
+    {
+        await db.HostTrustedKeys
+            .Where(k => k.HostId == hostId && k.Protocol == protocol && k.Port == port && k.Algorithm == algorithm)
+            .ExecuteDeleteAsync(CancellationToken.None);
+        await TrustAsync(hostId, port, protocol, algorithm, fingerprint, userId);
+    }
+
     public void LogChanged(SessionTarget target, ServiceProtocol protocol, string trusted, string presented) =>
         LogChanged(target.HostId, target.Port, protocol, trusted, presented);
 

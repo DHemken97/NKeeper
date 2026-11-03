@@ -342,7 +342,6 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
     }
 
     [Theory]
-    [InlineData("Ssms")]
     [InlineData("Ftp")]
     [InlineData("WinRm")]
     [InlineData("Other")]

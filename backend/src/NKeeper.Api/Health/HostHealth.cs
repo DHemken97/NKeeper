@@ -52,6 +52,7 @@ public sealed class HostHealthChecker(IServiceScopeFactory scopes, IOptions<Heal
         [ServiceProtocol.Kvm] = 22,
         [ServiceProtocol.Idrac] = 443,
         [ServiceProtocol.Proxmox] = 8006,
+        [ServiceProtocol.Ssms] = 1433,
     };
 
     /// <summary>Checks every host; returns how many services were checked.</summary>
@@ -91,7 +92,8 @@ public sealed class HostHealthChecker(IServiceScopeFactory scopes, IOptions<Heal
     {
         // The same endpoint once, even when two services share it.
         var targets = host.Services
-            .Where(s => DefaultPorts.ContainsKey(s.Protocol))
+            // A named SQL Server instance without a port listens wherever the SQL Server Browser says.
+            .Where(s => DefaultPorts.ContainsKey(s.Protocol) && !(s.Protocol == ServiceProtocol.Ssms && s.Instance is not null && s.Port is null))
             .Select(s => (Service: s, Address: s.Address ?? host.IpAddress ?? host.Hostname!, Port: s.Port ?? DefaultPorts[s.Protocol]))
             .DistinctBy(t => (t.Service.Protocol, t.Port, t.Address))
             .ToList();

@@ -3,6 +3,12 @@ using NKeeper.Api.Configuration;
 using NKeeper.Infrastructure;
 using NKeeper.Infrastructure.Persistence;
 
+// Formatting and comparisons don't follow the server's locale (see NKeeper.Api.csproj).
+System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddNKeeperInfrastructure(builder.Configuration);

@@ -716,6 +716,10 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<Guid>("HostId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Instance")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.Property<string>("Label")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");

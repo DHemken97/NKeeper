@@ -40,7 +40,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         h.Services
             .OrderBy(s => s.Position)
             .Select(s => new HostServiceResponse(
-                s.Protocol, s.Port, s.Label, s.Protocol == ServiceProtocol.Rdp ? s.RdpSecurity ?? RdpSecurityMode.Auto : null, s.Address))
+                s.Protocol, s.Port, s.Label, s.Protocol == ServiceProtocol.Rdp ? s.RdpSecurity ?? RdpSecurityMode.Auto : null, s.Address, s.Instance))
             .ToList(),
         h.Credentials
             .OrderBy(c => c.Position)
@@ -798,6 +798,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             Position = index,
             RdpSecurity = s.Protocol == ServiceProtocol.Rdp && s.RdpSecurity is not RdpSecurityMode.Auto ? s.RdpSecurity : null,
             Address = s.Protocol == ServiceProtocol.Idrac ? NormalizeAddress(s.Address) : null,
+            Instance = s.Protocol == ServiceProtocol.Ssms ? SqlServerInstance.Normalize(s.Instance) : null,
         }));
     }
 

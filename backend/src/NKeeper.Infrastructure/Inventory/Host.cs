@@ -97,6 +97,9 @@ public sealed class Host
 /// <summary>A way of connecting to a host, e.g. SSH on port 22.</summary>
 public sealed class HostService
 {
+    /// <summary>SQL Server instance names are at most 16 characters.</summary>
+    public const int InstanceMaxLength = 16;
+
     public Guid Id { get; set; }
 
     public Guid HostId { get; set; }
@@ -120,6 +123,12 @@ public sealed class HostService
     /// management IP. Required for <see cref="ServiceProtocol.Idrac"/>; null for other services.
     /// </summary>
     public string? Address { get; set; }
+
+    /// <summary>
+    /// SQL Server only: the named instance (e.g. <c>SQLEXPRESS</c>); null for the default instance.
+    /// Without a port, the instance's port is looked up with the SQL Server Browser.
+    /// </summary>
+    public string? Instance { get; set; }
 }
 
 /// <summary>
@@ -232,6 +241,8 @@ public enum ServiceProtocol
     Ssh,
     Rdp,
     Vnc,
+
+    /// <summary>Microsoft SQL Server (the name is kept from when it was an SSMS launcher, as hosts store it by name).</summary>
     Ssms,
     Telnet,
     Sftp,

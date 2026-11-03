@@ -22,6 +22,7 @@ public sealed class UserAdministration(
     SessionLimiter remoteSessions,
     Web.WebSessionStore webSessions,
     Kvm.ConsoleSessionStore consoles,
+    SqlServer.SqlServerSessionStore sqlSessions,
     TimeProvider timeProvider,
     ILogger<UserAdministration> logger)
 {
@@ -254,6 +255,7 @@ public sealed class UserAdministration(
         remoteSessions.TerminateAll(userId);
         webSessions.EndAll(userId);
         consoles.EndAll(userId);
+        sqlSessions.EndAll(userId);
     }
 
     /// <summary>Sign-in codes are emailed, so requiring one needs working email first.</summary>
