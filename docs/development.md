@@ -147,6 +147,15 @@ All sessions start from a **target**: a host, one of its services, and a saved c
   - the console calls Dell's `DelliDRACCardService.GetKVMSession` for one-time credentials, then opens a web session to the iDRAC whose launch link lands once on `/console?username=…&tempUsername=…&tempPassword=…`, as Dell's launch scripts do. The HTML5 console's own WebSockets go through the web-session proxy;
   - RACADM is an ordinary SSH session started on the iDRAC service: the resolver turns it into SSH to port 22 of the iDRAC's address;
   - identities trusted for the iDRAC (its certificate, its SSH host key) are kept under the `Idrac` protocol, apart from the host's own, and are forgotten when the iDRAC's address changes.
+- **SQL Server** (`/api/mssql/sessions…`, in `SqlServer/`):
+  - the service is stored as `Ssms` (its name from when NKeeper only listed it), with an optional `HostService.Instance`. `SqlServerConnector` resolves the host and login (SQL logins only), asks the SQL Server Browser (UDP 1434, `SqlServerBrowser`) for a named instance's port when the service has none, and opens a jump tunnel when there is one;
+  - TLS: in TDS 7.x the TLS handshake travels inside PRELOGIN packets, so `SqlServerProbe` does the PRELOGIN exchange and the handshake itself (no login) to read the certificate. It's trusted with `CertificateTrust.DecideAsync` under the `Ssms` protocol and the service's port. SqlClient is then pinned to it: `Encrypt=Mandatory`, `ServerCertificate` (the trusted certificate, in a temporary file) and `HostNameInCertificate`. SQL Server's own self-signed *SSL_Self_Signed_Fallback* certificate is made anew at every start, so a change from one fallback certificate to another asks again (`renewed`) and replaces the trusted one, instead of being refused;
+  - a session (`SqlServerSession`, in `SqlServerSessionStore`) holds one open connection for a query window, so its state (database, temp tables, transactions) carries over; the browser opens one per query window, plus one per tab for the explorer, the database list and the blocking manager, which use short connections of their own. Sessions belong to the user who opened them, end when the tab closes (`DELETE`), and expire after 15 idle minutes (the tab sends a keep-alive every 5);
+  - `SqlQueryRunner` splits the script at `GO` lines (`SqlBatches`, which skips strings, quoted names and comments), runs each batch with `FireInfoMessageEventOnUserErrors` so errors up to severity 16 arrive as messages and the script carries on (as in SSMS), and returns results, "(n rows affected)" (`StatementCompleted`), messages and errors in order, with error lines made the editor's. Values are text as SSMS shows them (`SqlValueText`); result sets are capped at 10,000 rows, 50,000 per query;
+  - `SqlObjectExplorer` answers one catalog query per node kind (three-part names into the node's database, names passed as parameters or bracket-quoted); `SqlScripter` writes Select Top 1000 Rows, CREATE (from `sys.sql_modules`, or built for a table) and EXECUTE scripts;
+  - `SqlBlocking` reads every blocked or blocking session (`sys.dm_exec_requests`, `_sessions`, `_connections`, `dm_exec_sql_text`) and builds the chains under their lead blockers, with direct and total blocked counts; a blocker that isn't a session (e.g. -2) becomes a placeholder lead, and a cycle is headed by its lowest ID. `KILL` is audited as `mssql.kill`;
+  - SqlClient refuses to run in globalization-invariant mode, so the API isn't one; `Program.cs` sets the invariant culture instead, and the images include ICU;
+  - tests: `SqlServerTests` against a real SQL Server 2022 (`SqlServerFixture`), and `SqlServerParsingTests` (batches, chains, the Browser's answer).
 
 - **Zabbix** (`/api/admin/zabbix`, `/api/zabbix/status`, `/api/hosts/{id}/zabbix`, `/api/zabbix/hosts`, `/api/zabbix/comparison`, `/api/zabbix/links`, `/api/zabbix/import`):
   - `ZabbixClient` posts JSON-RPC to `<frontend>/api_jsonrpc.php` with `Authorization: Bearer <token>`; `apiinfo.version` is sent without it, as Zabbix requires. A self-signed certificate is pinned by the fingerprint saved with the settings;
@@ -154,7 +163,7 @@ All sessions start from a **target**: a host, one of its services, and a saved c
   - `ZabbixMatcher` is pure: a stored `Host.ZabbixHostId` links for certain, then MAC, IP, hostname and name find probable matches;
   - tests: `ZabbixTests` against `ZabbixServerFixture`, an in-process fake Zabbix 7.0 API over HTTPS.
 
-Trusted keys are kept per host, port and protocol (`TrustedKeyStore`). Session lifetimes, per-user limits and "end everything for this user" live in `SessionLimiter`, `WebSessionStore` and `ConsoleSessionStore`.
+Trusted keys are kept per host, port and protocol (`TrustedKeyStore`). Session lifetimes, per-user limits and "end everything for this user" live in `SessionLimiter`, `WebSessionStore`, `ConsoleSessionStore` and `SqlServerSessionStore`.
 
 ## Tests
 
@@ -176,6 +185,7 @@ cd frontend && npm run build           # type-check and production build
 | An in-process fake iDRAC (Redfish over HTTPS) | iDRAC status, power, console credentials and launch, certificate trust |
 | An in-process fake OpenID Connect provider | Single sign-on through ASP.NET Core's real handler: signed id_tokens, state, nonce and PKCE, account creation and refusals, groups |
 | An in-process fake Zabbix 7.0 API (JSON-RPC over HTTPS) | Zabbix settings and certificate trust, host overview, search, comparison, linking and adding hosts |
+| SQL Server 2022 | SQL Server sessions: certificate trust and renewal, sign-in failures, queries (batches, messages, errors, cancel, state between queries), the object explorer and scripts, the blocking manager and KILL |
 | A fake SMTP transport | Email settings, test emails and emailed sign-in codes (it keeps the messages instead of delivering them) |
 
 Without Docker (and without `NKEEPER_TEST_POSTGRES`), these tests are reported as **Skipped** with the reason, never as passed.
