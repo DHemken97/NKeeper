@@ -1,0 +1,305 @@
+import { useEffect, useRef, useState } from 'react'
+import { Button } from '../../../components/ui/Button'
+import { ApiError } from '../../../lib/api'
+import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from '../../terminal/components/SessionChrome'
+import sessionStyles from '../../terminal/components/Session.module.css'
+import type { HostKeyMessage, RemoteSession, SessionPhase } from '../../terminal/types'
+import { sqlServerApi, type SqlObjectNode, type SqlOpenResponse, type SqlScriptAction, type SqlServerInfo } from '../sqlServerApi'
+import { useKeepAlive } from '../useKeepAlive'
+import { BlockingManager } from './BlockingManager'
+import { ObjectExplorer } from './ObjectExplorer'
+import { QueryWindow } from './QueryWindow'
+import styles from './SqlServer.module.css'
+
+interface SqlServerViewProps {
+  session: RemoteSession
+  active: boolean
+  onShowHost: (hostId: string) => void
+}
+
+/** A document tab: a query window (its own connection, as in SSMS), or the blocking manager. */
+type SqlDocument =
+  | { id: string; kind: 'query'; title: string; sql: string; database?: string; runOnOpen?: boolean }
+  | { id: string; kind: 'blocking'; title: string }
+
+/** A document to open; it's titled SQLQueryN unless it says otherwise. */
+type NewDocument = { kind: 'query'; sql: string; database?: string; runOnOpen?: boolean; title?: string } | { kind: 'blocking'; title?: string }
+
+let nextDocument = 1
+
+/** The certificate prompt for a SQL Server (trust on first use). */
+function certificatePrompt(response: SqlOpenResponse): HostKeyMessage {
+  const certificate = response.certificate!
+  return {
+    type: 'hostKey',
+    status: 'unknown',
+    kind: 'certificate',
+    port: Number(/:(\d+)$/.exec(response.target)?.[1] ?? 1433),
+    algorithm: 'TLS certificate',
+    fingerprint: certificate.fingerprint,
+    subject: certificate.subject,
+    expires: certificate.expires,
+  }
+}
+
+const SQL_CERTIFICATE_NOTE = {
+  text: 'A SQL Server without a certificate of its own uses a self-signed one (“SSL_Self_Signed_Fallback”).',
+  hint: 'NKeeper always encrypts the connection, and pins it to the certificate you trust here.',
+}
+
+/**
+ * A SQL Server instance, like a small SSMS: the object explorer on the left, query windows and the
+ * blocking manager as tabs on the right. The explorer and blocking manager use this tab's own
+ * session; each query window opens another with the same login.
+ */
+export function SqlServerView({ session, active, onShowHost }: SqlServerViewProps) {
+  const [phase, setPhase] = useState<SessionPhase>({ kind: 'connecting' })
+  const [renewed, setRenewed] = useState(false)
+  const [main, setMain] = useState<{ id: string; server: SqlServerInfo; target: string } | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const [documents, setDocuments] = useState<SqlDocument[]>([])
+  const [activeDocument, setActiveDocument] = useState<string | null>(null)
+  const [databases, setDatabases] = useState<string[]>([])
+  const [explorerError, setExplorerError] = useState<string | null>(null)
+  const trustRef = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    let cancelled = false
+    let opened: string | null = null
+    sqlServerApi.open(session.request, trustRef.current).then(
+      (response) => {
+        if (cancelled) {
+          if (response.sessionId) {
+            void sqlServerApi.close(response.sessionId).catch(() => {})
+          }
+          return
+        }
+        if (response.status === 'trustRequired' && response.certificate) {
+          setRenewed(Boolean(response.renewed))
+          setPhase({ kind: 'hostKey', prompt: certificatePrompt(response), target: response.target })
+          return
+        }
+        opened = response.sessionId!
+        setMain({ id: response.sessionId!, server: response.server!, target: response.target })
+        setPhase({ kind: 'connected', target: response.target })
+        setDocuments((current) => {
+          if (current.length > 0) {
+            return current
+          }
+          const first: SqlDocument = { id: `doc-${nextDocument++}`, kind: 'query', title: 'SQLQuery1', sql: '', database: response.database ?? undefined }
+          setActiveDocument(first.id)
+          return [first]
+        })
+      },
+      (error: unknown) => {
+        if (!cancelled) {
+          setPhase({
+            kind: 'ended',
+            code: error instanceof ApiError ? error.code : undefined,
+            message: error instanceof ApiError ? error.message : 'Couldn’t connect to the SQL Server.',
+          })
+        }
+      },
+    )
+    return () => {
+      cancelled = true
+      if (opened) {
+        void sqlServerApi.close(opened).catch(() => {})
+      }
+    }
+  }, [session.request, attempt])
+
+  useKeepAlive(main?.id ?? null, () => setPhase({ kind: 'ended', message: 'This SQL Server session has ended. Connect again.' }))
+
+  useEffect(() => {
+    if (!main) {
+      return
+    }
+    let cancelled = false
+    sqlServerApi.databases(main.id).then(
+      (names) => !cancelled && setDatabases(names),
+      () => {},
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [main])
+
+  function decide(trust: boolean) {
+    if (phase.kind !== 'hostKey') {
+      return
+    }
+    if (!trust) {
+      setPhase({ kind: 'ended', target: phase.target, code: 'host_key_rejected', message: 'The certificate was not trusted, so NKeeper didn’t connect.' })
+      return
+    }
+    trustRef.current = phase.prompt.fingerprint
+    reconnect()
+  }
+
+  function reconnect() {
+    setMain(null)
+    setPhase({ kind: 'connecting' })
+    setAttempt((n) => n + 1)
+  }
+
+  function addDocument(document: NewDocument) {
+    if (document.kind === 'blocking') {
+      const existing = documents.find((d) => d.kind === 'blocking')
+      if (existing) {
+        setActiveDocument(existing.id)
+        return
+      }
+    }
+    const queries = documents.filter((d) => d.kind === 'query').length
+    const id = `doc-${nextDocument++}`
+    const title = document.title ?? (document.kind === 'blocking' ? 'Blocking Manager' : `SQLQuery${queries + 1}`)
+    setDocuments((current) => [...current, { ...document, id, title } as SqlDocument])
+    setActiveDocument(id)
+  }
+
+  function closeDocument(id: string) {
+    setDocuments((current) => {
+      const index = current.findIndex((d) => d.id === id)
+      const next = current.filter((d) => d.id !== id)
+      if (activeDocument === id) {
+        setActiveDocument(next[Math.min(index, next.length - 1)]?.id ?? null)
+      }
+      return next
+    })
+  }
+
+  async function script(node: SqlObjectNode, action: SqlScriptAction) {
+    if (!main) {
+      return
+    }
+    setExplorerError(null)
+    try {
+      const { sql } = await sqlServerApi.script(main.id, node, action)
+      addDocument({
+        kind: 'query',
+        sql,
+        database: node.database ?? undefined,
+        // "Select Top 1000 Rows" runs straight away, as in SSMS.
+        runOnOpen: action === 'selectTop',
+        title: action === 'selectTop' ? `Top 1000 · ${node.name ?? node.label}` : undefined,
+      })
+    } catch (error) {
+      setExplorerError(error instanceof ApiError ? error.message : 'Couldn’t script that object.')
+    }
+  }
+
+  const connected = phase.kind === 'connected' && main
+
+  return (
+    <div className={sessionStyles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} SQL Server`}>
+      <SessionStatusBar phase={phase}>
+        {connected ? (
+          <>
+            <span className={styles.serverInfo}>
+              SQL Server {main.server.productVersion}
+              {main.server.edition ? ` · ${main.server.edition}` : ''}
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => addDocument({ kind: 'query', sql: '' })}>
+              New Query
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => addDocument({ kind: 'blocking' })}>
+              Blocking Manager
+            </Button>
+          </>
+        ) : null}
+      </SessionStatusBar>
+
+      <div className={`${sessionStyles.terminalArea} ${styles.area}`}>
+        {phase.kind === 'connecting' ? <OpeningCard /> : null}
+        {phase.kind === 'hostKey' ? (
+          <TrustCard
+            prompt={phase.prompt}
+            target={phase.target}
+            onDecide={decide}
+            certificateNote={SQL_CERTIFICATE_NOTE}
+            intro={
+              renewed
+                ? `${phase.target} has a new self-signed certificate. SQL Server makes a new one each time it starts when it has none of its own, so this is expected after a restart.`
+                : undefined
+            }
+          />
+        ) : null}
+        {phase.kind === 'ended' ? (
+          <EndedCard message={phase.message} code={phase.code} canReconnect onReconnect={reconnect} onShowHost={() => onShowHost(session.hostId)} />
+        ) : null}
+
+        {connected ? (
+          <div className={styles.workspace}>
+            <aside className={styles.explorer} aria-label="Object Explorer">
+              <div className={styles.paneTitle}>Object Explorer</div>
+              {explorerError ? (
+                <p className={styles.paneError} role="alert">
+                  {explorerError}
+                </p>
+              ) : null}
+              <ObjectExplorer
+                sessionId={main.id}
+                server={main.server}
+                onNewQuery={(database) => addDocument({ kind: 'query', sql: '', database })}
+                onScript={(node, action) => void script(node, action)}
+                onOpenTool={() => addDocument({ kind: 'blocking' })}
+              />
+            </aside>
+
+            <section className={styles.documents}>
+              <div className={styles.documentTabs} role="tablist" aria-label="Query windows">
+                {documents.map((document) => (
+                  <div key={document.id} className={`${styles.documentTab} ${document.id === activeDocument ? styles.documentTabActive : ''}`}>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={document.id === activeDocument}
+                      className={styles.documentTabButton}
+                      onClick={() => setActiveDocument(document.id)}
+                    >
+                      {document.title}
+                    </button>
+                    <button type="button" className={styles.documentClose} onClick={() => closeDocument(document.id)} aria-label={`Close ${document.title}`}>
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {documents.length === 0 ? (
+                <div className={styles.emptyDocuments}>
+                  <p>No query windows open.</p>
+                  <Button size="sm" onClick={() => addDocument({ kind: 'query', sql: '' })}>
+                    New Query
+                  </Button>
+                </div>
+              ) : null}
+              {documents.map((document) =>
+                document.kind === 'query' ? (
+                  <QueryWindow
+                    key={document.id}
+                    title={document.title}
+                    request={session.request}
+                    target={main.target}
+                    databases={databases}
+                    initialSql={document.sql}
+                    initialDatabase={document.database}
+                    runOnOpen={document.runOnOpen}
+                    active={active && document.id === activeDocument}
+                  />
+                ) : (
+                  <BlockingManager
+                    key={document.id}
+                    sessionId={main.id}
+                    active={active && document.id === activeDocument}
+                    onOpenQuery={(sql) => addDocument({ kind: 'query', sql })}
+                  />
+                ),
+              )}
+            </section>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}

@@ -183,7 +183,7 @@ describe('search', () => {
   })
 
   it('searches services and tag values as free text', () => {
-    expect(matchesSearch(sql, parseSearch('ssms'))).toBe(true)
+    expect(matchesSearch(sql, parseSearch('ms sql'))).toBe(true)
     expect(matchesSearch(sql, parseSearch('"datacenter a"'))).toBe(true)
   })
 

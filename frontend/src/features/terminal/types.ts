@@ -3,9 +3,26 @@
  * console (vnc is a VNC server reached through guacd); kvmvm: a libvirt VM's console being looked
  * up (it becomes spice or vmvnc); pvevnc: a Proxmox VM's console; idrac: a server's status and power over
  * Redfish; idracconsole: its iDRAC's HTML5 virtual console (RACADM is an ssh session); storage: a
- * host's iSCSI, multipath and DRBD over SSH.
+ * host's iSCSI, multipath and DRBD over SSH; mssql: a SQL Server instance (query windows, object explorer,
+ * blocking manager).
  */
-export type SessionProtocol = 'ssh' | 'telnet' | 'sftp' | 'storage' | 'rdp' | 'rpc' | 'vnc' | 'web' | 'kvm' | 'kvmvm' | 'spice' | 'vmvnc' | 'pvevnc' | 'idrac' | 'idracconsole'
+export type SessionProtocol =
+  | 'ssh'
+  | 'telnet'
+  | 'sftp'
+  | 'storage'
+  | 'rdp'
+  | 'rpc'
+  | 'vnc'
+  | 'web'
+  | 'kvm'
+  | 'kvmvm'
+  | 'spice'
+  | 'vmvnc'
+  | 'pvevnc'
+  | 'idrac'
+  | 'idracconsole'
+  | 'mssql'
 
 /** What the browser asks the server to connect to. Secrets for saved credentials stay on the server. */
 export interface SessionRequest {

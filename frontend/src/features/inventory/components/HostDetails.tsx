@@ -342,6 +342,7 @@ export function HostDetails({
                     <Badge variant={index === 0 ? 'accent' : 'neutral'}>{info.label}</Badge>
                     <span className={styles.rowMain}>
                       {service.label ?? info.name}
+                      {service.protocol === 'Ssms' ? <span className={styles.muted}> · {service.instance ?? 'Default instance'}</span> : null}
                       {service.protocol === 'Rdp' && service.rdpSecurity ? (
                         <span className={styles.muted}> · {RDP_SECURITY_INFO[service.rdpSecurity].label}</span>
                       ) : null}

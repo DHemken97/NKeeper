@@ -31,7 +31,7 @@ export function ServicesEditor({
   errors,
   dropped = [],
   protocols = SUPPORTED_PROTOCOLS,
-  hint = 'How you connect to this host. Leave the port empty to use the default. An iDRAC has its own address; its port is the HTTPS (Redfish) port.',
+  hint = 'How you connect to this host. Leave the port empty to use the default. An iDRAC has its own address; its port is the HTTPS (Redfish) port. A SQL Server named instance without a port is found with the SQL Server Browser.',
   emptyText = 'No services yet.',
   reorderable = true,
   note,
@@ -168,6 +168,21 @@ export function ServicesEditor({
                     spellCheck={false}
                     aria-label={`iDRAC address for ${position}`}
                     aria-invalid={errors[`services[${index}].address`] ? true : undefined}
+                  />
+                </label>
+              ) : null}
+              {service.protocol === 'Ssms' ? (
+                <label className={styles.option}>
+                  <span>Instance</span>
+                  <input
+                    className={styles.input}
+                    value={service.instance}
+                    onChange={(event) => update(service.key, { instance: event.target.value })}
+                    placeholder="Default instance (MSSQLSERVER)"
+                    maxLength={16}
+                    spellCheck={false}
+                    aria-label={`Instance for ${position}`}
+                    aria-invalid={errors[`services[${index}].instance`] ? true : undefined}
                   />
                 </label>
               ) : null}

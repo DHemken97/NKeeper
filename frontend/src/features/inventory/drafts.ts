@@ -12,6 +12,8 @@ export interface ServiceDraft {
   rdpSecurity: RdpSecurity
   /** Only used for iDRAC services: the iDRAC's own address. */
   address: string
+  /** Only used for SQL Server services: the named instance, empty for the default one. */
+  instance: string
 }
 
 export interface TagDraft {
@@ -76,6 +78,7 @@ export function newServiceDraft(
   label: string | null = null,
   rdpSecurity: RdpSecurity | null = null,
   address: string | null = null,
+  instance: string | null = null,
 ): ServiceDraft {
   return {
     key: key(),
@@ -84,6 +87,7 @@ export function newServiceDraft(
     label: label ?? '',
     rdpSecurity: rdpSecurity ?? 'Auto',
     address: address ?? '',
+    instance: instance ?? '',
   }
 }
 
@@ -126,7 +130,7 @@ export function toHostDraft(host: Host | null): HostDraft {
     tags: host?.tags.map((t) => newTagDraft(t.name, t.value, t.inheritable ?? true)) ?? [],
     // Services of types NKeeper can't connect with can't be saved; the editor says they'll go.
     services:
-      host?.services.filter((s) => isSupportedProtocol(s.protocol)).map((s) => newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity, s.address)) ?? [],
+      host?.services.filter((s) => isSupportedProtocol(s.protocol)).map((s) => newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity, s.address, s.instance)) ?? [],
     credentials: host?.credentials.map((c) => newCredentialDraft(c)) ?? [],
   }
 }
@@ -178,6 +182,7 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
       label: blankToNull(s.label),
       ...(s.protocol === 'Rdp' ? { rdpSecurity: s.rdpSecurity } : {}),
       ...(s.protocol === 'Idrac' ? { address: blankToNull(s.address) } : {}),
+      ...(s.protocol === 'Ssms' ? { instance: blankToNull(s.instance) } : {}),
     })),
     credentials: draft.credentials.map((c) => ({
       ...(c.id ? { id: c.id } : {}),

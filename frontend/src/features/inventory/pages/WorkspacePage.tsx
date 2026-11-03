@@ -43,6 +43,7 @@ import {
   IDRAC_MODES,
   guestId,
   serviceLabel,
+  sqlInstanceLabel,
   WEB_PROTOCOLS,
   type HostMenuActions,
   type GuestTask,
@@ -85,6 +86,7 @@ const KvmVmConsole = lazy(() => import('../../terminal/components/KvmVmConsole')
 const FileBrowser = lazy(() => import('../../terminal/components/FileBrowser').then((m) => ({ default: m.FileBrowser })))
 const StorageView = lazy(() => import('../../terminal/components/StorageView').then((m) => ({ default: m.StorageView })))
 const IdracView = lazy(() => import('../../terminal/components/IdracView').then((m) => ({ default: m.IdracView })))
+const SqlServerView = lazy(() => import('../../sqlserver/components/SqlServerView').then((m) => ({ default: m.SqlServerView })))
 const RpcSession = lazy(() => import('../../terminal/components/RpcSession').then((m) => ({ default: m.RpcSession })))
 const SORTS: { value: HostSort; label: string }[] = [
   { value: 'name', label: 'Name' },
@@ -115,6 +117,9 @@ function sessionProtocol(protocol: ServiceProtocol, mode?: OpenMode): RemoteSess
   if (protocol === 'Idrac') {
     // RACADM is the iDRAC's SSH command line.
     return mode === 'overview' ? 'idrac' : mode === 'racadm' ? 'ssh' : 'idracconsole'
+  }
+  if (protocol === 'Ssms') {
+    return 'mssql'
   }
   return protocol === 'Telnet' ? 'telnet' : protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : protocol === 'Rpc' ? 'rpc' : 'ssh'
 }
@@ -396,7 +401,17 @@ export function WorkspacePage() {
     const sameHost = sessions.filter((s) => s.hostId === host.id).length
     const service = host.services[serviceIndex]
     const modeLabel =
-      mode === 'files' ? 'Files' : mode === 'storage' ? 'Storage' : service.protocol !== 'Idrac' ? null : mode === 'web' ? 'Web interface' : IDRAC_MODES[(mode as IdracMode | undefined) ?? 'console'].label
+      mode === 'files'
+        ? 'Files'
+        : mode === 'storage'
+          ? 'Storage'
+          : service.protocol === 'Ssms'
+            ? sqlInstanceLabel(service)
+            : service.protocol !== 'Idrac'
+              ? null
+              : mode === 'web'
+                ? 'Web interface'
+                : IDRAC_MODES[(mode as IdracMode | undefined) ?? 'console'].label
     setSessions((current) => [
       ...current,
       {
@@ -1025,6 +1040,8 @@ export function WorkspacePage() {
               />
             ) : session.protocol === 'sftp' ? (
               <FileBrowser key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'mssql' ? (
+              <SqlServerView key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'storage' ? (
               <StorageView key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'idrac' ? (
