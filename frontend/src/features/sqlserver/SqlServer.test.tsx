@@ -52,9 +52,15 @@ const opened = (sessionId: string, spid = 51, database = 'master') =>
 /** Opens sessions in turn: the tab's own first, then one per query window. */
 function sessionRoutes(trustFirst = false) {
   const bodies: Record<string, unknown>[] = []
+  const closed: string[] = []
+  const close = (id: string) => () => {
+    closed.push(id)
+    return new Response(null, { status: 204 })
+  }
   let next = 0
   return {
     bodies,
+    closed,
     routes: {
       'POST /api/mssql/sessions': (_url: string, init: RequestInit) => {
         const body = JSON.parse(String(init.body))
@@ -73,9 +79,9 @@ function sessionRoutes(trustFirst = false) {
         return next === 1 ? opened('main') : opened(`win${next - 1}`, 51 + next)
       },
       'GET /api/mssql/sessions/main/databases': () => jsonResponse(200, ['master', 'tempdb', 'Sales']),
-      'DELETE /api/mssql/sessions/main': () => new Response(null, { status: 204 }),
-      'DELETE /api/mssql/sessions/win1': () => new Response(null, { status: 204 }),
-      'DELETE /api/mssql/sessions/win2': () => new Response(null, { status: 204 }),
+      'DELETE /api/mssql/sessions/main': close('main'),
+      'DELETE /api/mssql/sessions/win1': close('win1'),
+      'DELETE /api/mssql/sessions/win2': close('win2'),
     },
   }
 }
@@ -232,6 +238,26 @@ describe('SQL Server', () => {
     expect(editorBar).toHaveAttribute('aria-valuenow', '60')
     expect(window.localStorage.getItem('nkeeper.sql.editorShare')).toBe('0.6')
     expect(window.localStorage.getItem('nkeeper.sql.explorerWidth')).toBe('160')
+  })
+
+  it('closes every connection it opened when its query window or the whole tab is closed', async () => {
+    const sessions = sessionRoutes()
+    const { user } = renderWorkspace(sessions.routes)
+    await openSql(user)
+
+    const tab = await screen.findByRole('tabpanel', { name: 'sql01 SQL Server' })
+    await within(tab).findByText('sa (53)')
+    await user.click(within(tab).getByRole('button', { name: 'New Query' }))
+    await within(tab).findByText('sa (54)')
+    expect(sessions.closed).toEqual([])
+
+    // A query window's own connection closes with it.
+    await user.click(within(tab).getByRole('button', { name: 'Close SQLQuery2' }))
+    await waitFor(() => expect(sessions.closed).toEqual(['win2']))
+
+    // Closing the tab closes the rest: the explorer's and the remaining window's.
+    await user.click(screen.getByRole('button', { name: 'Close sql01' }))
+    await waitFor(() => expect([...sessions.closed].sort()).toEqual(['main', 'win1', 'win2']))
   })
 
   it('runs the query with F5, shows grids, messages with the error’s line, and text', async () => {

@@ -238,6 +238,69 @@ public sealed class SqlServerTests(PostgresServerFixture postgres, SqlServerFixt
     }
 
     [Fact]
+    public async Task Closing_EndsTheConnectionOnTheServer_EvenWhileAQueryRuns()
+    {
+        sql.SkipIfUnavailable();
+        var host = await CreateHostAsync();
+        var trusted = await OpenAsync(host);
+        await _admin.SendJsonAsync(HttpMethod.Delete, $"/api/mssql/sessions/{trusted}", null, Ct);
+        Assert.Equal(0, await NKeeperConnectionsAsync());
+
+        var opened = await PostAsync("/api/mssql/sessions", Request(host));
+        var session = opened.GetProperty("sessionId").GetString()!;
+        var spid = opened.GetProperty("server").GetProperty("sessionId").GetInt32();
+        Assert.True(await ConnectedAsync(spid));
+
+        // Explorer requests use short connections of their own, closed straight after.
+        await ExploreAsync(session, new { kind = "databases" });
+        Assert.Equal(1, await NKeeperConnectionsAsync());
+
+        Assert.Equal(HttpStatusCode.NoContent, (await _admin.SendJsonAsync(HttpMethod.Delete, $"/api/mssql/sessions/{session}", null, Ct)).StatusCode);
+        Assert.False(await ConnectedAsync(spid));
+        Assert.Equal(0, await NKeeperConnectionsAsync());
+
+        // Closed in the middle of a query: the query stops and the connection goes too.
+        var busy = await PostAsync("/api/mssql/sessions", Request(host));
+        var busyId = busy.GetProperty("sessionId").GetString()!;
+        var busySpid = busy.GetProperty("server").GetProperty("sessionId").GetInt32();
+        var running = _admin.SendJsonAsync(HttpMethod.Post, $"/api/mssql/sessions/{busyId}/query", new { sql = "WAITFOR DELAY '00:05:00';" }, Ct);
+        await Task.Delay(1000, Ct);
+        Assert.Equal(HttpStatusCode.NoContent, (await _admin.SendJsonAsync(HttpMethod.Delete, $"/api/mssql/sessions/{busyId}", null, Ct)).StatusCode);
+        await running.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+        Assert.False(await ConnectedAsync(busySpid));
+        Assert.Equal(0, await NKeeperConnectionsAsync());
+    }
+
+    /// <summary>Whether SQL Server still has NKeeper's connection with this SPID.</summary>
+    private async Task<bool> ConnectedAsync(int spid)
+    {
+        // Closing is asynchronous on the server's side: give it a moment.
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            await using var connection = await sql.OpenAsync(cancellationToken: Ct);
+            await using var command = new Microsoft.Data.SqlClient.SqlCommand(
+                "SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE session_id = @spid AND program_name = 'NKeeper'", connection);
+            command.Parameters.AddWithValue("@spid", spid);
+            if ((int)(await command.ExecuteScalarAsync(Ct))! == 0)
+            {
+                return false;
+            }
+
+            await Task.Delay(100, Ct);
+        }
+
+        return true;
+    }
+
+    private async Task<int> NKeeperConnectionsAsync()
+    {
+        await Task.Delay(300, Ct);
+        await using var connection = await sql.OpenAsync(cancellationToken: Ct);
+        await using var command = new Microsoft.Data.SqlClient.SqlCommand("SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE program_name = 'NKeeper'", connection);
+        return (int)(await command.ExecuteScalarAsync(Ct))!;
+    }
+
+    [Fact]
     public async Task Explorer_BrowsesDatabasesTablesAndColumns_LikeSsms()
     {
         sql.SkipIfUnavailable();
