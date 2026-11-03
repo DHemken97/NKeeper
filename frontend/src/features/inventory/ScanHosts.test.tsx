@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { routes } from '../../app/router'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
 import { AuthProvider } from '../auth/components/AuthProvider'
+import { toHostDraft } from './drafts'
 import { scanProposals } from './scanProposals'
 import type { Host, ScanFindings } from './types'
 
@@ -107,6 +108,36 @@ describe('scan proposals', () => {
     expect(proposals.find((p) => p.key === 'mac')?.checked).toBe(false)
     expect(proposals.find((p) => p.key === 'os')).toMatchObject({ checked: true, detail: 'os: Ubuntu 24.04.1 LTS (now Ubuntu 22.04)' })
     expect(proposals.find((p) => p.key === 'service-Kvm-2222')).toBeDefined()
+  })
+})
+
+describe('SQL Server instances found by a scan', () => {
+  it('offers each instance as an MS SQL service with its instance and port, unless the host has it', () => {
+    const sqlFindings: ScanFindings = {
+      ...findings,
+      ports: [
+        { port: 22, name: 'SSH', protocol: 'Ssh' },
+        { port: 1433, name: 'SQL Server (default instance)', protocol: 'Ssms', instance: null },
+        { port: 49712, name: 'SQL Server (SQLEXPRESS)', protocol: 'Ssms', instance: 'SQLEXPRESS' },
+        { port: 14330, name: 'SQL Server (REPORTING)', protocol: 'Ssms', instance: 'REPORTING' },
+      ],
+      users: [],
+    }
+    // The host already has REPORTING, without a port (found by the SQL Server Browser).
+    const host = { ...web01, services: [...web01.services, { protocol: 'Ssms' as const, port: null, label: null, instance: 'reporting' }] }
+
+    const proposals = scanProposals(host, sqlFindings, 22).filter((p) => p.group === 'Services')
+
+    expect(proposals.map((p) => [p.label, p.detail])).toEqual([
+      ['MS SQL', 'port 1433 · SQL Server (default instance)'],
+      ['MS SQL · SQLEXPRESS', 'port 49712 · SQL Server (SQLEXPRESS)'],
+    ])
+    const draft = toHostDraft(host)
+    proposals.forEach((p) => p.apply(draft))
+    expect(draft.services.slice(-2).map((s) => [s.protocol, s.port, s.instance])).toEqual([
+      ['Ssms', '', ''],
+      ['Ssms', '49712', 'SQLEXPRESS'],
+    ])
   })
 })
 

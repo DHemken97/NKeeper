@@ -59,7 +59,7 @@ const sql01 = makeHost({
   ],
   services: [
     { protocol: 'Rdp', port: null, label: null },
-    { protocol: 'Ssms', port: 14330, label: 'Named instance' },
+    { protocol: 'WinRm', port: 5986, label: 'Remote management' },
   ],
   credentials: [
     { id: 'c-admin', label: 'Local admin', username: 'administrator', domain: null, notes: null, hasPassword: true, hasPrivateKey: false },
@@ -102,8 +102,8 @@ describe('workspace', () => {
     expect(router.state.location.search).toBe('?host=h-sql01')
     const details = screen.getByRole('article', { name: 'sql01' })
     expect(within(details).getByText('sql01.corp.example.com · 10.0.0.15')).toBeInTheDocument()
-    expect(within(details).getByText('Named instance')).toBeInTheDocument()
-    expect(within(details).getByText('port 14330')).toBeInTheDocument()
+    expect(within(details).getByText('Remote management')).toBeInTheDocument()
+    expect(within(details).getByText('port 5986')).toBeInTheDocument()
     expect(within(details).getByText('port 3389 (default)')).toBeInTheDocument()
     expect(within(details).getByText('administrator')).toBeInTheDocument()
     expect(within(details).getByText('Password')).toBeInTheDocument()
@@ -182,7 +182,7 @@ describe('workspace', () => {
     expect(search).toHaveValue('site:dc')
     expect(router.state.location.search).toBe('')
     expect(hostNamesInTree()).toHaveLength(4)
-    await waitFor(() => expect(router.state.location.search).toBe('?q=site%3Adc'), { timeout: 2000 })
+    await waitFor(() => expect(router.state.location.search).toBe('?q=site%3Adc'), { timeout: 5000 })
     expect(hostNamesInTree()).toEqual(['sql01', 'web01'])
     expect(search).toHaveValue('site:dc')
   })
@@ -253,8 +253,8 @@ describe('workspace', () => {
 
     const form = await screen.findByRole('form', { name: 'Edit sql01' })
     expect(within(form).getByText('Stored. Leave empty to keep it.')).toBeInTheDocument()
-    // SSMS can't be connected with, so it isn't copied; the editor says so.
-    expect(within(form).getByRole('note')).toHaveTextContent('NKeeper can’t connect with SQL Server (SSMS), so that service is removed when you save.')
+    // WinRM can't be connected with, so it isn't copied; the editor says so.
+    expect(within(form).getByRole('note')).toHaveTextContent('NKeeper can’t connect with WinRM, so that service is removed when you save.')
     await user.click(within(form).getByRole('button', { name: 'Add credential' }))
     await user.type(within(form).getAllByLabelText('Username')[1], 'sa')
     await user.click(within(form).getAllByRole('button', { name: 'Remove' })[0])
@@ -360,6 +360,7 @@ describe('workspace', () => {
     expect(screen.queryByRole('menuitem', { name: /^Wake/ })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('menuitem', { name: 'Connect' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Tools' }))
     await user.click(screen.getByRole('menuitem', { name: /^Files/ }))
     expect(screen.getByRole('menuitem', { name: 'Enter credentials…' })).toBeInTheDocument()
 

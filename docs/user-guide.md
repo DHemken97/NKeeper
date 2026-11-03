@@ -10,6 +10,7 @@
 - [Telnet](#telnet)
 - [Files (SFTP)](#files-sftp)
 - [Storage (iSCSI, multipath, DRBD)](#storage-iscsi-multipath-drbd)
+- [Microsoft SQL Server](#microsoft-sql-server)
 - [Jump hosts](#jump-hosts)
 - [RDP](#rdp)
 - [VNC](#vnc)
@@ -91,8 +92,9 @@ A host has:
 - optionally, a **jump host** to **reach it through** (see [Jump hosts](#jump-hosts));
 - its own **tags**, **services** and **credentials**:
   - **Tags** are `name: value` pairs (the value is optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can have the same tag name twice with different values. Tags are what you group, search and grant access by; hosts don't live in folders.
-  - **Services** are the ways to connect: SSH, Telnet, RDP, RPC, VNC, HTTP, HTTPS, KVM, Proxmox and iDRAC. Those are the only types you can add. A host may still have an SSMS, SFTP, FTP, WinRM, PowerShell or Other service from an older version; its details mark it *Not supported*, and editing the host says it will be removed when you save (cancel to keep it). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's.
+  - **Services** are the ways to connect: SSH, Telnet, RDP, RPC, VNC, HTTP, HTTPS, KVM, Proxmox, iDRAC and Microsoft SQL Server. Those are the only types you can add. A host may still have an SFTP, FTP, WinRM, PowerShell or Other service from an older version; its details mark it *Not supported*, and editing the host says it will be removed when you save (cancel to keep it). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's. A **SQL Server** service has an optional **instance** name (empty for the default instance).
   - **Credentials** have a username, domain, label, password, SSH private key and notes. Passwords and keys are **write-only**: once saved, NKeeper only shows that one is stored. Leave the field empty when editing to keep it, or choose to clear it.
+  - **Use with** says which of the host's services a credential is for: **All services** (the default), or the ones you tick. For example, `sa` only for MS SQL and `administrator` only for RDP and RPC: the Connect, Tools and Scan menus then offer each only where it belongs, and NKeeper refuses it for any other service. A credential follows its services when you reorder them, and isn't given services you add later (tick them too).
 
 Administrators add hosts with **New host**. Anyone with *Manage* access can **Edit** or **Delete** a host.
 
@@ -131,12 +133,13 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - the hostname and operating system;
   - the MAC address of the network interface NKeeper reached;
   - the TCP ports it listens on, except those that only listen on localhost;
+  - **SQL Server**: the port `sqlservr` listens on and the one set in `/var/opt/mssql/mssql.conf` (seeing SQL Server's process needs root, or `sudo` without a password; otherwise it's found by its install and configuration);
   - the local accounts that can log in (a real shell; root and regular users);
   - the CPU cores (`nproc`), installed memory (`lsmem`, else the kernel's total) and, on physical hardware, the serial number. Only root can read the serial number on most systems: scan as root, or as a user with passwordless sudo, to get it.
 
   **On the network, an internal scan is a single SSH login**, like an administrator's, so it suits places that don't allow scanning. The commands only read local state and contact no other machines. It needs Linux or another Unix with `sh`.
 
-  **Windows hosts** are scanned over an **RPC** service instead (**Tasks ▸ Scan ▸ Internal**, *Over RPC (WMI)*), with a Windows login and its domain. It makes read-only WMI queries: the computer name, manufacturer and model, the Windows version, network adapters, listening TCP ports, enabled local accounts, logical processors, installed memory (the memory modules added up) and the BIOS serial number. WMI uses RPC on port 135 plus Windows' dynamic RPC ports, so the firewall must allow those from the NKeeper server, and the account must be allowed remote WMI (an administrator is). On Linux, NKeeper uses Impacket for this: the Docker image and the Linux installer include it.
+  **Windows hosts** are scanned over an **RPC** service instead (**Tasks ▸ Scan ▸ Internal**, *Over RPC (WMI)*), with a Windows login and its domain. It makes read-only WMI queries: the computer name, manufacturer and model, the Windows version, network adapters, listening TCP ports, **SQL Server instances** (from SQL Server's own registry settings: each instance's name, whether TCP/IP is on, and its static or dynamic port), enabled local accounts, logical processors, installed memory (the memory modules added up) and the BIOS serial number. WMI uses RPC on port 135 plus Windows' dynamic RPC ports, so the firewall must allow those from the NKeeper server, and the account must be allowed remote WMI (an administrator is). On Linux, NKeeper uses Impacket for this: the Docker image and the Linux installer include it.
 - **External** (**Tasks ▸ Scan ▸ External**) is run by the NKeeper server against the host's saved address, after you confirm. It reads:
   - which common ports are open (SSH, RDP, VNC, web, file sharing, mail, directory and database ports);
   - the SSH banner, which often names the operating system;
@@ -148,6 +151,8 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - the hostname, IP address and MAC address;
   - the operating system, as an `os` tag that you can group by;
   - a service for each open port NKeeper has a service for. Other open ports are listed for information;
+
+  Internal scans offer each **SQL Server instance** they find as an MS SQL service with its instance name and port (e.g. *MS SQL · SQLEXPRESS, port 49712*), unless the host already has that instance. An instance on a dynamic port, one with TCP/IP turned off, or one installed but not running is explained in the scan's notes.
   - a **KVM** service when libvirt is installed, or the host is a Proxmox VE node (internal scans);
   - each local account as a **credential without a password**. Using it asks for the password; set the password in the host's editor to save it;
   - **Virtual machine**, when the scan finds the host runs under a hypervisor (it asks `systemd-detect-virt`);
@@ -173,6 +178,8 @@ Changing a host's hostname or IP address forgets its trusted keys too, for the s
 
 Right-click a host in the tree, or press the Menu key or Shift+F10 on it, then choose **Connect ▸ service ▸ credential**. Each session opens as a tab next to the host details and keeps running while you switch tabs.
 
+**Connect** lists the clients: SSH, Telnet, RDP, VNC, RPC, web interfaces, iDRAC and VM consoles. The tools that do more than open a client are under **Connect ▸ Tools**: **Files** and **Storage** (on an SSH service), **KVM** (a hypervisor's VMs) and **MS SQL**.
+
 - **Double-click** a host to connect with its first connectable service and first suitable credential. If none fits, you're asked for a login.
 - The **Connect** button in the host details opens the same menu, which is the way to connect on touch screens.
 - **Enter credentials…** connects with a one-off login that is used once and never saved. Such sessions can't reconnect without typing it again.
@@ -180,6 +187,8 @@ Right-click a host in the tree, or press the Menu key or Shift+F10 on it, then c
 - Close a tab with its **×**, or middle-click it.
 
 A credential that can't work for the service is shown greyed out with the reason, for example "No username". A credential without a stored password (or SSH key) shows **Asks for password**: choosing it asks for the password, with its username filled in, and uses it once. To stop being asked, edit the host and set the password.
+
+**No connection is left open behind you.** Closing a session's tab closes its connection to the host. Closing the browser tab or window does too, for every session in it. If the browser just disappears (it crashed, the computer went to sleep, the network dropped), the server notices within about a minute for SSH, Telnet, RDP, VNC, RPC and VM consoles, and within about 3 minutes for web and SQL Server sessions, then closes their connections. That includes a SQL query still running.
 
 **The NKeeper server makes every connection**, not your PC. Hosts must be reachable and resolvable from the server. Your passwords and keys are decrypted only there, never sent to your browser.
 
@@ -203,7 +212,7 @@ For switches, routers, serial-console servers and other devices that only offer 
 
 ## Files (SFTP)
 
-Any host with an SSH service has **Connect ▸ Files ▸ credential** (or **Files ▸ SSH service ▸ credential** when it has several). The files open in a tab:
+Any host with an SSH service has **Connect ▸ Tools ▸ Files ▸ credential** (or **Files ▸ SSH service ▸ credential** when it has several). The files open in a tab:
 - **Browsing:** the tab starts in the login's home folder. Open a folder by clicking it, go back with **Up** or the path above the list, and **Refresh** to see changes made elsewhere.
 - **Upload:** choose one or more files, up to 2 GB each. They go into the folder shown. If a file with the same name exists, NKeeper asks before replacing it.
 - **Download:** files stream from the host through the NKeeper server to your browser.
@@ -213,13 +222,34 @@ Any host with an SSH service has **Connect ▸ Files ▸ credential** (or **File
 
 ## Storage (iSCSI, multipath, DRBD)
 
-Any Linux host with an SSH service has **Connect ▸ Storage ▸ credential** (or **Storage ▸ SSH service ▸ credential** when it has several). NKeeper runs the host's own tools over SSH and shows what it finds in a tab, one section for each tool that's installed:
+Any Linux host with an SSH service has **Connect ▸ Tools ▸ Storage ▸ credential** (or **Storage ▸ SSH service ▸ credential** when it has several). NKeeper runs the host's own tools over SSH and shows what it finds in a tab, one section for each tool that's installed:
 - **iSCSI** (`iscsiadm`, from open-iscsi or iscsi-initiator-utils): the initiator's name, and every target it knows with its portal, session state and attached disks. **Discover** asks a portal (e.g. `10.0.0.5` or `10.0.0.5:3260`) for its targets (SendTargets). **Log in** and **Log out** each target, and **Rescan sessions** to see new LUNs. A SAN that redirects logins to its data addresses (Nimble, Dell EqualLogic…) is shown under the portal you logged in through, e.g. its discovery address, with the address it *connected via* beneath.
 - **Multipath** (`multipath`, from multipath-tools or device-mapper-multipath): each map with its WWID, device, vendor and size, and every path's device-mapper, checker and kernel state. A map is green when all its paths are ready. **Reload maps** after changing the configuration, and **Flush** a map that's no longer used.
 - **DRBD** (`drbdadm` and `drbdsetup`): every configured resource, including those that are down, with this node's role, its disks' states and each peer's connection, role, replication and sync progress. Bring a resource **Up** or **Down**, make it **Primary** or **Secondary**, **Connect** or **Disconnect** its peers, or **Adjust** it to its configuration.
 - **Asks first:** logging out, flushing, taking a resource down, changing its role and disconnecting it say what will happen and wait for you to confirm. The tools still refuse what would break something in use (a mounted map or a primary in use), and the tab shows their answer.
 - **Root:** the tools need root. Sign in as root, or as a user who may use `sudo` without a password.
 - **Logins and trust** are the same as SSH. Each change is recorded in the audit log (category *Storage*), with what it acted on.
+
+## Microsoft SQL Server
+
+Add a **Microsoft SQL Server** service to the host for each instance. Leave **Instance** empty for the default instance (MSSQLSERVER), or type the named instance (e.g. `SQLEXPRESS`). The port is 1433 by default; a named instance without a port is looked up with the SQL Server Browser (UDP 1434). Add a **SQL login** (e.g. `sa`) as a credential with a password. Windows logins (a credential with a domain) can't be used, and are greyed out. Then **Connect ▸ Tools ▸ MS SQL ▸ instance ▸ login** opens a tab like a small SSMS:
+
+- **Object Explorer** (left): the server, its **Databases** (system ones under *System Databases*), and in each database its **Tables**, **Views**, **Synonyms**, **Programmability** (stored procedures and functions, with their parameters) and **Security** (users, roles, schemas). A table opens to its **Columns** (`Id (PK, int, not null)`), **Keys**, **Indexes** and **Triggers**. The server's **Security** lists logins and server roles, and **Management** has the **Blocking Manager** and **Orphaned Users**. Double-click or press → to expand, F5 to refresh. Right-click (or Shift+F10) for **New Query**, **Select Top 1000 Rows** (opens and runs it in a new window), **Script as CREATE**, **Script as EXECUTE** and **Copy name**.
+- **Layout**: drag the bar between the Object Explorer and the query windows, or between a query's editor and its results, to give one more room (or focus the bar and use the arrow keys; double-click it to reset). The sizes are remembered in your browser.
+- **Query windows** (right): **New Query** opens another. Each has its own connection, as in SSMS, so it keeps its database, temporary tables and open transactions, and a long query in one doesn't hold up the others. **F5**, **Ctrl+Enter** or **Ctrl+E** runs the selection, or everything when nothing is selected; **Cancel** stops it. `GO` splits batches (`GO 5` runs one five times). Choose the database from the toolbar, or with `USE`.
+- **Results**: as a **Grid** (one per result set; click a cell, then Ctrl+C or right-click to copy it, its row, or everything with headers) with **Messages** beside it, or as **Text**. Messages list PRINT output, "(n rows affected)" and errors as SSMS writes them (`Msg 208, Level 16, State 1, Line 5`); double-click an error to select its line. A result set shows up to 10,000 rows (50,000 per query), with the full count.
+- **Blocking Manager** (in the Object Explorer, under **Management**): **Lead Blockers**, the sessions at the root of each blocking chain, with their login, host, program, database, status, open transactions, how many sessions they block directly (**Blocked**) and down the whole chain (**Blocked Volume**), and their current SQL. The sessions they block are collapsed under them: expand a lead, or use **Expand all**. A blocked session shows what it waits on and for how long. **Right-click** a session (or press Shift+F10 or Delete on it) to **Kill** it, after confirming; its open transaction is rolled back. It refreshes every 10 seconds (or as chosen). Seeing other logins' sessions needs **VIEW SERVER STATE**, and killing them needs **ALTER ANY CONNECTION** (sysadmin has both). Kills are recorded in the audit log (category *SQL Server*).
+- **Orphaned Users** (in the Object Explorer, under **Management**): database users whose login is gone, or no longer has their SID. This is what restoring a database on another server leaves behind: the user is there, but nobody can sign in as it. NKeeper checks every database you can access and lists each orphaned user with its type, default schema and the login of the same name, if there is one. To fix one:
+  - **Map to** the login of its own name (`ALTER USER … WITH LOGIN`), the usual repair. **Fix all matched by name** does this for every user that has one.
+  - **Map to a login…** of your choosing, of the same kind (SQL or Windows).
+  - **Create its login…**: a SQL login with a password you choose and the user's own SID, so the same user in other databases restored from the same server maps to it too; or a Windows login (`FROM WINDOWS`).
+  - **Drop user…**, after confirming. A user that owns schemas can't be dropped.
+
+  **In bulk:** tick users (or use **Select: All / Without a login of their name / With a login of their name**), then **Map selected to their logins** or **Drop selected…** (after confirming). Each user is fixed on its own: the ones that can't be (e.g. a user that owns schemas) are listed with why, and the rest go ahead.
+
+  Right-click a user (or Shift+F10) for every fix. Databases whose owner login is missing are listed below, with **Set owner…**. Users created without a login on purpose, and contained users, aren't orphans. Fixes are recorded in the audit log (category *SQL Server*), never with the password; they need permission to alter users and create logins (sysadmin, or securityadmin and db_owner).
+- **Encryption and trust**: the connection is always encrypted. The server's certificate is trusted like an HTTPS server's: once, then pinned. A SQL Server without a certificate of its own makes a new self-signed one (*SSL_Self_Signed_Fallback*) every time it starts, so NKeeper asks you to trust the new one after a restart instead of refusing to connect. Give the server a real certificate to have any change refused outright.
+- **Jump hosts**: SQL Server goes through the host's jump host. A named instance then needs its port set on the service (the SQL Server Browser can't be asked through the tunnel).
 
 ## Jump hosts
 
@@ -263,7 +293,8 @@ For routers, iDRAC/iLO, NAS boxes, Proxmox and the like, **Connect ▸ HTTP/HTTP
 
 A web session belongs to you and ends:
 - when you close its tab or choose **End session**;
-- after 30 minutes without activity, or 12 hours in total;
+- when you close the browser tab or window it's open in, or about 3 minutes after the browser stops answering (asleep, off the network, crashed);
+- after 12 hours in total;
 - immediately if your account is disabled or you lose access to the host.
 
 **Reload** reloads the page inside the tab.
@@ -276,7 +307,7 @@ An **RPC** service (port 135, the endpoint mapper) is mainly for [scanning Windo
 
 ## KVM and Proxmox virtual machines (SPICE and VNC consoles)
 
-Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH credential. The same service works for libvirt hosts and Proxmox VE nodes: NKeeper finds out which one it is. Then **Connect ▸ KVM ▸ credential**:
+Add a **KVM** service (port 22 by default) to a hypervisor host, with an SSH credential. The same service works for libvirt hosts and Proxmox VE nodes: NKeeper finds out which one it is. Then **Connect ▸ Tools ▸ KVM ▸ credential**:
 
 - **The VM list:** like virt-manager, NKeeper connects over SSH, asks libvirt (`qemu:///system`) for the virtual machines, and lists each one's name, state and console type. **Refresh** updates the list.
 - **The console:** **Open console** on a running VM with a SPICE or VNC display opens it in its own tab, with **Ctrl+Alt+Del**, **Type clipboard** and **Fullscreen**.
@@ -381,6 +412,7 @@ Requirements and limits:
 NKeeper verifies whom it connects to, using **trust on first use**:
 - **What you're asked:** the first connection to a server shows its identity. That's an SSH host key fingerprint (`SHA256:…`, as `ssh-keygen -lf` prints it), or an RDP or HTTPS certificate fingerprint. Compare it with the server's real one, then choose **Trust and connect**.
 - **Where it's kept:** trusted keys are stored per host and listed in its details. SSH sessions and KVM share SSH keys.
+- **SQL Server** certificates are trusted the same way. The self-signed certificate SQL Server makes for itself when it has none changes at every restart, so for that one NKeeper asks again instead of refusing (see [Microsoft SQL Server](#microsoft-sql-server)).
 - **If it changes:** NKeeper **refuses to connect** and says so, because a reinstalled server looks exactly like an attacker in the middle. When the change is expected (a rebuild, or a renewed certificate), an administrator or anyone with *Manage* access uses **Forget trusted keys…** in the host details, then connects again.
 
 ## Health and Wake-on-LAN

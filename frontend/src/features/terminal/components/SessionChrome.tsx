@@ -39,8 +39,18 @@ export function OpeningCard() {
   )
 }
 
+interface TrustCardProps {
+  prompt: HostKeyMessage
+  target?: string
+  onDecide: (trust: boolean) => void
+  /** Replaces the opening sentence, e.g. to say why a trusted certificate changed. */
+  intro?: string
+  /** Replaces what's said about certificates (which otherwise speaks of Remote Desktop). */
+  certificateNote?: { text: string; hint: string }
+}
+
 /** Trust on first use: the user confirms the server's identity before credentials are used. */
-export function TrustCard({ prompt, target, onDecide }: { prompt: HostKeyMessage; target?: string; onDecide: (trust: boolean) => void }) {
+export function TrustCard({ prompt, target, onDecide, intro, certificateNote }: TrustCardProps) {
   if (prompt.status === 'changed') {
     // The server refuses the connection; an error message follows.
     return null
@@ -53,9 +63,9 @@ export function TrustCard({ prompt, target, onDecide }: { prompt: HostKeyMessage
           {certificate ? 'Trust this certificate?' : 'Trust this host key?'}
         </h3>
         <p id="trust-text">
-          This is the first connection to {target ?? `port ${prompt.port}`}. Check that the fingerprint matches the server’s before
+          {intro ?? `This is the first connection to ${target ?? `port ${prompt.port}`}.`} Check that the fingerprint matches the server’s before
           trusting it; NKeeper will refuse the connection if it ever changes.
-          {certificate ? ' Self-signed certificates are normal for Remote Desktop.' : null}
+          {certificate ? ` ${certificateNote?.text ?? 'Self-signed certificates are normal for Remote Desktop.'}` : null}
         </p>
         <dl className={styles.fingerprint}>
           <dt>{certificate ? 'SHA-256 fingerprint' : prompt.algorithm}</dt>
@@ -74,7 +84,9 @@ export function TrustCard({ prompt, target, onDecide }: { prompt: HostKeyMessage
           ) : null}
         </dl>
         {certificate ? (
-          <p className={styles.hint}>On Windows, compare with the “Remote Desktop” certificate in the computer’s certificate store (certlm.msc).</p>
+          <p className={styles.hint}>
+            {certificateNote?.hint ?? 'On Windows, compare with the “Remote Desktop” certificate in the computer’s certificate store (certlm.msc).'}
+          </p>
         ) : null}
         <div className={styles.cardActions}>
           <Button variant="secondary" size="sm" onClick={() => onDecide(false)}>

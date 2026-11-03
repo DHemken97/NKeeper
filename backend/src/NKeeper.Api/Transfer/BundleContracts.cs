@@ -97,14 +97,15 @@ public sealed record BundleHost(
     Guid? JumpCredentialId = null,
     string? ZabbixHostId = null);
 
-public sealed record BundleService(Guid Id, ServiceProtocol Protocol, int? Port, string? Label, int Position, RdpSecurityMode? RdpSecurity, string? Address);
+public sealed record BundleService(Guid Id, ServiceProtocol Protocol, int? Port, string? Label, int Position, RdpSecurityMode? RdpSecurity, string? Address, string? Instance = null);
 
 /// <param name="Inheritable">Missing from bundles made before tags were inherited: true.</param>
 public sealed record BundleTag(Guid Id, string Name, string Value, bool Inheritable = true);
 
 /// <param name="Password">Plain text, inside the encrypted bundle only.</param>
 /// <param name="PrivateKey">Plain text, inside the encrypted bundle only.</param>
-public sealed record BundleCredential(Guid Id, string? Label, string? Username, string? Domain, string? Password, string? PrivateKey, string? Notes, int Position);
+public sealed record BundleCredential(
+    Guid Id, string? Label, string? Username, string? Domain, string? Password, string? PrivateKey, string? Notes, int Position, IReadOnlyList<Guid>? ServiceIds = null);
 
 public sealed record BundleTrustedKey(
     Guid Id, ServiceProtocol Protocol, int Port, string Algorithm, string Fingerprint, DateTimeOffset TrustedAtUtc, Guid? TrustedByUserId);

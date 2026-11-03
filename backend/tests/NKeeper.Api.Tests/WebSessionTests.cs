@@ -175,6 +175,38 @@ public sealed class WebSessionTests(PostgresServerFixture postgres, WebTargetFix
     }
 
     [Fact]
+    public async Task ASessionWhoseTabStoppedCheckingIn_Ends()
+    {
+        var clock = new ManualClock();
+        await using var factory = new NKeeperApiFactory(
+            await postgres.CreateDatabaseAsync(Ct), configureServices: services => services.AddSingleton<TimeProvider>(clock));
+        var admin = await factory.CreateSignedInClientAsync(Ct);
+        var created = await admin.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        {
+            name = "web-idle",
+            ipAddress = "127.0.0.1",
+            services = new object[] { new { protocol = "Http", port = target.HttpPort } },
+        }, Ct);
+        var host = (await created.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!;
+        var opened = await admin.SendJsonAsync(HttpMethod.Post, "/api/web/sessions", new { hostId = host.Id, serviceIndex = 0 }, Ct);
+        var id = (await opened.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("sessionId").GetString();
+        var store = factory.Services.GetRequiredService<NKeeper.Api.Web.WebSessionStore>();
+
+        // The tab checks in every minute, so a site left idle stays open.
+        clock.Advance(TimeSpan.FromMinutes(2));
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.SendJsonAsync(HttpMethod.Post, $"/api/web/sessions/{id}/keepalive", null, Ct)).StatusCode);
+        clock.Advance(TimeSpan.FromMinutes(2));
+        store.RemoveExpired();
+        Assert.NotNull(store.Find(id!));
+
+        // Not heard from for more than three minutes: the browser is gone.
+        clock.Advance(TimeSpan.FromMinutes(4));
+        store.RemoveExpired();
+        Assert.Null(store.Find(id!));
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.SendJsonAsync(HttpMethod.Post, $"/api/web/sessions/{id}/keepalive", null, Ct)).StatusCode);
+    }
+
+    [Fact]
     public async Task ClosingTheSession_EndsItOnItsOrigin()
     {
         var host = await CreateHostAsync();

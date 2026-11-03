@@ -66,6 +66,35 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
         await second.ExpectAsync("connected", Ct);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ClosingTheTab_OrLosingTheBrowser_ClosesTheSshConnection(bool abort)
+    {
+        var host = await CreateHostAsync(new { username = SshServerFixture.UserName, password = SshServerFixture.Password });
+        await using (var trust = await StartAsync(host, credentialIndex: 0))
+        {
+            await trust.ExpectAsync("status", Ct);
+            await trust.ExpectAsync("hostKey", Ct);
+            await trust.SendJsonAsync(new { type = "hostKeyDecision", trust = true }, Ct);
+            await trust.ExpectAsync("connected", Ct);
+        }
+
+        var before = await ContainerConnections.WaitForAsync(ssh.OpenConnectionsAsync, 0, Ct);
+        var terminal = await StartAsync(host, credentialIndex: 0);
+        await terminal.ExpectAsync("status", Ct);
+        await terminal.ExpectAsync("connected", Ct);
+        Assert.Equal(before + 1, await ssh.OpenConnectionsAsync());
+
+        if (abort)
+        {
+            terminal.Abort();
+        }
+
+        await terminal.DisposeAsync();
+        Assert.Equal(before, await ContainerConnections.WaitForAsync(ssh.OpenConnectionsAsync, before, Ct));
+    }
+
     [Fact]
     public async Task RejectingTheHostKey_EndsTheSessionAndTrustsNothing()
     {
@@ -207,6 +236,25 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Empty((await response.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!.TrustedKeys);
+    }
+
+    [Fact]
+    public async Task ACredentialNotUsedWithTheService_IsRefused()
+    {
+        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        {
+            name = $"ssh-{Guid.NewGuid():N}",
+            ipAddress = SshServerFixture.Address,
+            services = new object[] { new { protocol = "Ssh", port = ssh.Port }, new { protocol = "Ssms" } },
+            credentials = new object[] { new { username = SshServerFixture.UserName, password = SshServerFixture.Password, serviceIndexes = new[] { 1 } } },
+        }, Ct);
+        var host = (await response.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!;
+
+        await using var terminal = await StartAsync(host, credentialIndex: 0);
+
+        var error = await terminal.ExpectAsync("error", Ct);
+        Assert.Equal(SessionErrorCodes.CredentialNotFound, error.GetProperty("code").GetString());
+        Assert.Contains("isn't used with this service", error.GetProperty("message").GetString(), StringComparison.Ordinal);
     }
 
     private async Task<HostResponse> CreateHostAsync(object? credential, string protocol = "Ssh")

@@ -65,6 +65,15 @@ public static class SessionErrorCodes
     public const string ConnectionFailed = "connection_failed";
     public const string Timeout = "timeout";
 
+    /// <summary>A session kept on the server (SQL Server) has ended or expired.</summary>
+    public const string SessionNotFound = "session_not_found";
+
+    /// <summary>SQL Server: the session's connection is busy with another query.</summary>
+    public const string Busy = "busy";
+
+    /// <summary>SQL Server refused a request (permissions, a missing object…); the message is SQL Server's.</summary>
+    public const string SqlError = "sql_error";
+
     /// <summary>SFTP: the server refused a file operation (missing, not allowed, not empty…).</summary>
     public const string FileOperationFailed = "file_operation_failed";
 

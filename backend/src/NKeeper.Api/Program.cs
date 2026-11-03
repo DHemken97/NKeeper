@@ -3,6 +3,12 @@ using NKeeper.Api.Configuration;
 using NKeeper.Infrastructure;
 using NKeeper.Infrastructure.Persistence;
 
+// Formatting and comparisons don't follow the server's locale (see NKeeper.Api.csproj).
+System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddNKeeperInfrastructure(builder.Configuration);
@@ -38,7 +44,9 @@ app.UseRateLimiter();
 app.UseAuthorization();
 
 // Remote sessions (/api/ssh/session, /api/rdp/session). Pings keep idle sessions alive through proxies.
-app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
+// Every 30 seconds each session's WebSocket is pinged; a browser that doesn't answer within 30 more
+// (asleep, off the network, powered off) is dropped, and its session and connection to the host end.
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30), KeepAliveTimeout = TimeSpan.FromSeconds(30) });
 
 if (app.Environment.IsDevelopment())
 {

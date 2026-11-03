@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { api, ApiError } from '../../../lib/api'
+import { useCloseOnPageExit } from '../../../lib/pageExit'
 import { idracRequestBody } from '../idrac'
 import type { HostKeyMessage, RemoteSession, SessionPhase } from '../types'
 import { sessionOrigin } from '../webSessionOrigin'
@@ -36,6 +37,19 @@ export function WebSession({ session, active, onShowHost, onEnded }: WebSessionP
   const [frameKey, setFrameKey] = useState(0)
   const [attempt, setAttempt] = useState(0)
   const sessionIdRef = useRef<string | null>(null)
+  // The open session, also as state: it's closed with the page, and kept alive while the tab is open.
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null)
+  useCloseOnPageExit(openSessionId ? `/api/web/sessions/${openSessionId}` : null)
+  useEffect(() => {
+    if (!openSessionId) {
+      return
+    }
+    // The site itself may sit idle; the server ends sessions it hasn't heard of in a few minutes.
+    const timer = window.setInterval(() => {
+      void api.post(`/api/web/sessions/${openSessionId}/keepalive`).catch(() => {})
+    }, 60_000)
+    return () => window.clearInterval(timer)
+  }, [openSessionId])
   const trustRef = useRef<string | undefined>(undefined)
 
   const idracConsole = session.protocol === 'idracconsole'
@@ -86,6 +100,7 @@ export function WebSession({ session, active, onShowHost, onEnded }: WebSessionP
         }
 
         sessionIdRef.current = response.sessionId
+        setOpenSessionId(response.sessionId)
         setUrl(origin + response.launchPath)
         setPhase({ kind: 'connected', target: target ?? origin })
       } catch (error) {
@@ -139,6 +154,7 @@ export function WebSession({ session, active, onShowHost, onEnded }: WebSessionP
     if (sessionIdRef.current) {
       void api.delete(`/api/web/sessions/${sessionIdRef.current}`).catch(() => {})
       sessionIdRef.current = null
+      setOpenSessionId(null)
     }
     retry()
   }

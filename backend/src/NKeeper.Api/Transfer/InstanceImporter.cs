@@ -201,7 +201,7 @@ internal sealed class InstanceImporter(
                 UpdatedByUserId = host.UpdatedByUserId,
                 Services = [.. host.Services.Select(s => new HostService
                 {
-                    Id = s.Id, Protocol = s.Protocol, Port = s.Port, Label = s.Label, Position = s.Position, RdpSecurity = s.RdpSecurity, Address = s.Address,
+                    Id = s.Id, Protocol = s.Protocol, Port = s.Port, Label = s.Label, Position = s.Position, RdpSecurity = s.RdpSecurity, Address = s.Address, Instance = s.Instance,
                 })],
                 Tags = [.. host.Tags.Select(t => new HostTag { Id = t.Id, Name = t.Name, Value = t.Value, Inheritable = t.Inheritable })],
                 Credentials = [.. host.Credentials.Select(c => new HostCredential
@@ -212,6 +212,8 @@ internal sealed class InstanceImporter(
                     Domain = c.Domain,
                     Notes = c.Notes,
                     Position = c.Position,
+                    // Services keep their IDs in a bundle, so these still name the same ones.
+                    ServiceIds = c.ServiceIds is null ? null : [.. c.ServiceIds],
                     // Re-encrypted with this instance's own keys.
                     ProtectedPassword = c.Password is null ? null : protector.Protect(c.Password),
                     ProtectedPrivateKey = c.PrivateKey is null ? null : protector.Protect(c.PrivateKey),

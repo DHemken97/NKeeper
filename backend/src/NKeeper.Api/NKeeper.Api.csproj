@@ -2,12 +2,18 @@
 
   <PropertyGroup>
     <UserSecretsId>nkeeper-api-7c1f3d2e-4b8a-4f0e-9a51-2d6e8c0b7f14</UserSecretsId>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!--
+      Not globalization-invariant: SqlClient (SQL Server sessions) refuses to run in that mode, so the
+      images include ICU. Program.cs still runs everything in the invariant culture, as before, so
+      culture-sensitive string calls (e.g. ToUpper() in EF queries) behave as they always have.
+    -->
+    <NoWarn>$(NoWarn);CA1304;CA1311</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.13" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

@@ -66,6 +66,27 @@ public sealed class TelnetSessionTests(PostgresServerFixture postgres) : IAsyncL
         await terminal.WaitForCloseAsync(Ct);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ClosingTheTab_OrLosingTheBrowser_ClosesTheTelnetConnection(bool abort)
+    {
+        var host = await CreateHostAsync(_device.Port, new { username = FakeTelnetServer.UserName, password = FakeTelnetServer.Password });
+        var terminal = await StartAsync(host, host.Credentials[0].Id);
+        await terminal.ExpectAsync("status", Ct);
+        await terminal.ExpectAsync("connected", Ct);
+        await terminal.WaitForOutputAsync("Welcome alice", Ct);
+        Assert.Equal(1, _device.OpenConnections);
+
+        if (abort)
+        {
+            terminal.Abort();
+        }
+
+        await terminal.DisposeAsync();
+        Assert.Equal(0, await ContainerConnections.WaitForAsync(() => Task.FromResult(_device.OpenConnections), 0, Ct));
+    }
+
     [Fact]
     public async Task WithoutACredential_TheUserLogsInInTheTerminal()
     {

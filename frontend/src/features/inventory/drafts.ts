@@ -12,6 +12,8 @@ export interface ServiceDraft {
   rdpSecurity: RdpSecurity
   /** Only used for iDRAC services: the iDRAC's own address. */
   address: string
+  /** Only used for SQL Server services: the named instance, empty for the default one. */
+  instance: string
 }
 
 export interface TagDraft {
@@ -40,6 +42,8 @@ export interface CredentialDraft {
   /** Whether the server already holds a secret (it is never sent to the browser). */
   hasPassword: boolean
   hasPrivateKey: boolean
+  /** The services (their draft keys) it's used with; null for all of them. */
+  serviceKeys: number[] | null
 }
 
 export interface HostDraft {
@@ -76,6 +80,7 @@ export function newServiceDraft(
   label: string | null = null,
   rdpSecurity: RdpSecurity | null = null,
   address: string | null = null,
+  instance: string | null = null,
 ): ServiceDraft {
   return {
     key: key(),
@@ -84,6 +89,7 @@ export function newServiceDraft(
     label: label ?? '',
     rdpSecurity: rdpSecurity ?? 'Auto',
     address: address ?? '',
+    instance: instance ?? '',
   }
 }
 
@@ -91,7 +97,7 @@ export function newTagDraft(name = '', value: string | null = '', inheritable = 
   return { key: key(), name, value: value ?? '', inheritable }
 }
 
-export function newCredentialDraft(existing?: HostCredential): CredentialDraft {
+export function newCredentialDraft(existing?: HostCredential, serviceKeys: number[] | null = null): CredentialDraft {
   return {
     key: key(),
     id: existing?.id,
@@ -105,10 +111,16 @@ export function newCredentialDraft(existing?: HostCredential): CredentialDraft {
     clearPrivateKey: false,
     hasPassword: existing?.hasPassword ?? false,
     hasPrivateKey: existing?.hasPrivateKey ?? false,
+    serviceKeys,
   }
 }
 
 export function toHostDraft(host: Host | null): HostDraft {
+  // Services of types NKeeper can't connect with can't be saved; the editor says they'll go.
+  const services = host?.services.filter((s) => isSupportedProtocol(s.protocol)).map((s) => ({ id: s.id, draft: newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity, s.address, s.instance) })) ?? []
+  // A credential's services, by their drafts (services that are gone are dropped).
+  const keysOf = (credential: HostCredential) =>
+    credential.serviceIds == null ? null : services.filter((s) => s.id && credential.serviceIds!.includes(s.id)).map((s) => s.draft.key)
   return {
     name: host?.name ?? '',
     hostname: host?.hostname ?? '',
@@ -124,10 +136,8 @@ export function toHostDraft(host: Host | null): HostDraft {
     jumpCredentialId: host?.jumpCredentialId ?? '',
     zabbixHostId: host?.zabbixHostId ?? '',
     tags: host?.tags.map((t) => newTagDraft(t.name, t.value, t.inheritable ?? true)) ?? [],
-    // Services of types NKeeper can't connect with can't be saved; the editor says they'll go.
-    services:
-      host?.services.filter((s) => isSupportedProtocol(s.protocol)).map((s) => newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity, s.address)) ?? [],
-    credentials: host?.credentials.map((c) => newCredentialDraft(c)) ?? [],
+    services: services.map((s) => s.draft),
+    credentials: host?.credentials.map((c) => newCredentialDraft(c, keysOf(c))) ?? [],
   }
 }
 
@@ -141,7 +151,7 @@ export function toCloneDraft(source: Host): HostDraft {
     // A serial number and a Zabbix host belong to one machine.
     serialNumber: '',
     zabbixHostId: '',
-    credentials: source.credentials.map((c) => ({ ...newCredentialDraft(c), id: undefined, copyFrom: c.id })),
+    credentials: source.credentials.map((c, i) => ({ ...newCredentialDraft(c, draft.credentials[i].serviceKeys), id: undefined, copyFrom: c.id })),
   }
 }
 
@@ -178,10 +188,13 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
       label: blankToNull(s.label),
       ...(s.protocol === 'Rdp' ? { rdpSecurity: s.rdpSecurity } : {}),
       ...(s.protocol === 'Idrac' ? { address: blankToNull(s.address) } : {}),
+      ...(s.protocol === 'Ssms' ? { instance: blankToNull(s.instance) } : {}),
     })),
     credentials: draft.credentials.map((c) => ({
       ...(c.id ? { id: c.id } : {}),
       ...(c.copyFrom ? { copyFromCredentialId: c.copyFrom } : {}),
+      // Left out for all services (the default); otherwise the positions of the chosen ones.
+      ...(c.serviceKeys === null ? {} : { serviceIndexes: draft.services.map((s, i) => (c.serviceKeys!.includes(s.key) ? i : -1)).filter((i) => i >= 0) }),
       label: blankToNull(c.label),
       username: blankToNull(c.username),
       domain: blankToNull(c.domain),

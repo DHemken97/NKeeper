@@ -116,7 +116,7 @@ public sealed class HostImportTests(PostgresServerFixture postgres) : IAsyncLife
         var ssh = Assert.Single(await HostsAsync(), h => h.Name == "TestHost-SSH");
         Assert.Equal(("ip", (string?)null), (ssh.Hostname, ssh.IpAddress));
         // mRemoteNG writes every port; the protocol's default is stored as "default".
-        Assert.Equal(new HostServiceResponse(ServiceProtocol.Ssh, null, null, null), Assert.Single(ssh.Services));
+        Assert.Equal(new HostServiceResponse(ServiceProtocol.Ssh, null, null, null), Assert.Single(ssh.Services) with { Id = null });
         Assert.Equal(new HostTagResponse("folder", "TestFolder"), Assert.Single(ssh.Tags));
         var credential = Assert.Single(ssh.Credentials);
         Assert.Equal(("username", true), (credential.Username, credential.HasPassword));
@@ -181,7 +181,7 @@ public sealed class HostImportTests(PostgresServerFixture postgres) : IAsyncLife
         Assert.Equal(["web01"], result.Added);
         Assert.Equal(["web01", "nowhere", "weird"], result.Skipped.Select(s => s.Name));
         var web = Assert.Single(await HostsAsync());
-        Assert.Equal([new HostServiceResponse(ServiceProtocol.Ssh, null, null, null), new HostServiceResponse(ServiceProtocol.Https, 8443, null, null)], web.Services);
+        Assert.Equal([new HostServiceResponse(ServiceProtocol.Ssh, null, null, null), new HostServiceResponse(ServiceProtocol.Https, 8443, null, null)], web.Services.Select(s => s with { Id = null }));
     }
 
     [Fact]

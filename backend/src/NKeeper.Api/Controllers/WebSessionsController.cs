@@ -127,6 +127,12 @@ public sealed class WebSessionsController(HostAccess access, WebSessionStore ses
             "ready", session.Id, $"{WebProxyMiddleware.LaunchPath}?t={session.LaunchToken}", settings.Value.BaseDomain, target.ToString(), null);
     }
 
+    /// <summary>The session's NKeeper tab is still open: it isn't ended as idle while the tab says so every minute.</summary>
+    [HttpPost("{id}/keepalive")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public IActionResult KeepAlive(string id) => sessions.TouchOwned(id, User.GetUserId()) ? NoContent() : NotFound();
+
     /// <summary>Ends one of the caller's web sessions (its tab in NKeeper was closed).</summary>
     [HttpDelete("{id}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

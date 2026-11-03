@@ -54,6 +54,29 @@ public sealed class VncSessionTests(PostgresServerFixture postgres, RdpServerFix
         Assert.Null(session.GuacamoleError);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ClosingTheTab_OrLosingTheBrowser_ClosesTheVncConnection(bool abort)
+    {
+        var host = await CreateHostAsync(new { label = "VNC password", password = RdpServerFixture.VncPassword });
+        var before = await ContainerConnections.WaitForAsync(desktops.OpenVncConnectionsAsync, 0, Ct);
+
+        var session = await StartAsync(host, "vnc");
+        await session.ExpectAsync("status", Ct);
+        await session.ExpectAsync("connected", Ct);
+        await session.WaitForInstructionAsync("img", Ct);
+        Assert.True(await desktops.OpenVncConnectionsAsync() > before);
+
+        if (abort)
+        {
+            session.Abort();
+        }
+
+        await session.DisposeAsync();
+        Assert.Equal(before, await ContainerConnections.WaitForAsync(desktops.OpenVncConnectionsAsync, before, Ct));
+    }
+
     [Fact]
     public async Task WrongPassword_IsReportedByTheGateway()
     {

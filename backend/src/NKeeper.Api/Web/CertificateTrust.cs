@@ -44,6 +44,22 @@ internal static class CertificateTrust
         JumpTunnel? via = null)
     {
         var certificate = await WebTargetProbe.ProbeAsync(address, port, cancellationToken, via?.Address, via?.Port);
+        return await DecideAsync(certificate, hostId, address, port, keyProtocol, trustedKeys, trustFingerprint, userId, store);
+    }
+
+    /// <summary>The same decision for a certificate already read some other way (e.g. SQL Server's, inside TDS).</summary>
+    /// <exception cref="CertificateChangedException">The certificate differs from the trusted one.</exception>
+    public static async Task<CertificateTrustResult> DecideAsync(
+        WebCertificate certificate,
+        Guid hostId,
+        string address,
+        int port,
+        ServiceProtocol keyProtocol,
+        IEnumerable<HostTrustedKey> trustedKeys,
+        string? trustFingerprint,
+        Guid userId,
+        TrustedKeyStore store)
+    {
         if (certificate.IsValid)
         {
             return new CertificateTrustResult(null, null);

@@ -25,8 +25,8 @@ internal static class ScanPorts
     };
 
     /// <summary>
-    /// The NKeeper service a port can become, or null when NKeeper can't connect with it (FTP, SQL
-    /// Server and WinRM ports are only listed for information).
+    /// The NKeeper service a port can become, or null when NKeeper can't connect with it (FTP and
+    /// WinRM ports, for example, are only listed for information).
     /// </summary>
     public static ServiceProtocol? ProtocolFor(int port) => port switch
     {
@@ -37,6 +37,7 @@ internal static class ScanPorts
         80 or 8080 => ServiceProtocol.Http,
         443 or 8443 or 9090 => ServiceProtocol.Https,
         8006 => ServiceProtocol.Proxmox,
+        1433 => ServiceProtocol.Ssms,
         _ => null,
     };
 

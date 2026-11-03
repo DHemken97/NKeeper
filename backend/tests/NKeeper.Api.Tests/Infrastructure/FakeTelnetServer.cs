@@ -30,6 +30,11 @@ public sealed class FakeTelnetServer : IAsyncDisposable
 
     public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
 
+    private int _open;
+
+    /// <summary>Connections the device has open now.</summary>
+    public int OpenConnections => Volatile.Read(ref _open);
+
     /// <summary>The terminal type the client reported.</summary>
     public string? TerminalType { get; private set; }
 
@@ -55,6 +60,19 @@ public sealed class FakeTelnetServer : IAsyncDisposable
     }
 
     private async Task ServeAsync(TcpClient client)
+    {
+        Interlocked.Increment(ref _open);
+        try
+        {
+            await ServeClientAsync(client);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _open);
+        }
+    }
+
+    private async Task ServeClientAsync(TcpClient client)
     {
         using (client)
         {

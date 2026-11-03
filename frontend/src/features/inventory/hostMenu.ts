@@ -25,6 +25,12 @@ export type IdracMode = 'console' | 'overview' | 'racadm'
 /** What a connection opens: an iDRAC's console, status or RACADM, or an SSH service's files (SFTP) or storage (iSCSI, multipath, DRBD). */
 export type ConnectMode = IdracMode | 'files' | 'storage'
 
+/**
+ * Services that open a tool rather than a plain client session: a KVM host's VM list, and SQL Server.
+ * They're under Connect ▸ Tools (with Files and Storage), so Connect itself lists the clients.
+ */
+const TOOL_PROTOCOLS = new Set<ServiceProtocol>(['Kvm', 'Ssms'])
+
 /** Session types that can't be tunnelled through a jump host yet (guacd and RPC dial hosts themselves). */
 const NOT_THROUGH_JUMP = new Set<ServiceProtocol>(['Rdp', 'Vnc', 'Rpc'])
 
@@ -173,6 +179,58 @@ function guestConsoleEntries(host: Host, actions: Pick<HostMenuActions, 'guests'
   ]
 }
 
+/**
+ * Connect ▸ Tools: Files (SFTP) and Storage (iSCSI, multipath, DRBD) on an SSH service, a KVM host's
+ * VMs, and MS SQL ▸ instance; each then ▸ login (or ▸ service ▸ login when there are several).
+ */
+function toolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
+  const of = (protocol: ServiceProtocol) => host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === protocol)
+  const kvm = of('Kvm')
+  const sql = of('Ssms')
+  return [
+    ...sshToolEntries(host, actions),
+    ...(kvm.length === 0
+      ? []
+      : [
+          {
+            kind: 'item',
+            label: 'KVM',
+            detail: kvm.length === 1 ? 'Virtual machines' : undefined,
+            submenu:
+              kvm.length === 1
+                ? loginEntries(host, kvm[0].index, actions)
+                : kvm.map(({ service, index }): MenuEntry => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions) })),
+          } as const,
+        ]),
+    ...(sql.length === 0
+      ? []
+      : [
+          {
+            kind: 'item',
+            label: 'MS SQL',
+            detail: 'SQL Server',
+            submenu: sql.map(({ service, index }): MenuEntry => {
+              const dynamic = service.instance && !service.port
+              // The SQL Server Browser (UDP) can't be asked through an SSH tunnel.
+              return dynamic && host.jumpHostId
+                ? { kind: 'item', label: sqlInstanceLabel(service), detail: 'Set its port to use the jump host', disabled: true }
+                : {
+                    kind: 'item',
+                    label: sqlInstanceLabel(service),
+                    detail: [service.label, dynamic ? 'SQL Browser' : servicePort(service)].filter(Boolean).join(' · '),
+                    submenu: loginEntries(host, index, actions),
+                  }
+            }),
+          } as const,
+        ]),
+  ]
+}
+
+/** A SQL Server service's instance: its name, or the default instance. */
+export function sqlInstanceLabel(service: HostService): string {
+  return service.instance ?? 'Default instance'
+}
+
 /** Files (SFTP) and Storage (iSCSI, multipath, DRBD) ▸ login, or ▸ SSH service ▸ login when there are several; none without an SSH service. */
 function sshToolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
   const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh')
@@ -205,8 +263,17 @@ function serviceDetail(service: HostService): string {
   return service.protocol === 'Idrac' && service.address ? service.address : servicePort(service)
 }
 
+/** Whether a credential is meant for one of the host's services: all services, or that one among those it names. */
+export function usedWith(credential: HostCredential, service: HostService): boolean {
+  return credential.serviceIds == null || (service.id != null && credential.serviceIds.includes(service.id))
+}
+
 /** Why a credential cannot be used with a protocol at all, or null when it can. */
 export function credentialProblem(credential: HostCredential, protocol: ServiceProtocol): string | null {
+  if (protocol === 'Ssms' && credential.domain) {
+    // NKeeper signs in to SQL Server with SQL logins only.
+    return 'Windows login'
+  }
   // VNC servers usually ask for a password only; Telnet devices may too.
   return protocol !== 'Vnc' && protocol !== 'Telnet' && !credential.username ? 'No username' : null
 }
@@ -217,7 +284,7 @@ export function credentialNeedsPassword(credential: HostCredential, protocol: Se
     // The device asks in the terminal: whatever isn't stored, the user types there.
     return false
   }
-  return protocol === 'Vnc' || protocol === 'Rdp' || protocol === 'Idrac' || protocol === 'Rpc' || protocol === 'Proxmox' ? !credential.hasPassword : !credential.hasPassword && !credential.hasPrivateKey
+  return protocol === 'Vnc' || protocol === 'Rdp' || protocol === 'Idrac' || protocol === 'Rpc' || protocol === 'Proxmox' || protocol === 'Ssms' ? !credential.hasPassword : !credential.hasPassword && !credential.hasPrivateKey
 }
 
 /** The host's right-click menu: Connect ▸ service ▸ credential, then host actions. */
@@ -267,13 +334,16 @@ export function hostMenuEntries(host: Host, actions: HostMenuActions): MenuEntry
   ]
 }
 
-/** One entry per connectable service, each opening its credentials (also used by the Connect button). */
+/**
+ * One entry per client service (SSH, RDP, VNC, web…), each opening its credentials, a VM's console,
+ * then Tools (also used by the Connect button).
+ */
 export function connectMenuEntries(
   host: Host,
   actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin' | 'connectWeb' | 'openDirect' | 'signIn' | 'guests'>,
 ): MenuEntry[] {
   const services: MenuEntry[] = host.services.flatMap((service, index): MenuEntry | MenuEntry[] => {
-    if (!CONNECTABLE.has(service.protocol)) {
+    if (!CONNECTABLE.has(service.protocol) || TOOL_PROTOCOLS.has(service.protocol)) {
       return []
     }
 
@@ -312,11 +382,16 @@ export function connectMenuEntries(
   })
 
   const console = guestConsoleEntries(host, actions)
+  const tools = toolEntries(host, actions)
   const entries =
-    services.length > 0 || console.length > 0
+    services.length > 0 || console.length > 0 || tools.length > 0
       ? services
       : [{ kind: 'item', label: host.services.length > 0 ? 'No services to connect with' : 'No services', detail: 'Edit the host to add one', disabled: true } as const]
-  return [...entries, ...console, ...sshToolEntries(host, actions)]
+  const clients = [...entries, ...console]
+  return [
+    ...clients,
+    ...(tools.length > 0 ? [...(clients.length > 0 ? [{ kind: 'separator' } as const] : []), { kind: 'item', label: 'Tools', submenu: tools } as const] : []),
+  ]
 }
 
 /**
@@ -330,7 +405,8 @@ function loginEntries(
   mode?: ConnectMode,
 ): MenuEntry[] {
   const protocol = host.services[index].protocol
-  const credentials = host.credentials.map((credential): MenuEntry => {
+  // Credentials meant for other services aren't offered here at all (e.g. sa under RDP).
+  const credentials = host.credentials.filter((c) => usedWith(c, host.services[index])).map((credential): MenuEntry => {
     const problem = credentialProblem(credential, protocol)
     const asks = credentialNeedsPassword(credential, protocol)
     return {
@@ -366,7 +442,7 @@ export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scan
   const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh' || service.protocol === 'Rpc')
   const logins = (index: number): MenuEntry[] => [
     ...host.credentials
-      .filter((c) => credentialProblem(c, host.services[index].protocol) === null)
+      .filter((c) => usedWith(c, host.services[index]) && credentialProblem(c, host.services[index].protocol) === null)
       .map((credential): MenuEntry => ({
         ...credentialEntry(credential, credentialNeedsPassword(credential, host.services[index].protocol) ? 'Asks for password' : undefined),
         onSelect: () => actions.scanInternal(host, index, credential),
@@ -407,7 +483,7 @@ export function defaultConnection(host: Host): { serviceIndex: number; credentia
     return null
   }
   const protocol = host.services[serviceIndex].protocol
-  const usable = host.credentials.filter((c) => credentialProblem(c, protocol) === null)
+  const usable = host.credentials.filter((c) => usedWith(c, host.services[serviceIndex]) && credentialProblem(c, protocol) === null)
   // Prefer a credential with a stored secret; one without asks for its password.
   return { serviceIndex, credential: usable.find((c) => !credentialNeedsPassword(c, protocol)) ?? usable[0] ?? null }
 }

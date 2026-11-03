@@ -1,5 +1,5 @@
 import { newCredentialDraft, newServiceDraft, newTagDraft, type HostDraft } from './drafts'
-import { formatMemory, PROTOCOL_INFO, type Host, type ScanFindings, type ScannedPort, type ServiceProtocol } from './types'
+import { formatMemory, PROTOCOL_INFO, type Host, type HostService, type ScanFindings, type ScannedPort, type ServiceProtocol } from './types'
 
 /** The tag a scan records the operating system in, e.g. `os: Ubuntu 24.04.1 LTS`. */
 export const OS_TAG = 'os'
@@ -24,9 +24,15 @@ function storedPort(protocol: ServiceProtocol, port: number | null): number | nu
   return port === PROTOCOL_INFO[protocol].defaultPort ? null : port
 }
 
-function hasService(host: Host, protocol: ServiceProtocol, port: number | null) {
+function hasService(host: Host, protocol: ServiceProtocol, port: number | null, instance?: string | null) {
   const wanted = port ?? PROTOCOL_INFO[protocol].defaultPort ?? null
-  return host.services.some((s) => s.protocol === protocol && (s.port ?? PROTOCOL_INFO[protocol].defaultPort ?? null) === wanted)
+  const portOf = (s: HostService) => s.port ?? PROTOCOL_INFO[protocol].defaultPort ?? null
+  if (protocol === 'Ssms') {
+    // SQL Server instances are told apart by name: a named one the host has may be on a dynamic port,
+    // or found by the SQL Server Browser (no port); the default instance by its port.
+    return host.services.some((s) => s.protocol === 'Ssms' && (instance ? sameText(s.instance, instance) : !s.instance && portOf(s) === wanted))
+  }
+  return host.services.some((s) => s.protocol === protocol && portOf(s) === wanted)
 }
 
 /**
@@ -155,18 +161,18 @@ export function scanProposals(host: Host, findings: ScanFindings, sshPort: numbe
   if (findings.isKvmHost && sshPort !== null) {
     services.push({ port: sshPort, name: 'libvirt over SSH', protocol: 'Kvm' })
   }
-  for (const { port, name, protocol } of services) {
-    if (hasService(host, protocol, port)) {
+  for (const { port, name, protocol, instance } of services) {
+    if (hasService(host, protocol, port, instance)) {
       continue
     }
     const stored = storedPort(protocol, port)
     proposals.push({
       key: `service-${protocol}-${port}`,
       group: 'Services',
-      label: PROTOCOL_INFO[protocol].label,
+      label: protocol === 'Ssms' && instance ? `${PROTOCOL_INFO[protocol].label} · ${instance}` : PROTOCOL_INFO[protocol].label,
       detail: `port ${port}${name && name !== PROTOCOL_INFO[protocol].label ? ` · ${name}` : ''}`,
       checked: true,
-      apply: (draft) => void draft.services.push(newServiceDraft(protocol, stored)),
+      apply: (draft) => void draft.services.push(newServiceDraft(protocol, stored, null, null, null, protocol === 'Ssms' ? (instance ?? null) : null)),
     })
   }
 

@@ -172,6 +172,7 @@ public sealed class InstanceTransferController(NKeeperDbContext db) : Controller
         var services = HttpContext.RequestServices;
         services.GetRequiredService<WebSessionStore>().EndAll(userId);
         services.GetRequiredService<ConsoleSessionStore>().EndAll(userId);
+        services.GetRequiredService<NKeeper.Api.SqlServer.SqlServerSessionStore>().EndAll(userId);
         services.GetRequiredService<SessionLimiter>().TerminateAll(userId);
         return InstanceImporter.Summarize(bundle, imported: true);
     }

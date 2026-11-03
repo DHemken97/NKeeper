@@ -104,11 +104,21 @@ internal static class ImpacketWmiScan
         var virtualization = WmiMapping.Virtualization(Text(system, "Manufacturer"), Text(system, "Model"));
         var memory = WmiMapping.MemoryMiB(Rows(root, "memory").Select(m => Number(m, "Capacity")).OfType<ulong>(), Number(system, "TotalPhysicalMemory"));
         return new ScanFindings(
-            hostname, ip, mac, osName, [.. ports.Select(ScanPorts.Describe)], false, users, notes, virtualization, [], [],
+            hostname, ip, mac, osName, SqlServerInstances.Apply(ports.Select(ScanPorts.Describe), SqlInstances(root), notes), false, users, notes, virtualization, [], [],
             WmiMapping.Cpus((long?)Number(system, "NumberOfLogicalProcessors")),
             memory,
             WmiMapping.Serial(Text(Rows(root, "bios").FirstOrDefault(), "SerialNumber"), virtualization));
     }
+
+    /// <summary>The SQL Server instances the helper read from the registry (none from an older wmi_scan.py).</summary>
+    private static List<FoundSqlInstance> SqlInstances(JsonElement root) =>
+        [.. Rows(root, "sqlInstances")
+            .Where(i => Text(i, "name") is not null)
+            .Select(i => new FoundSqlInstance(
+                Text(i, "name")!,
+                SqlServerInstances.Port(Text(i, "tcpPort")),
+                SqlServerInstances.Port(Text(i, "dynamicPort")),
+                Number(i, "enabled") is not 0))];
 
     /// <summary>A WMI number: Impacket gives 64-bit values (uint64 in WMI) as strings, smaller ones as numbers.</summary>
     private static ulong? Number(JsonElement item, string property) =>

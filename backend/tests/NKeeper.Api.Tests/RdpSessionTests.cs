@@ -77,6 +77,36 @@ public sealed class RdpSessionTests(PostgresServerFixture postgres, RdpServerFix
         await second.WaitForInstructionAsync("img", Ct);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ClosingTheTab_OrLosingTheBrowser_ClosesTheRdpConnection(bool abort)
+    {
+        var host = await CreateHostAsync(security: "Tls");
+        await using (var trust = await StartAsync(host))
+        {
+            await trust.ExpectAsync("status", Ct);
+            await trust.ExpectAsync("hostKey", Ct);
+            await trust.SendJsonAsync(new { type = "hostKeyDecision", trust = true }, Ct);
+            await trust.ExpectAsync("connected", Ct);
+        }
+
+        var before = await ContainerConnections.WaitForAsync(rdp.OpenRdpConnectionsAsync, 0, Ct);
+        var session = await StartAsync(host);
+        await session.ExpectAsync("status", Ct);
+        await session.ExpectAsync("connected", Ct);
+        await session.WaitForInstructionAsync("img", Ct);
+        Assert.True(await rdp.OpenRdpConnectionsAsync() > before);
+
+        if (abort)
+        {
+            session.Abort();
+        }
+
+        await session.DisposeAsync();
+        Assert.Equal(before, await ContainerConnections.WaitForAsync(rdp.OpenRdpConnectionsAsync, before, Ct));
+    }
+
     [Fact]
     public async Task RejectingTheCertificate_EndsTheSessionAndTrustsNothing()
     {

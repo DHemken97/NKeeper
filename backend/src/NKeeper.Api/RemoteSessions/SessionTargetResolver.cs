@@ -93,6 +93,12 @@ internal sealed class SessionTargetResolver(HostAccess access, CredentialProtect
         {
             var credential = host.Credentials.FirstOrDefault(c => c.Id == credentialId)
                 ?? throw new SessionException(SessionErrorCodes.CredentialNotFound, "This credential no longer exists on the host.");
+            if (!UsedWith(credential, service))
+            {
+                throw new SessionException(
+                    SessionErrorCodes.CredentialNotFound, "This credential isn't used with this service. Edit the host to use it with this service too.");
+            }
+
             username = credential.Username;
             domain = credential.Domain;
             password = credential.ProtectedPassword is null ? null : protector.Unprotect(credential.ProtectedPassword);
@@ -140,6 +146,9 @@ internal sealed class SessionTargetResolver(HostAccess access, CredentialProtect
             host.Name);
     }
 
+    /// <summary>Whether a credential is used with a service: all services, or that one among those it names.</summary>
+    internal static bool UsedWith(HostCredential credential, HostService service) => credential.ServiceIds is null || credential.ServiceIds.Contains(service.Id);
+
     /// <summary>
     /// The SSH target of a jump host: its first SSH service, with the chosen credential (or its first
     /// with a username and a secret). The user must have access to the jump host too, so a jump can't
@@ -161,7 +170,7 @@ internal sealed class SessionTargetResolver(HostAccess access, CredentialProtect
             ?? throw new SessionException(SessionErrorCodes.WrongService, $"The jump host “{jump.Name}” has no SSH service any more.");
         var credential = credentialId is { } id
             ? jump.Credentials.FirstOrDefault(c => c.Id == id)
-            : jump.Credentials.OrderBy(c => c.Position).FirstOrDefault(c => c.Username is not null && (c.ProtectedPassword is not null || c.ProtectedPrivateKey is not null));
+            : jump.Credentials.OrderBy(c => c.Position).FirstOrDefault(c => UsedWith(c, service) && c.Username is not null && (c.ProtectedPassword is not null || c.ProtectedPrivateKey is not null));
         if (credential?.Username is null)
         {
             throw new SessionException(SessionErrorCodes.CredentialNotFound, $"The jump host “{jump.Name}” has no credential to sign in with. Edit it to add one.");

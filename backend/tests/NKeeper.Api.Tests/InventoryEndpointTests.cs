@@ -341,8 +341,57 @@ public sealed class InventoryEndpointTests(PostgresServerFixture postgres) : IAs
         Assert.Equal(ServiceProtocol.Other, Assert.Single(listed.Services).Protocol);
     }
 
+    [Fact]
+    public async Task Credentials_CanBeLimitedToSomeServices_AllByDefault_AndKeepThatWhenSavedAgain()
+    {
+        var created = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        {
+            name = "sql01",
+            ipAddress = "10.0.0.31",
+            services = new object[] { new { protocol = "Rdp" }, new { protocol = "Ssms" }, new { protocol = "Ssms", instance = "SQLEXPRESS", port = 14330 } },
+            credentials = new object[]
+            {
+                new { username = "administrator", domain = "CORP", password = "a" },
+                new { username = "sa", password = "b", serviceIndexes = new[] { 1, 2 } },
+                new { username = "nobody", serviceIndexes = Array.Empty<int>() },
+            },
+        }, Ct);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var host = (await created.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!;
+        Assert.Null(host.Credentials[0].ServiceIds);
+        Assert.Equal([host.Services[1].Id!.Value, host.Services[2].Id!.Value], host.Credentials[1].ServiceIds);
+        Assert.Empty(host.Credentials[2].ServiceIds!);
+
+        // Saved again with the services reordered: the credential follows its services.
+        var saved = await _client.SendJsonAsync(HttpMethod.Put, $"/api/hosts/{host.Id}", new
+        {
+            name = "sql01",
+            ipAddress = "10.0.0.31",
+            services = new object[] { new { protocol = "Ssms", instance = "SQLEXPRESS", port = 14330 }, new { protocol = "Rdp" } },
+            credentials = new object[]
+            {
+                new { id = host.Credentials[0].Id, username = "administrator", domain = "CORP", serviceIndexes = new[] { 1 } },
+                new { id = host.Credentials[1].Id, username = "sa", serviceIndexes = new[] { 0 } },
+            },
+            version = host.Version,
+        }, Ct);
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var after = (await saved.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!;
+        Assert.Equal([after.Services[1].Id!.Value], after.Credentials[0].ServiceIds);
+        Assert.Equal([after.Services[0].Id!.Value], after.Credentials[1].ServiceIds);
+
+        var invalid = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        {
+            name = "bad",
+            ipAddress = "10.0.0.32",
+            services = new object[] { new { protocol = "Ssh" } },
+            credentials = new object[] { new { username = "root", serviceIndexes = new[] { 0, 3 } } },
+        }, Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Contains("credentials[0].serviceIndexes", await invalid.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+    }
+
     [Theory]
-    [InlineData("Ssms")]
     [InlineData("Ftp")]
     [InlineData("WinRm")]
     [InlineData("Other")]

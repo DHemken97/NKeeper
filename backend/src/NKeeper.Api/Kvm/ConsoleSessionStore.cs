@@ -63,8 +63,11 @@ public sealed class ConsoleSessionStore(TimeProvider timeProvider, Auditing.Audi
 {
     public const int MaxSessionsPerUser = 10;
 
-    /// <summary>A console with no open channel for this long is closed (e.g. the tab crashed).</summary>
-    private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(5);
+    /// <summary>
+    /// A console with no open channel for this long is closed (e.g. the browser went away without
+    /// closing it; its channels' WebSockets end within a minute when it stops answering pings).
+    /// </summary>
+    private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan MaxLifetime = TimeSpan.FromHours(12);
 
     private readonly ConcurrentDictionary<string, ConsoleSession> _sessions = new(StringComparer.Ordinal);

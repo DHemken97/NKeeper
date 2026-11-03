@@ -21,6 +21,10 @@ public sealed record HostServiceRequest
     /// <summary>iDRAC services only (required there): the iDRAC's own IP address or hostname. Ignored for other services.</summary>
     [StringLength(253)]
     public string? Address { get; init; }
+
+    /// <summary>SQL Server services only: the named instance, or empty for the default instance. Ignored for other services.</summary>
+    [StringLength(HostService.InstanceMaxLength, ErrorMessage = "Instance names are at most 16 characters.")]
+    public string? Instance { get; init; }
 }
 
 /// <summary>A <c>name: value</c> tag. The value is optional.</summary>
@@ -77,6 +81,13 @@ public sealed record HostCredentialRequest : IValidatableObject
 
     [StringLength(2000)]
     public string? Notes { get; init; }
+
+    /// <summary>
+    /// The services (positions in the request's service list) this credential is used with; null for
+    /// all of them, the default. Empty means none.
+    /// </summary>
+    [MaxLength(20)]
+    public int[]? ServiceIndexes { get; init; }
 
     /// <summary>
     /// For a new credential (no <see cref="Id"/>): start from the stored password and private key of
@@ -191,6 +202,14 @@ public sealed record HostRequest : IValidatableObject
                 yield return new ValidationResult($"NKeeper can't connect with {protocol} services, so they can't be added.", [$"services[{index}].protocol"]);
             }
 
+            if (Services[index].Protocol == ServiceProtocol.Ssms
+                && SqlServerInstance.Normalize(Services[index].Instance) is { } instance
+                && !SqlServerInstance.IsValid(instance))
+            {
+                yield return new ValidationResult(
+                    "Instance names start with a letter or underscore, and contain only letters, digits, _, $ and #.", [$"services[{index}].instance"]);
+            }
+
             if (Services[index].Protocol != ServiceProtocol.Idrac)
             {
                 continue;
@@ -204,6 +223,14 @@ public sealed record HostRequest : IValidatableObject
             else if (!NetworkAddress.TryNormalizeIp(address, out _) && !NetworkAddress.IsValidHostname(address))
             {
                 yield return new ValidationResult("Enter a valid IP address or hostname for the iDRAC.", [$"services[{index}].address"]);
+            }
+        }
+
+        for (var index = 0; index < Credentials.Length; index++)
+        {
+            if (Credentials[index].ServiceIndexes is { } chosen && (chosen.Any(i => i < 0 || i >= Services.Length) || chosen.Distinct().Count() != chosen.Length))
+            {
+                yield return new ValidationResult("Choose services the host has, each once.", [$"credentials[{index}].serviceIndexes"]);
             }
         }
 
@@ -248,9 +275,9 @@ public sealed record HostTagResponse(string Name, string? Value, bool Inheritabl
 
 /// <summary>
 /// A connection method. <see cref="RdpSecurity"/> is set for RDP services only, <see cref="Address"/>
-/// for services with their own address (iDRAC) only.
+/// for services with their own address (iDRAC) only, <see cref="Instance"/> for SQL Server's named instances only.
 /// </summary>
-public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity, string? Address = null);
+public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity, string? Address = null, string? Instance = null, Guid? Id = null);
 
 /// <summary>A credential as seen by clients. Secret values are never included.</summary>
 public sealed record HostCredentialResponse(
@@ -260,7 +287,8 @@ public sealed record HostCredentialResponse(
     string? Domain,
     string? Notes,
     bool HasPassword,
-    bool HasPrivateKey);
+    bool HasPrivateKey,
+    IReadOnlyList<Guid>? ServiceIds = null);
 
 /// <summary>An SSH host key or RDP certificate trusted for one of the host's ports.</summary>
 public sealed record TrustedKeyResponse(ServiceProtocol Protocol, int Port, string Algorithm, string Fingerprint, DateTimeOffset TrustedAtUtc);

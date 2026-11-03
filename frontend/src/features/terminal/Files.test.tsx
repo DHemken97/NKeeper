@@ -72,6 +72,7 @@ function renderWorkspace(routesOverride: Parameters<typeof mockFetch>[0]) {
 async function openFiles(user: ReturnType<typeof userEvent.setup>) {
   fireEvent.contextMenu(await screen.findByRole('button', { name: /app01/ }))
   await user.hover(screen.getByRole('menuitem', { name: 'Connect' }))
+  await user.hover(screen.getByRole('menuitem', { name: 'Tools' }))
   await user.hover(screen.getByRole('menuitem', { name: /^Files/ }))
   await user.click(screen.getByRole('menuitem', { name: /^root/ }))
   return screen.findByRole('tabpanel', { name: 'app01 files' })

@@ -24,7 +24,7 @@ export type ServiceProtocol = (typeof SERVICE_PROTOCOLS)[number]
  * The service types NKeeper can connect with, in the order the editor offers them. The others are
  * only read: older versions and imports may have stored them, but they can't be added any more.
  */
-export const SUPPORTED_PROTOCOLS: readonly ServiceProtocol[] = ['Ssh', 'Telnet', 'Rdp', 'Rpc', 'Vnc', 'Http', 'Https', 'Kvm', 'Proxmox', 'Idrac']
+export const SUPPORTED_PROTOCOLS: readonly ServiceProtocol[] = ['Ssh', 'Telnet', 'Rdp', 'Rpc', 'Vnc', 'Http', 'Https', 'Kvm', 'Proxmox', 'Idrac', 'Ssms']
 
 export function isSupportedProtocol(protocol: ServiceProtocol): boolean {
   return SUPPORTED_PROTOCOLS.includes(protocol)
@@ -34,7 +34,8 @@ export const PROTOCOL_INFO: Record<ServiceProtocol, { label: string; name: strin
   Ssh: { label: 'SSH', name: 'SSH', defaultPort: 22 },
   Rdp: { label: 'RDP', name: 'Remote Desktop (RDP)', defaultPort: 3389 },
   Vnc: { label: 'VNC', name: 'VNC', defaultPort: 5900 },
-  Ssms: { label: 'SSMS', name: 'SQL Server (SSMS)', defaultPort: 1433 },
+  // Stored as "Ssms" from when it launched SSMS; NKeeper now has its own query window and explorer.
+  Ssms: { label: 'MS SQL', name: 'Microsoft SQL Server', defaultPort: 1433 },
   Telnet: { label: 'Telnet', name: 'Telnet', defaultPort: 23 },
   Sftp: { label: 'SFTP', name: 'SFTP', defaultPort: 22 },
   Ftp: { label: 'FTP', name: 'FTP', defaultPort: 21 },
@@ -80,6 +81,10 @@ export interface HostService {
   rdpSecurity?: RdpSecurity | null
   /** iDRAC services only: the iDRAC's own IP address (or hostname), where it is reached instead of the host's. */
   address?: string | null
+  /** SQL Server services only: the named instance (e.g. "SQLEXPRESS"); null for the default instance. */
+  instance?: string | null
+  /** The service's ID, from the API (credentials name the services they're used with). Not sent back. */
+  id?: string | null
 }
 
 /** A credential as returned by the API. Secrets are never included, only whether they are set. */
@@ -91,6 +96,8 @@ export interface HostCredential {
   notes: string | null
   hasPassword: boolean
   hasPrivateKey: boolean
+  /** The services (their IDs) this credential is used with; null or absent for all of them. */
+  serviceIds?: string[] | null
 }
 
 /** An SSH host key or RDP certificate the users trusted for one of the host's ports. */
@@ -160,6 +167,8 @@ export interface HostCredentialInput {
   clearPrivateKey?: boolean
   /** New credential starting from another credential's stored secrets (cloning a host). */
   copyFromCredentialId?: string
+  /** The services (positions in the request's list) it's used with; null for all of them. */
+  serviceIndexes?: number[] | null
 }
 
 export interface HostInput {
@@ -283,6 +292,8 @@ export interface ScannedPort {
   port: number
   name: string | null
   protocol: ServiceProtocol | null
+  /** A SQL Server instance's port: its named instance (null for the default instance). */
+  instance?: string | null
 }
 
 /** A local account that can log in, found by an internal scan. */

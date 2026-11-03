@@ -100,6 +100,9 @@ internal static class ApiServiceCollectionExtensions
         services.AddHostedService<NKeeper.Api.Web.WebSessionSweeper>();
         services.AddSingleton<NKeeper.Api.Kvm.ConsoleSessionStore>();
         services.AddHostedService<NKeeper.Api.Kvm.ConsoleSessionSweeper>();
+        services.AddSingleton<NKeeper.Api.SqlServer.SqlServerSessionStore>();
+        services.AddHostedService<NKeeper.Api.SqlServer.SqlServerSessionSweeper>();
+        services.AddScoped<NKeeper.Api.SqlServer.SqlServerConnector>();
         services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier));
         services.AddOpenApi();
