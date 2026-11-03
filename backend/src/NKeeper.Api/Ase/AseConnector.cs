@@ -57,11 +57,9 @@ internal sealed class AseConnector(SessionTargetResolver resolver, TimeProvider 
                 // Each session holds its own connections; a pool would keep logins open after it ends.
                 ["Pooling"] = false,
                 ["TextSize"] = 65536,
+                // The driver won't connect without a database; master is in every server and readable by every login.
+                ["Database"] = string.IsNullOrWhiteSpace(request.Database) ? "master" : request.Database.Trim(),
             };
-            if (!string.IsNullOrWhiteSpace(request.Database))
-            {
-                settings["Database"] = request.Database.Trim();
-            }
 
             var connectionString = settings.ConnectionString;
             try
@@ -71,6 +69,11 @@ internal sealed class AseConnector(SessionTargetResolver resolver, TimeProvider 
             catch (AseException ex)
             {
                 throw SignInFailure(ex, target.Username, display);
+            }
+            catch (ArgumentException ex)
+            {
+                // The driver checks its settings before connecting (e.g. a character set it doesn't know).
+                throw new SessionException(SessionErrorCodes.ConnectionFailed, $"Couldn't connect to {display}: {ex.Message}");
             }
 
             var server = await ReadServerInfoAsync(connection, cancellationToken);
