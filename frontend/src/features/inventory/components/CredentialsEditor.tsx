@@ -3,7 +3,8 @@ import { Checkbox } from '../../../components/ui/Checkbox'
 import { PasswordField } from '../../../components/ui/PasswordField'
 import { TextArea } from '../../../components/ui/TextArea'
 import { TextField } from '../../../components/ui/TextField'
-import { newCredentialDraft, type CredentialDraft } from '../drafts'
+import { newCredentialDraft, type CredentialDraft, type ServiceDraft } from '../drafts'
+import { PROTOCOL_INFO } from '../types'
 import styles from './CredentialsEditor.module.css'
 
 interface CredentialsEditorProps {
@@ -11,6 +12,15 @@ interface CredentialsEditorProps {
   onChange: (credentials: CredentialDraft[]) => void
   /** Field errors from the server, keyed like "credentials[0].username". */
   errors: Record<string, string>
+  /** The host's services, to choose which each credential is used with. */
+  services?: ServiceDraft[]
+}
+
+/** A service as the "Use with" list names it, e.g. "MS SQL · SQLEXPRESS :14330". */
+function serviceName(service: ServiceDraft): string {
+  return [PROTOCOL_INFO[service.protocol].label, service.protocol === 'Ssms' ? service.instance.trim() : '', service.label.trim()]
+    .filter(Boolean)
+    .join(' · ') + (service.port ? ` :${service.port}` : '')
 }
 
 const MAX_CREDENTIALS = 20
@@ -19,7 +29,7 @@ const MAX_CREDENTIALS = 20
  * The host's own credentials. Stored secrets are never sent to the browser: an empty
  * secret field keeps what is stored, and "Remove" clears it.
  */
-export function CredentialsEditor({ value, onChange, errors }: CredentialsEditorProps) {
+export function CredentialsEditor({ value, onChange, errors, services = [] }: CredentialsEditorProps) {
   function update(key: number, patch: Partial<CredentialDraft>) {
     onChange(value.map((c) => (c.key === key ? { ...c, ...patch } : c)))
   }
@@ -114,6 +124,41 @@ export function CredentialsEditor({ value, onChange, errors }: CredentialsEditor
                     />
                   ) : null}
                 </div>
+                <fieldset className={`${styles.full} ${styles.useWith}`}>
+                  <legend className={styles.useWithLegend}>Use with</legend>
+                  <Checkbox
+                    label="All services"
+                    checked={credential.serviceKeys === null}
+                    // Choosing services starts from all of them ticked: untick the ones it isn't for.
+                    onChange={(e) => update(credential.key, { serviceKeys: e.target.checked ? null : services.map((s) => s.key) })}
+                  />
+                  {credential.serviceKeys !== null ? (
+                    services.length === 0 ? (
+                      <p className={styles.hint}>Add services above, then choose which this credential is for.</p>
+                    ) : (
+                      <div className={styles.serviceChoices}>
+                        {services.map((service) => (
+                          <Checkbox
+                            key={service.key}
+                            label={serviceName(service)}
+                            checked={credential.serviceKeys!.includes(service.key)}
+                            onChange={(e) =>
+                              update(credential.key, {
+                                serviceKeys: e.target.checked
+                                  ? [...credential.serviceKeys!, service.key]
+                                  : credential.serviceKeys!.filter((k) => k !== service.key),
+                              })
+                            }
+                          />
+                        ))}
+                      </div>
+                    )
+                  ) : null}
+                  {credential.serviceKeys !== null && credential.serviceKeys.length === 0 && services.length > 0 ? (
+                    <p className={styles.hint}>Not used with any service: it isn’t offered anywhere.</p>
+                  ) : null}
+                  {field('serviceIndexes') ? <p className={styles.error}>{field('serviceIndexes')}</p> : null}
+                </fieldset>
                 <TextArea
                   className={styles.full}
                   label="Notes"

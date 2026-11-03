@@ -200,6 +200,12 @@ public sealed class HostCredential
 
     /// <summary>Preserves the order the user entered credentials in.</summary>
     public int Position { get; set; }
+
+    /// <summary>
+    /// The host's services this credential is used with (their IDs); null means all of them. Others
+    /// don't offer it, and refuse it. IDs of services removed since are ignored.
+    /// </summary>
+    public List<Guid>? ServiceIds { get; set; }
 }
 
 /// <summary>

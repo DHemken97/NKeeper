@@ -21,6 +21,7 @@ import {
   type TrustedKey,
 } from '../types'
 import { ZabbixSection } from '../../zabbix/components/ZabbixSection'
+import { serviceLabel, usedWith } from '../hostMenu'
 import { DeleteButton } from './DeleteButton'
 import styles from './HostPanel.module.css'
 
@@ -380,6 +381,12 @@ export function HostDetails({
                       <div className={styles.mono}>{account ?? credential.label}</div>
                       {account && credential.label ? <div className={styles.muted}>{credential.label}</div> : null}
                       {credential.notes ? <div className={styles.muted}>{credential.notes}</div> : null}
+                      {credential.serviceIds != null ? (
+                        <div className={styles.muted}>
+                          Used with:{' '}
+                          {host.services.filter((service) => usedWith(credential, service)).map((service) => serviceLabel(service)).join(', ') || 'no services'}
+                        </div>
+                      ) : null}
                     </div>
                     <div className={styles.badges}>
                       {credential.hasPassword ? <Badge>Password</Badge> : null}

@@ -83,6 +83,8 @@ export interface HostService {
   address?: string | null
   /** SQL Server services only: the named instance (e.g. "SQLEXPRESS"); null for the default instance. */
   instance?: string | null
+  /** The service's ID, from the API (credentials name the services they're used with). Not sent back. */
+  id?: string | null
 }
 
 /** A credential as returned by the API. Secrets are never included, only whether they are set. */
@@ -94,6 +96,8 @@ export interface HostCredential {
   notes: string | null
   hasPassword: boolean
   hasPrivateKey: boolean
+  /** The services (their IDs) this credential is used with; null or absent for all of them. */
+  serviceIds?: string[] | null
 }
 
 /** An SSH host key or RDP certificate the users trusted for one of the host's ports. */
@@ -163,6 +167,8 @@ export interface HostCredentialInput {
   clearPrivateKey?: boolean
   /** New credential starting from another credential's stored secrets (cloning a host). */
   copyFromCredentialId?: string
+  /** The services (positions in the request's list) it's used with; null for all of them. */
+  serviceIndexes?: number[] | null
 }
 
 export interface HostInput {

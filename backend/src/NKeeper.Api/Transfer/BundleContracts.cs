@@ -104,7 +104,8 @@ public sealed record BundleTag(Guid Id, string Name, string Value, bool Inherita
 
 /// <param name="Password">Plain text, inside the encrypted bundle only.</param>
 /// <param name="PrivateKey">Plain text, inside the encrypted bundle only.</param>
-public sealed record BundleCredential(Guid Id, string? Label, string? Username, string? Domain, string? Password, string? PrivateKey, string? Notes, int Position);
+public sealed record BundleCredential(
+    Guid Id, string? Label, string? Username, string? Domain, string? Password, string? PrivateKey, string? Notes, int Position, IReadOnlyList<Guid>? ServiceIds = null);
 
 public sealed record BundleTrustedKey(
     Guid Id, ServiceProtocol Protocol, int Port, string Algorithm, string Fingerprint, DateTimeOffset TrustedAtUtc, Guid? TrustedByUserId);

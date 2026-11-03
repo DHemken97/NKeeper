@@ -40,11 +40,11 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         h.Services
             .OrderBy(s => s.Position)
             .Select(s => new HostServiceResponse(
-                s.Protocol, s.Port, s.Label, s.Protocol == ServiceProtocol.Rdp ? s.RdpSecurity ?? RdpSecurityMode.Auto : null, s.Address, s.Instance))
+                s.Protocol, s.Port, s.Label, s.Protocol == ServiceProtocol.Rdp ? s.RdpSecurity ?? RdpSecurityMode.Auto : null, s.Address, s.Instance, s.Id))
             .ToList(),
         h.Credentials
             .OrderBy(c => c.Position)
-            .Select(c => new HostCredentialResponse(c.Id, c.Label, c.Username, c.Domain, c.Notes, c.ProtectedPassword != null, c.ProtectedPrivateKey != null))
+            .Select(c => new HostCredentialResponse(c.Id, c.Label, c.Username, c.Domain, c.Notes, c.ProtectedPassword != null, c.ProtectedPrivateKey != null, c.ServiceIds))
             .ToList(),
         h.TrustedKeys
             .OrderBy(k => k.Protocol).ThenBy(k => k.Port).ThenBy(k => k.Algorithm)
@@ -763,6 +763,12 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         host.UpdatedByUserId = userId;
 
         ApplyServices(host, request.Services);
+        foreach (var service in host.Services)
+        {
+            // Their IDs are set up front (credentials name them), which EF would take for existing rows.
+            db.Entry(service).State = EntityState.Added;
+        }
+
         ApplyTags(host, request.Tags);
         ApplyCredentials(host, request.Credentials, copySources);
     }
@@ -792,6 +798,8 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         host.Services.Clear();
         host.Services.AddRange(services.Select((s, index) => new HostService
         {
+            // Set now, so credentials saved with the host can name the services they're used with.
+            Id = Guid.NewGuid(),
             Protocol = s.Protocol!.Value,
             Port = s.Port,
             Label = InventoryText.TrimToNull(s.Label),
@@ -864,6 +872,9 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             credential.Domain = InventoryText.TrimToNull(request.Domain);
             credential.Notes = InventoryText.TrimToNull(request.Notes);
             credential.Position = index;
+            // The services are the ones just saved with the host, in the request's order.
+            var services = host.Services.OrderBy(s => s.Position).ToList();
+            credential.ServiceIds = request.ServiceIndexes is { } chosen ? [.. chosen.Select(i => services[i].Id)] : null;
 
             // Secrets are stored exactly as entered (no trimming): whitespace can be significant.
             if (!string.IsNullOrEmpty(request.Password))

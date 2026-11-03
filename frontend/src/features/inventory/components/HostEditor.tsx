@@ -295,7 +295,12 @@ export function HostEditor({ host, cloneOf, onClone, knownTagNames, knownTagValu
         </section>
 
         <section className={styles.section}>
-          <CredentialsEditor value={draft.credentials} onChange={(credentials) => set('credentials', credentials)} errors={fieldErrors} />
+          <CredentialsEditor
+            value={draft.credentials}
+            onChange={(credentials) => set('credentials', credentials)}
+            errors={fieldErrors}
+            services={draft.services}
+          />
         </section>
       </div>
 

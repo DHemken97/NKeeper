@@ -212,6 +212,8 @@ internal sealed class InstanceImporter(
                     Domain = c.Domain,
                     Notes = c.Notes,
                     Position = c.Position,
+                    // Services keep their IDs in a bundle, so these still name the same ones.
+                    ServiceIds = c.ServiceIds is null ? null : [.. c.ServiceIds],
                     // Re-encrypted with this instance's own keys.
                     ProtectedPassword = c.Password is null ? null : protector.Protect(c.Password),
                     ProtectedPrivateKey = c.PrivateKey is null ? null : protector.Protect(c.PrivateKey),

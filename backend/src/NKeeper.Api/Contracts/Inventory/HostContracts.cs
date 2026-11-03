@@ -83,6 +83,13 @@ public sealed record HostCredentialRequest : IValidatableObject
     public string? Notes { get; init; }
 
     /// <summary>
+    /// The services (positions in the request's service list) this credential is used with; null for
+    /// all of them, the default. Empty means none.
+    /// </summary>
+    [MaxLength(20)]
+    public int[]? ServiceIndexes { get; init; }
+
+    /// <summary>
     /// For a new credential (no <see cref="Id"/>): start from the stored password and private key of
     /// this credential on another host the user can manage (cloning a host). Password, PrivateKey and
     /// the Clear flags still apply on top.
@@ -219,6 +226,14 @@ public sealed record HostRequest : IValidatableObject
             }
         }
 
+        for (var index = 0; index < Credentials.Length; index++)
+        {
+            if (Credentials[index].ServiceIndexes is { } chosen && (chosen.Any(i => i < 0 || i >= Services.Length) || chosen.Distinct().Count() != chosen.Length))
+            {
+                yield return new ValidationResult("Choose services the host has, each once.", [$"credentials[{index}].serviceIndexes"]);
+            }
+        }
+
         var duplicateIds = Credentials.Where(c => c.Id is not null).GroupBy(c => c.Id).Any(g => g.Count() > 1);
         if (duplicateIds)
         {
@@ -262,7 +277,7 @@ public sealed record HostTagResponse(string Name, string? Value, bool Inheritabl
 /// A connection method. <see cref="RdpSecurity"/> is set for RDP services only, <see cref="Address"/>
 /// for services with their own address (iDRAC) only, <see cref="Instance"/> for SQL Server's named instances only.
 /// </summary>
-public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity, string? Address = null, string? Instance = null);
+public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity, string? Address = null, string? Instance = null, Guid? Id = null);
 
 /// <summary>A credential as seen by clients. Secret values are never included.</summary>
 public sealed record HostCredentialResponse(
@@ -272,7 +287,8 @@ public sealed record HostCredentialResponse(
     string? Domain,
     string? Notes,
     bool HasPassword,
-    bool HasPrivateKey);
+    bool HasPrivateKey,
+    IReadOnlyList<Guid>? ServiceIds = null);
 
 /// <summary>An SSH host key or RDP certificate trusted for one of the host's ports.</summary>
 public sealed record TrustedKeyResponse(ServiceProtocol Protocol, int Port, string Algorithm, string Fingerprint, DateTimeOffset TrustedAtUtc);

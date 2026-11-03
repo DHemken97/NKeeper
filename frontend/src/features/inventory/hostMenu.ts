@@ -263,6 +263,11 @@ function serviceDetail(service: HostService): string {
   return service.protocol === 'Idrac' && service.address ? service.address : servicePort(service)
 }
 
+/** Whether a credential is meant for one of the host's services: all services, or that one among those it names. */
+export function usedWith(credential: HostCredential, service: HostService): boolean {
+  return credential.serviceIds == null || (service.id != null && credential.serviceIds.includes(service.id))
+}
+
 /** Why a credential cannot be used with a protocol at all, or null when it can. */
 export function credentialProblem(credential: HostCredential, protocol: ServiceProtocol): string | null {
   if (protocol === 'Ssms' && credential.domain) {
@@ -400,7 +405,8 @@ function loginEntries(
   mode?: ConnectMode,
 ): MenuEntry[] {
   const protocol = host.services[index].protocol
-  const credentials = host.credentials.map((credential): MenuEntry => {
+  // Credentials meant for other services aren't offered here at all (e.g. sa under RDP).
+  const credentials = host.credentials.filter((c) => usedWith(c, host.services[index])).map((credential): MenuEntry => {
     const problem = credentialProblem(credential, protocol)
     const asks = credentialNeedsPassword(credential, protocol)
     return {
@@ -436,7 +442,7 @@ export function taskMenuEntries(host: Host, actions: Pick<HostMenuActions, 'scan
   const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh' || service.protocol === 'Rpc')
   const logins = (index: number): MenuEntry[] => [
     ...host.credentials
-      .filter((c) => credentialProblem(c, host.services[index].protocol) === null)
+      .filter((c) => usedWith(c, host.services[index]) && credentialProblem(c, host.services[index].protocol) === null)
       .map((credential): MenuEntry => ({
         ...credentialEntry(credential, credentialNeedsPassword(credential, host.services[index].protocol) ? 'Asks for password' : undefined),
         onSelect: () => actions.scanInternal(host, index, credential),
@@ -477,7 +483,7 @@ export function defaultConnection(host: Host): { serviceIndex: number; credentia
     return null
   }
   const protocol = host.services[serviceIndex].protocol
-  const usable = host.credentials.filter((c) => credentialProblem(c, protocol) === null)
+  const usable = host.credentials.filter((c) => usedWith(c, host.services[serviceIndex]) && credentialProblem(c, protocol) === null)
   // Prefer a credential with a stored secret; one without asks for its password.
   return { serviceIndex, credential: usable.find((c) => !credentialNeedsPassword(c, protocol)) ?? usable[0] ?? null }
 }

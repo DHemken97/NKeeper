@@ -238,6 +238,25 @@ public sealed class SshSessionTests(PostgresServerFixture postgres, SshServerFix
         Assert.Empty((await response.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!.TrustedKeys);
     }
 
+    [Fact]
+    public async Task ACredentialNotUsedWithTheService_IsRefused()
+    {
+        var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
+        {
+            name = $"ssh-{Guid.NewGuid():N}",
+            ipAddress = SshServerFixture.Address,
+            services = new object[] { new { protocol = "Ssh", port = ssh.Port }, new { protocol = "Ssms" } },
+            credentials = new object[] { new { username = SshServerFixture.UserName, password = SshServerFixture.Password, serviceIndexes = new[] { 1 } } },
+        }, Ct);
+        var host = (await response.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!;
+
+        await using var terminal = await StartAsync(host, credentialIndex: 0);
+
+        var error = await terminal.ExpectAsync("error", Ct);
+        Assert.Equal(SessionErrorCodes.CredentialNotFound, error.GetProperty("code").GetString());
+        Assert.Contains("isn't used with this service", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+    }
+
     private async Task<HostResponse> CreateHostAsync(object? credential, string protocol = "Ssh")
     {
         var response = await _client.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
