@@ -225,6 +225,7 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
             ▶ Execute
           </Button>
         )}
+        {databaseLabel ? (
         <label className={styles.toolbarField}>
           <span>{databaseLabel}</span>
           <select value={database} onChange={(event) => void changeDatabase(event.target.value)} disabled={!sessionId || running} aria-label={databaseLabel}>
@@ -235,6 +236,7 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
             ))}
           </select>
         </label>
+        ) : null}
         <div className={styles.segmented} role="group" aria-label="Results to">
           <button type="button" aria-pressed={view === 'grid'} onClick={() => setView('grid')}>
             Grid

@@ -29,7 +29,7 @@ export type ConnectMode = IdracMode | 'files' | 'storage'
  * Services that open a tool rather than a plain client session: a KVM host's VM list, and SQL Server.
  * They're under Connect ▸ Tools (with Files and Storage), so Connect itself lists the clients.
  */
-const TOOL_PROTOCOLS = new Set<ServiceProtocol>(['Kvm', 'Ssms', 'Oracle', 'Ase'])
+const TOOL_PROTOCOLS = new Set<ServiceProtocol>(['Kvm', 'Ssms', 'Oracle', 'Ase', 'RepServer'])
 
 /** Session types that can't be tunnelled through a jump host yet (guacd and RPC dial hosts themselves). */
 const NOT_THROUGH_JUMP = new Set<ServiceProtocol>(['Rdp', 'Vnc', 'Rpc'])
@@ -181,7 +181,7 @@ function guestConsoleEntries(host: Host, actions: Pick<HostMenuActions, 'guests'
 
 /**
  * Connect ▸ Tools: Files (SFTP) and Storage (iSCSI, multipath, DRBD) on an SSH service, a KVM host's
- * VMs, MS SQL ▸ instance, Oracle ▸ service name and SAP ASE; each then ▸ login (or ▸ service ▸ login when there are several).
+ * VMs, MS SQL ▸ instance, Oracle ▸ service name, SAP ASE and Replication Server; each then ▸ login (or ▸ service ▸ login when there are several).
  */
 function toolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
   const of = (protocol: ServiceProtocol) => host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === protocol)
@@ -189,6 +189,7 @@ function toolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'con
   const sql = of('Ssms')
   const oracle = of('Oracle')
   const ase = of('Ase')
+  const rs = of('RepServer')
   return [
     ...sshToolEntries(host, actions),
     ...(kvm.length === 0
@@ -255,6 +256,19 @@ function toolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'con
                 : ase.map(({ service, index }): MenuEntry => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions) })),
           } as const,
         ]),
+    ...(rs.length === 0
+      ? []
+      : [
+          {
+            kind: 'item',
+            label: 'Replication Server',
+            detail: rs.length === 1 ? 'Replication health' : undefined,
+            submenu:
+              rs.length === 1
+                ? loginEntries(host, rs[0].index, actions)
+                : rs.map(({ service, index }): MenuEntry => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions) })),
+          } as const,
+        ]),
   ]
 }
 
@@ -307,7 +321,7 @@ export function usedWith(credential: HostCredential, service: HostService): bool
 
 /** Why a credential cannot be used with a protocol at all, or null when it can. */
 export function credentialProblem(credential: HostCredential, protocol: ServiceProtocol): string | null {
-  if ((protocol === 'Ssms' || protocol === 'Oracle' || protocol === 'Ase') && credential.domain) {
+  if ((protocol === 'Ssms' || protocol === 'Oracle' || protocol === 'Ase' || protocol === 'RepServer') && credential.domain) {
     // NKeeper signs in to SQL Server with SQL logins only; Oracle and ASE logins have no domain.
     return 'Windows login'
   }
@@ -321,7 +335,7 @@ export function credentialNeedsPassword(credential: HostCredential, protocol: Se
     // The device asks in the terminal: whatever isn't stored, the user types there.
     return false
   }
-  return protocol === 'Vnc' || protocol === 'Rdp' || protocol === 'Idrac' || protocol === 'Rpc' || protocol === 'Proxmox' || protocol === 'Ssms' || protocol === 'Oracle' || protocol === 'Ase'
+  return protocol === 'Vnc' || protocol === 'Rdp' || protocol === 'Idrac' || protocol === 'Rpc' || protocol === 'Proxmox' || protocol === 'Ssms' || protocol === 'Oracle' || protocol === 'Ase' || protocol === 'RepServer'
     ? !credential.hasPassword : !credential.hasPassword && !credential.hasPrivateKey
 }
 

@@ -551,6 +551,36 @@
 
 /* Blocking manager */
 
+.replicationSection {
+  padding: 0 16px 12px;
+}
+
+.replicationSection h3 {
+  margin: 12px 0 6px;
+  font-size: 0.95rem;
+}
+
+.replicationSection h3 code {
+  margin-left: 8px;
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--color-text-muted, inherit);
+}
+
+.replicationGrid {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow: auto;
+  margin-bottom: 8px;
+}
+
+.replicationMessage {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+}
+
 .blocking {
   display: flex;
   flex: 1;

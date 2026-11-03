@@ -137,6 +137,30 @@ export type OrphanFix =
   | { action: 'drop'; database: string; user: string }
   | { action: 'owner'; database: string; login: string }
 
+/** What one command of the replication report said: its result sets and messages, or why it failed. */
+export interface ReplicationSection {
+  title: string
+  command: string
+  results: SqlOutput[]
+  error: string | null
+}
+
+/** A suspended or down DSI connection on a Replication Server. */
+export interface SuspendedConnection {
+  /** server.database */
+  connection: string
+  thread: string
+  state: string
+}
+
+export interface ReplicationReport {
+  /** What needs looking at; empty when all is well. */
+  warnings: string[]
+  suspended: SuspendedConnection[]
+  sections: ReplicationSection[]
+  atUtc: string
+}
+
 /** The body that opens a session: the tab's host, service and login, a certificate the user trusted, and a database to start in. */
 export function openRequestBody(request: SessionRequest, trustFingerprint?: string, database?: string) {
   return {
@@ -151,21 +175,22 @@ export function openRequestBody(request: SessionRequest, trustFingerprint?: stri
 }
 
 /** The database engines the explorer works with, by the API path they're under. */
-export type DbEngine = 'mssql' | 'oracle' | 'ase'
+export type DbEngine = 'mssql' | 'oracle' | 'ase' | 'rs'
 
 export interface DbEngineInfo {
   /** e.g. "SQL Server": the product, as the tab and messages name it. */
   product: string
-  /** What a query window's database list holds: Oracle switches schemas. */
-  databaseLabel: string
+  /** What a query window's database list holds: Oracle switches schemas; null when there's none (Replication Server). */
+  databaseLabel: string | null
   /** The Management tools this engine has. */
-  tools: ('blocking' | 'orphans')[]
+  tools: ('blocking' | 'orphans' | 'replication')[]
 }
 
 export const DB_ENGINES: Record<DbEngine, DbEngineInfo> = {
   mssql: { product: 'SQL Server', databaseLabel: 'Database', tools: ['blocking', 'orphans'] },
   oracle: { product: 'Oracle', databaseLabel: 'Schema', tools: ['blocking'] },
-  ase: { product: 'SAP ASE', databaseLabel: 'Database', tools: ['blocking'] },
+  ase: { product: 'SAP ASE', databaseLabel: 'Database', tools: ['blocking', 'replication'] },
+  rs: { product: 'Replication Server', databaseLabel: null, tools: ['replication'] },
 }
 
 function createDbApi(engine: DbEngine) {
@@ -195,6 +220,10 @@ function createDbApi(engine: DbEngine) {
         { body: { fixes } },
       ),
     fixMatchedOrphans: (sessionId: string) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix-matched`),
+    replication: (sessionId: string) => api.get<ReplicationReport>(`${base(sessionId)}/replication`),
+    /** Replication Server: resume connection to server.database (optionally skipping the failed transaction). Audited. */
+    resumeConnection: (sessionId: string, connection: string, skipTransaction: boolean) =>
+      api.post<void>(`${base(sessionId)}/replication/resume`, { body: { connection, skipTransaction } }),
     /** Ends a session; Oracle also needs its serial#. */
     kill: (sessionId: string, spid: number, serial?: number | null) =>
       api.post<void>(`${base(sessionId)}/kill`, { body: serial == null ? { sessionId: spid } : { sessionId: spid, serial } }),

@@ -24,6 +24,7 @@ internal static class SupportedServices
         ServiceProtocol.Ssms,
         ServiceProtocol.Oracle,
         ServiceProtocol.Ase,
+        ServiceProtocol.RepServer,
     ];
 
     public static bool IsSupported(ServiceProtocol protocol) => Protocols.Contains(protocol);

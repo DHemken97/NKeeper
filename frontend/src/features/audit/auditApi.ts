@@ -100,6 +100,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'mssql.login_fix': 'SQL Server login fixed',
   'oracle.kill': 'Oracle session killed',
   'ase.kill': 'SAP ASE session killed',
+  'rs.resume': 'Replication connection resumed',
   'migration.start': 'Migration started',
   'migration.end': 'Migration ended',
   'transfer.export': 'Data exported',
@@ -124,6 +125,7 @@ export const CATEGORIES = [
   { value: 'mssql', label: 'SQL Server (killed sessions, login fixes)' },
   { value: 'oracle', label: 'Oracle (killed sessions)' },
   { value: 'ase', label: 'SAP ASE (killed sessions)' },
+  { value: 'rs', label: 'Replication Server (resumed connections)' },
   { value: 'migration', label: 'VM migrations' },
   { value: 'transfer', label: 'Moves to a new server' },
 ]

@@ -15,9 +15,15 @@ namespace NKeeper.Api.Ase;
 /// explorer (each database's system tables), scripts (procedures, views and triggers from syscomments;
 /// tables from syscolumns) and blocking manager (master..sysprocesses).
 /// </summary>
-internal sealed class AseDialect : IDatabaseDialect
+internal sealed class AseDialect(bool replicationServer = false) : IDatabaseDialect
 {
     public static readonly AseDialect Instance = new();
+
+    /// <summary>
+    /// Replication Server: scripts run as on ASE, but it has no databases, objects or sessions to kill; the explorer
+    /// shows only Management ▸ Replication Health.
+    /// </summary>
+    public static readonly AseDialect ReplicationServer = new(replicationServer: true);
 
     private static readonly HashSet<string> SystemDatabases = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -27,13 +33,18 @@ internal sealed class AseDialect : IDatabaseDialect
     private static string Quote(string name) => SqlObjectExplorer.Quote(name);
 
     public async Task<string> CurrentDatabaseAsync(DbConnection connection, CancellationToken cancellationToken) =>
-        (await DbQuery.ListAsync(connection, "SELECT db_name()", [], r => DbQuery.Text(r, 0) ?? string.Empty, cancellationToken))[0];
+        replicationServer ? string.Empty : (await DbQuery.ListAsync(connection, "SELECT db_name()", [], r => DbQuery.Text(r, 0) ?? string.Empty, cancellationToken))[0];
 
     public async Task<IReadOnlyList<string>> DatabasesAsync(DbConnection connection, CancellationToken cancellationToken) =>
-        await DbQuery.ListAsync(connection, "SELECT name FROM master..sysdatabases ORDER BY name", [], r => DbQuery.Text(r, 0)!, cancellationToken);
+        replicationServer ? [] : await DbQuery.ListAsync(connection, "SELECT name FROM master..sysdatabases ORDER BY name", [], r => DbQuery.Text(r, 0)!, cancellationToken);
 
     public async Task<string> ChangeDatabaseAsync(DbConnection connection, string name, CancellationToken cancellationToken)
     {
+        if (replicationServer)
+        {
+            throw new SqlExplorerException("Replication Server has no databases.");
+        }
+
         await DbQuery.ExecuteAsync(connection, $"USE {Quote(name)}", cancellationToken);
         return await CurrentDatabaseAsync(connection, cancellationToken);
     }
@@ -175,7 +186,7 @@ internal sealed class AseDialect : IDatabaseDialect
         return new SqlQueryResult(output, database, watch.ElapsedMilliseconds, cancelled, connection.State != ConnectionState.Open, hasErrors);
     }
 
-    private static async Task<SqlOutput> ReadResultAsync(DbDataReader reader, int budget, CancellationToken cancellationToken)
+    internal static async Task<SqlOutput> ReadResultAsync(DbDataReader reader, int budget, CancellationToken cancellationToken)
     {
         var columns = Enumerable.Range(0, reader.FieldCount)
             .Select(i =>
@@ -208,6 +219,16 @@ internal sealed class AseDialect : IDatabaseDialect
 
     public async Task<IReadOnlyList<SqlObjectNode>> ChildrenAsync(DbConnection connection, SqlObjectNode node, CancellationToken cancellationToken)
     {
+        if (replicationServer)
+        {
+            return node.Kind switch
+            {
+                Kinds.Server => [Folder(Kinds.Management, "Management")],
+                Kinds.Management => [AseReplication.ToolNode],
+                _ => throw new SqlExplorerException($"“{node.Kind}” has no children."),
+            };
+        }
+
         var db = node.Database;
         return node.Kind switch
         {
@@ -284,7 +305,11 @@ internal sealed class AseDialect : IDatabaseDialect
                 cancellationToken),
             Kinds.ServerRoles => await DbQuery.ListAsync(
                 connection, "SELECT name FROM master..syssrvroles ORDER BY name", [], r => new SqlObjectNode { Kind = Kinds.ServerRole, Label = DbQuery.Text(r, 0)! }, cancellationToken),
-            Kinds.Management => [new SqlObjectNode { Kind = Kinds.Tool, Label = "Blocking Manager", Detail = "Blocking chains", Name = SqlObjectExplorer.BlockingManagerTool }],
+            Kinds.Management =>
+            [
+                new SqlObjectNode { Kind = Kinds.Tool, Label = "Blocking Manager", Detail = "Blocking chains", Name = SqlObjectExplorer.BlockingManagerTool },
+                AseReplication.ToolNode,
+            ],
             _ => throw new SqlExplorerException($"“{node.Kind}” has no children."),
         };
     }
@@ -422,6 +447,11 @@ internal sealed class AseDialect : IDatabaseDialect
 
     public async Task<string> ScriptAsync(DbConnection connection, SqlObjectNode node, string action, CancellationToken cancellationToken)
     {
+        if (replicationServer)
+        {
+            throw new SqlExplorerException("Replication Server has no objects to script.");
+        }
+
         var offered = action switch
         {
             SqlScripter.SelectTop => node.Kind is Kinds.Table or Kinds.View,
@@ -479,6 +509,11 @@ internal sealed class AseDialect : IDatabaseDialect
 
     public async Task<BlockingReport> BlockingAsync(DbConnection connection, DateTimeOffset now, CancellationToken cancellationToken)
     {
+        if (replicationServer)
+        {
+            throw new SqlExplorerException("Replication Server has no Blocking Manager: use Replication Health.");
+        }
+
         var rows = await DbQuery.ListAsync(
             connection,
             """
@@ -538,5 +573,7 @@ internal sealed class AseDialect : IDatabaseDialect
     }
 
     public Task KillAsync(DbConnection connection, int sessionId, int? serial, CancellationToken cancellationToken) =>
-        DbQuery.ExecuteAsync(connection, $"kill {sessionId.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+        replicationServer
+            ? throw new SqlExplorerException("Replication Server sessions can't be killed from here.")
+            : DbQuery.ExecuteAsync(connection, $"kill {sessionId.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
 }

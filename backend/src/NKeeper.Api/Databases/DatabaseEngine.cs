@@ -14,18 +14,22 @@ public enum DatabaseEngine
     SqlServer,
     Oracle,
     Ase,
+
+    /// <summary>SAP Replication Server (spoken to like ASE).</summary>
+    RepServer,
 }
 
 internal static class DatabaseEngines
 {
     /// <summary>The engine's path under <c>/api</c>: <c>mssql</c>, <c>oracle</c>, <c>ase</c>.</summary>
-    public const string RoutePattern = "^(mssql|oracle|ase)$";
+    public const string RoutePattern = "^(mssql|oracle|ase|rs)$";
 
     public static DatabaseEngine? FromRoute(string? route) => route switch
     {
         "mssql" => DatabaseEngine.SqlServer,
         "oracle" => DatabaseEngine.Oracle,
         "ase" => DatabaseEngine.Ase,
+        "rs" => DatabaseEngine.RepServer,
         _ => null,
     };
 
@@ -33,6 +37,7 @@ internal static class DatabaseEngines
     {
         DatabaseEngine.Oracle => "oracle",
         DatabaseEngine.Ase => "ase",
+        DatabaseEngine.RepServer => "rs",
         _ => "mssql",
     };
 
@@ -41,6 +46,7 @@ internal static class DatabaseEngines
     {
         DatabaseEngine.Oracle => "Oracle",
         DatabaseEngine.Ase => "SAP ASE",
+        DatabaseEngine.RepServer => "Rep Server",
         _ => "MS SQL",
     };
 
@@ -49,6 +55,7 @@ internal static class DatabaseEngines
     {
         DatabaseEngine.Oracle => "Oracle",
         DatabaseEngine.Ase => "SAP ASE",
+        DatabaseEngine.RepServer => "Replication Server",
         _ => "SQL Server",
     };
 
@@ -56,6 +63,7 @@ internal static class DatabaseEngines
     {
         DatabaseEngine.Oracle => ServiceProtocol.Oracle,
         DatabaseEngine.Ase => ServiceProtocol.Ase,
+        DatabaseEngine.RepServer => ServiceProtocol.RepServer,
         _ => ServiceProtocol.Ssms,
     };
 
@@ -63,6 +71,7 @@ internal static class DatabaseEngines
     {
         DatabaseEngine.Oracle => Oracle.OracleDialect.Instance,
         DatabaseEngine.Ase => Ase.AseDialect.Instance,
+        DatabaseEngine.RepServer => Ase.AseDialect.ReplicationServer,
         _ => SqlServerDialect.Instance,
     };
 }

@@ -256,6 +256,9 @@ public enum ServiceProtocol
 
     /// <summary>SAP (Sybase) Adaptive Server Enterprise.</summary>
     Ase,
+
+    /// <summary>SAP (Sybase) Replication Server: its admin commands, over the same protocol as ASE.</summary>
+    RepServer,
     Telnet,
     Sftp,
     Ftp,

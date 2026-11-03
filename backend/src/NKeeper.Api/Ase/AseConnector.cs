@@ -11,11 +11,13 @@ namespace NKeeper.Api.Ase;
 /// <summary>
 /// Opens SAP (Sybase) ASE sessions from the inventory: the host's ASE service and a login. The
 /// password is sent encrypted when the server supports it; the rest of the connection is as the
-/// server is set up (ASE's own SSL isn't used).
+/// server is set up (ASE's own SSL isn't used). With <paramref name="replicationServer"/>, opens a Replication Server's
+/// service instead: it speaks the same protocol, but only its own admin commands.
 /// </summary>
-internal sealed class AseConnector(SessionTargetResolver resolver, TimeProvider timeProvider) : IDatabaseConnector
+internal sealed class AseConnector(SessionTargetResolver resolver, TimeProvider timeProvider, bool replicationServer = false) : IDatabaseConnector
 {
     public const int DefaultPort = 5000;
+    public const int ReplicationServerPort = 11752;
     private const int ConnectTimeoutSeconds = 20;
 
     static AseConnector()
@@ -24,14 +26,15 @@ internal sealed class AseConnector(SessionTargetResolver resolver, TimeProvider 
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
     }
 
-    public DatabaseEngine Engine => DatabaseEngine.Ase;
+    public DatabaseEngine Engine => replicationServer ? DatabaseEngine.RepServer : DatabaseEngine.Ase;
 
     public async Task<DatabaseOpenResult> OpenAsync(DatabaseOpenRequest request, RequestUser user, CancellationToken cancellationToken)
     {
-        var target = await resolver.ResolveAsync(request, user, ServiceProtocol.Ase, DefaultPort, cancellationToken);
+        var defaultPort = replicationServer ? ReplicationServerPort : DefaultPort;
+        var target = await resolver.ResolveAsync(request, user, replicationServer ? ServiceProtocol.RepServer : ServiceProtocol.Ase, defaultPort, cancellationToken);
         if (target.Domain is not null)
         {
-            throw new SessionException(SessionErrorCodes.BadRequest, "ASE logins have no domain: use a credential without one.");
+            throw new SessionException(SessionErrorCodes.BadRequest, "These logins have no domain: use a credential without one.");
         }
 
         if (target.Password is null)
@@ -39,7 +42,7 @@ internal sealed class AseConnector(SessionTargetResolver resolver, TimeProvider 
             throw new SessionException(SessionErrorCodes.MissingSecret, "This credential has no password.");
         }
 
-        var port = target.Service.Port ?? DefaultPort;
+        var port = target.Service.Port ?? defaultPort;
         var display = $"{target.Username}@{target.Address}:{port}";
         var tunnel = await JumpTunnel.OpenAsync(target.Jump, target.Address, port, cancellationToken);
         AseConnection? connection = null;
@@ -58,7 +61,7 @@ internal sealed class AseConnector(SessionTargetResolver resolver, TimeProvider 
                 ["Pooling"] = false,
                 ["TextSize"] = 65536,
                 // The driver won't connect without a database; master is in every server and readable by every login.
-                ["Database"] = string.IsNullOrWhiteSpace(request.Database) ? "master" : request.Database.Trim(),
+                ["Database"] = string.IsNullOrWhiteSpace(request.Database) || replicationServer ? "master" : request.Database.Trim(),
             };
 
             var connectionString = settings.ConnectionString;
@@ -76,10 +79,12 @@ internal sealed class AseConnector(SessionTargetResolver resolver, TimeProvider 
                 throw new SessionException(SessionErrorCodes.ConnectionFailed, $"Couldn't connect to {display}: {ex.Message}");
             }
 
-            var server = await ReadServerInfoAsync(connection, cancellationToken);
+            var server = replicationServer
+                ? await ReadReplicationServerInfoAsync(connection, target.Username, display, cancellationToken)
+                : await ReadServerInfoAsync(connection, cancellationToken);
             var keptTunnel = tunnel.IsTunnel ? tunnel : null;
             var session = new DatabaseSession(
-                DatabaseEngine.Ase,
+                Engine,
                 user.Id,
                 target.HostId,
                 display,
@@ -136,6 +141,24 @@ internal sealed class AseConnector(SessionTargetResolver resolver, TimeProvider 
         var parts = row.Version?.Split('/') ?? [];
         var version = parts.Length > 1 ? parts[1] : row.Version ?? string.Empty;
         return new DatabaseServerInfo(row.Name ?? connection.DataSource, version, null, parts.Length > 0 ? parts[0] : null, row.Login ?? string.Empty, row.Spid);
+    }
+
+    /// <summary>Replication Server has no @@version: "admin version" says e.g. "Replication Server/16.0 SP04 PL01/…".</summary>
+    private static async Task<DatabaseServerInfo> ReadReplicationServerInfoAsync(AseConnection connection, string username, string display, CancellationToken cancellationToken)
+    {
+        string? text = null;
+        try
+        {
+            var rows = await DbQuery.ListAsync(connection, "admin version", [], r => DbQuery.Text(r, 0), cancellationToken);
+            text = rows.Count > 0 ? rows[0] : null;
+        }
+        catch (AseException)
+        {
+            // Older servers answer with a message only; the version is then unknown.
+        }
+
+        var parts = text?.Split('/') ?? [];
+        return new DatabaseServerInfo(display, parts.Length > 1 ? parts[1] : text ?? string.Empty, null, parts.Length > 0 ? parts[0] : null, username, 0);
     }
 
     private static SessionException SignInFailure(AseException ex, string username, string display)

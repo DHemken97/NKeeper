@@ -128,6 +128,9 @@ function sessionProtocol(protocol: ServiceProtocol, mode?: OpenMode): RemoteSess
   if (protocol === 'Ase') {
     return 'ase'
   }
+  if (protocol === 'RepServer') {
+    return 'rs'
+  }
   return protocol === 'Telnet' ? 'telnet' : protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : protocol === 'Rpc' ? 'rpc' : 'ssh'
 }
 
@@ -1049,7 +1052,7 @@ export function WorkspacePage() {
               />
             ) : session.protocol === 'sftp' ? (
               <FileBrowser key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
-            ) : session.protocol === 'mssql' || session.protocol === 'oracle' || session.protocol === 'ase' ? (
+            ) : session.protocol === 'mssql' || session.protocol === 'oracle' || session.protocol === 'ase' || session.protocol === 'rs' ? (
               <SqlServerView key={session.id} session={session} engine={session.protocol} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'storage' ? (
               <StorageView key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
