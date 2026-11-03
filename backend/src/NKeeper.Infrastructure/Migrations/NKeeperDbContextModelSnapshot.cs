@@ -721,8 +721,8 @@ namespace NKeeper.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("Instance")
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
 
                     b.Property<string>("Label")
                         .HasMaxLength(100)

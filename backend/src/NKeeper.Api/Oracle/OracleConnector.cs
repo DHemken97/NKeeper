@@ -148,7 +148,8 @@ internal sealed class OracleConnector(SessionTargetResolver resolver, TimeProvid
         try
         {
             // V$VERSION needs SELECT_CATALOG_ROLE (or similar); without it, only the version number is shown.
-            var banner = (await DbQuery.ListAsync(connection, "SELECT banner FROM v$version WHERE ROWNUM = 1", [], r => DbQuery.Text(r, 0), cancellationToken)).FirstOrDefault();
+            var banners = await DbQuery.ListAsync(connection, "SELECT banner FROM v$version WHERE ROWNUM = 1", [], r => DbQuery.Text(r, 0), cancellationToken);
+            var banner = banners.Count > 0 ? banners[0] : null;
             edition = banner?.Split(" Release ")[0].Replace("Oracle Database ", string.Empty, StringComparison.Ordinal).Trim();
         }
         catch (DbException)

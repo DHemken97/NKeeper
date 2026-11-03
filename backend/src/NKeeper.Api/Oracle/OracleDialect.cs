@@ -574,13 +574,13 @@ internal sealed partial class OracleDialect : IDatabaseDialect
                     END;
                     """,
                     cancellationToken);
-                var ddl = (await DbQuery.ListAsync(
+                var ddls = await DbQuery.ListAsync(
                     connection,
                     "SELECT DBMS_METADATA.GET_DDL(:type, :name, :owner) FROM dual",
                     [("type", type), ("name", node.Name), ("owner", owner)],
                     r => r.IsDBNull(0) ? string.Empty : r.GetString(0),
-                    cancellationToken)).FirstOrDefault() ?? string.Empty;
-                var body = ddl.Trim();
+                    cancellationToken);
+                var body = ddls.Count > 0 ? ddls[0].Trim() : string.Empty;
                 var plSql = type is "PROCEDURE" or "FUNCTION" or "TRIGGER" or "PACKAGE";
                 return plSql ? body + "\n/\n" : body + ";\n";
         }
