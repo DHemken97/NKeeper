@@ -224,7 +224,7 @@ internal sealed class AseDialect(bool replicationServer = false) : IDatabaseDial
             return node.Kind switch
             {
                 Kinds.Server => [Folder(Kinds.Management, "Management")],
-                Kinds.Management => [AseReplication.ToolNode],
+                Kinds.Management => [AseReplication.ToolNode, SybaseAdmin.AdminNode, SybaseAdmin.LicenseNode],
                 _ => throw new SqlExplorerException($"“{node.Kind}” has no children."),
             };
         }
@@ -310,6 +310,7 @@ internal sealed class AseDialect(bool replicationServer = false) : IDatabaseDial
                 new SqlObjectNode { Kind = Kinds.Tool, Label = "Blocking Manager", Detail = "Blocking chains", Name = SqlObjectExplorer.BlockingManagerTool },
                 AseReplication.ToolNode,
                 .. AseDba.ToolNodes,
+                SybaseAdmin.LicenseNode,
             ],
             _ => throw new SqlExplorerException($"“{node.Kind}” has no children."),
         };

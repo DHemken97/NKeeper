@@ -40,7 +40,7 @@ public sealed record AseCompareRequest
 [Route("api/ase/sessions/{id}")]
 public sealed class AseToolsController(DatabaseSessionStore sessions, AuditLog audit, TimeProvider timeProvider) : ControllerBase
 {
-    [HttpGet("reports/{tool:regex(^(space|drift)$)}")]
+    [HttpGet("reports/{tool:regex(^(space|drift|license)$)}")]
     public Task<ActionResult<ToolReport>> Report(string id, string tool, CancellationToken cancellationToken) =>
         DatabaseController.WithToolConnectionAsync(this, sessions, DatabaseEngine.Ase, id, connection =>
             AseDba.ReportAsync(connection, tool, timeProvider.GetUtcNow(), cancellationToken));

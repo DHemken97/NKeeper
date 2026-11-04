@@ -10,7 +10,7 @@ import { ReportSections } from './ReportSections'
 import styles from './SqlServer.module.css'
 
 /** The tools that are reports: replication (ASE, Replication Server) and Oracle's. */
-export type ReportTool = Extract<ToolKind, 'replication' | 'storage' | 'backups' | 'health' | 'space' | 'drift'>
+export type ReportTool = Extract<ToolKind, 'replication' | 'storage' | 'backups' | 'health' | 'space' | 'drift' | 'admin' | 'license'>
 
 const HEADINGS: Record<ReportTool, { title: string; subtitle: (repServer: boolean) => string }> = {
   replication: { title: 'Replication Health', subtitle: (repServer) => (repServer ? 'Threads, Queues and Stable Devices' : 'Transaction Logs and Rep Agents') },
@@ -19,6 +19,8 @@ const HEADINGS: Record<ReportTool, { title: string; subtitle: (repServer: boolea
   health: { title: 'Health', subtitle: () => 'Limits, Alerts and Invalid Objects' },
   space: { title: 'Space', subtitle: () => 'Databases, Logs and Devices' },
   drift: { title: 'Replication Drift', subtitle: () => 'Last Applied, Latency and Exceptions' },
+  admin: { title: 'Admin Commands', subtitle: () => 'Threads, Queues, Connections and Versions' },
+  license: { title: 'License', subtitle: () => 'Licenses and Expiry' },
 }
 
 interface ToolReportViewProps {

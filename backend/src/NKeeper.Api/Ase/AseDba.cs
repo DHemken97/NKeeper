@@ -36,6 +36,7 @@ internal static class AseDba
     public static Task<ToolReport> ReportAsync(DbConnection connection, string tool, DateTimeOffset now, CancellationToken cancellationToken) => tool switch
     {
         Space => SpaceAsync(connection, now, cancellationToken),
+        SybaseAdmin.License => SybaseAdmin.AseLicenseAsync(connection, now, cancellationToken),
         Drift => DriftAsync(connection, now, cancellationToken),
         _ => throw new SqlExplorerException($"There's no “{tool}” report."),
     };

@@ -88,6 +88,7 @@ function renderWorkspace(engine: 'oracle' | 'ase', tools: { label: string; name:
     [`GET /api/${engine}/sessions/main/reports/storage`]: () => jsonResponse(200, report('Tablespaces')),
     [`GET /api/${engine}/sessions/main/reports/backups`]: () => jsonResponse(200, report('RMAN jobs')),
     [`GET /api/${engine}/sessions/main/replication`]: () => jsonResponse(200, report('Transaction logs')),
+    [`GET /api/${engine}/sessions/main/reports/license`]: () => jsonResponse(200, report('Licenses')),
     [`POST /api/${engine}/sessions/main/keepalive`]: () => (keptAlive.push(engine), new Response(null, { status: 204 })),
   })
   render(
@@ -148,6 +149,17 @@ describe('Management reports', () => {
     const backups = await screen.findByRole('tabpanel', { name: 'Backups (RMAN)' })
     await user.click(await within(backups).findByRole('button', { name: 'Full backup…' }))
     expect(within(await screen.findByRole('dialog', { name: 'Full backup' })).getByText('BACKUP DATABASE PLUS ARCHIVELOG;')).toBeInTheDocument()
+  })
+
+  it('opens License on an ASE tab', async () => {
+    const { user } = renderWorkspace('ase', [{ label: 'License', name: 'license' }])
+    await connect(user, [/^SAP ASE/])
+
+    const tree = await screen.findByRole('tree', { name: 'Objects' })
+    await user.dblClick(await within(tree).findByText('Management'))
+    await user.dblClick(await within(tree).findByText('License'))
+    const panel = await screen.findByRole('tabpanel', { name: 'License' })
+    expect(await within(panel).findByText('Licenses warning')).toBeInTheDocument()
   })
 
   it('opens Replication Health on an ASE tab', async () => {

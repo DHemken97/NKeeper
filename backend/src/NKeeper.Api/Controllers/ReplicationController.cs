@@ -26,19 +26,35 @@ public sealed record ReplicationResumeRequest
 /// </summary>
 [ApiController]
 [Authorize]
-[Route("api/{engine:regex(^(ase|rs)$)}/sessions/{id}/replication")]
+[Route("api/{engine:regex(^(ase|rs)$)}/sessions/{id}")]
 public sealed class ReplicationController(DatabaseSessionStore sessions, AuditLog audit, TimeProvider timeProvider) : ControllerBase
 {
     private DatabaseEngine Engine => DatabaseEngines.FromRoute(RouteData.Values["engine"] as string) ?? DatabaseEngine.Ase;
 
-    [HttpGet]
+    [HttpGet("replication")]
     public Task<ActionResult<ToolReport>> Report(string id, CancellationToken cancellationToken) =>
         DatabaseController.WithToolConnectionAsync(this, sessions, Engine, id, connection =>
             Engine == DatabaseEngine.RepServer
                 ? AseReplication.ReplicationServerAsync(connection, timeProvider.GetUtcNow(), cancellationToken)
                 : AseReplication.PrimaryAsync(connection, timeProvider.GetUtcNow(), cancellationToken));
 
-    [HttpPost("resume")]
+    /// <summary>Replication Server's Admin Commands and License reports.</summary>
+    [HttpGet("reports/{tool:regex(^(admin|license)$)}")]
+    public Task<ActionResult<ToolReport>> RepServerReport(string id, string tool, CancellationToken cancellationToken)
+    {
+        if (Engine != DatabaseEngine.RepServer)
+        {
+            // ASE's reports are in AseToolsController (api/ase/sessions/{id}/reports/…).
+            return Task.FromResult<ActionResult<ToolReport>>(NotFound());
+        }
+
+        return DatabaseController.WithToolConnectionAsync(this, sessions, Engine, id, connection =>
+            tool == SybaseAdmin.Admin
+                ? SybaseAdmin.AdminAsync(connection, timeProvider.GetUtcNow(), cancellationToken)
+                : SybaseAdmin.ReplicationServerLicenseAsync(connection, timeProvider.GetUtcNow(), cancellationToken));
+    }
+
+    [HttpPost("replication/resume")]
     public async Task<IActionResult> Resume(string id, ReplicationResumeRequest request, CancellationToken cancellationToken)
     {
         if (Engine != DatabaseEngine.RepServer)
