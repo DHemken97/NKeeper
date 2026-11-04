@@ -40,7 +40,6 @@ export function reconnectingApi(db: DbApi, mainId: string, current: () => string
     fixManyOrphans: wrap(db.fixManyOrphans),
     fixMatchedOrphans: wrap(db.fixMatchedOrphans),
     kill: wrap(db.kill),
-    replication: wrap(db.replication),
     report: wrap(db.report),
     resumeConnection: wrap(db.resumeConnection),
     compare: wrap(db.compare),

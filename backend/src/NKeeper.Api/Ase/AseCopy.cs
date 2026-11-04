@@ -186,17 +186,8 @@ internal static partial class AseCopy
 
     public static async Task<ToolSection> RunAsync(DbConnection source, DbConnection target, AseCopyStepRequest request, IReadOnlyList<string> knownServers, CancellationToken cancellationToken)
     {
-        RequireName(request.Database);
-        RequireName(request.TargetDatabase);
-        var (connection, title, statements) = request.Step switch
-        {
-            "create" => (target, "Create the target database", new[] { CreateStatement(request) }),
-            "dump" => (source, $"Dump {request.Database}", new[] { DumpStatement(request, knownServers) }),
-            "load" => (target, $"Load {request.TargetDatabase}", new[] { $"load database {AseDba.Quote(request.TargetDatabase)} from {Literal(RequirePath(request.LoadPath ?? request.DumpPath))}" }),
-            "online" => (target, $"Bring {request.TargetDatabase} online", new[] { $"online database {AseDba.Quote(request.TargetDatabase)}" }),
-            "settrunc" => (target, "Clear the replication truncation point", new[] { $"use {AseDba.Quote(request.TargetDatabase)}", "dbcc settrunc('ltm', 'ignore')", "use master" }),
-            _ => throw new SqlExplorerException("Unknown step."),
-        };
+        var (onSource, title, statements) = Plan(request, knownServers);
+        var connection = onSource ? source : target;
 
         var messages = new List<SqlOutput>();
         var ase = (AseConnection)connection;
@@ -246,15 +237,25 @@ internal static partial class AseCopy
         }
     }
 
-    /// <summary>The statements a step would run, to show before running them.</summary>
-    public static string Describe(AseCopyStepRequest request, IReadOnlyList<string> knownServers) => request.Step switch
+    /// <summary>
+    /// What a step runs, and where: every name and path checked first (names as ASE accepts them, paths without
+    /// quotes, a remote Backup Server the source knows), so nothing the user typed reaches SQL unchecked.
+    /// </summary>
+    internal static (bool OnSource, string Title, string[] Statements) Plan(AseCopyStepRequest request, IReadOnlyList<string> knownServers)
     {
-        "create" => CreateStatement(request),
-        "dump" => DumpStatement(request, knownServers),
-        "load" => $"load database {AseDba.Quote(request.TargetDatabase)} from {Literal(RequirePath(request.LoadPath ?? request.DumpPath))}",
-        "online" => $"online database {AseDba.Quote(request.TargetDatabase)}",
-        _ => $"use {AseDba.Quote(request.TargetDatabase)}; dbcc settrunc('ltm', 'ignore')",
-    };
+        RequireName(request.Database);
+        RequireName(request.TargetDatabase);
+        var target = AseDba.Quote(request.TargetDatabase);
+        return request.Step switch
+        {
+            "create" => (false, "Create the target database", [CreateStatement(request)]),
+            "dump" => (true, $"Dump {request.Database}", [DumpStatement(request, knownServers)]),
+            "load" => (false, $"Load {request.TargetDatabase}", [$"load database {target} from {Literal(RequirePath(request.LoadPath ?? request.DumpPath))}"]),
+            "online" => (false, $"Bring {request.TargetDatabase} online", [$"online database {target}"]),
+            "settrunc" => (false, "Clear the replication truncation point", [$"use {target}", "dbcc settrunc('ltm', 'ignore')", "use master"]),
+            _ => throw new SqlExplorerException("Unknown step."),
+        };
+    }
 
     private static string DumpStatement(AseCopyStepRequest request, IReadOnlyList<string> knownServers)
     {
@@ -339,9 +340,9 @@ internal static partial class AseCopy
         (await DbQuery.ListAsync(connection, "SELECT count(*) FROM master..sysdatabases WHERE name = @db", [("@db", name)], r => DbQuery.Int(r, 0), cancellationToken))[0] > 0;
 
     /// <summary>"16.0 SP03 PL08" → 16, 0, 3, 8: compared in order.</summary>
-    private static VersionKeyValue VersionKey(string version) => new([.. Numbers().Matches(version).Select(m => int.Parse(m.Value, CultureInfo.InvariantCulture)).Take(4)]);
+    internal static VersionKeyValue VersionKey(string version) => new([.. Numbers().Matches(version).Select(m => int.Parse(m.Value, CultureInfo.InvariantCulture)).Take(4)]);
 
-    private sealed record VersionKeyValue(int[] Parts) : IComparable<VersionKeyValue>
+    internal sealed record VersionKeyValue(int[] Parts) : IComparable<VersionKeyValue>
     {
         public int CompareTo(VersionKeyValue? other)
         {

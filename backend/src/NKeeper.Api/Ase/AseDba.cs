@@ -33,15 +33,6 @@ internal static class AseDba
         new() { Kind = Kinds.Tool, Label = "Copy Database", Detail = "Dump here, load on another server", Name = CopyTool },
     ];
 
-    public static Task<ToolReport> ReportAsync(DbConnection connection, string tool, DateTimeOffset now, CancellationToken cancellationToken) => tool switch
-    {
-        Space => SpaceAsync(connection, now, cancellationToken),
-        SybaseAdmin.License => SybaseAdmin.AseLicenseAsync(connection, now, cancellationToken),
-        AseHealth.Dumps or AseHealth.Errors or AseHealth.Resources or AseHealth.Security or AseHealth.Maintenance => AseHealth.ReportAsync(connection, tool, now, cancellationToken),
-        Drift => DriftAsync(connection, now, cancellationToken),
-        _ => throw new SqlExplorerException($"There's no “{tool}” report."),
-    };
-
     // ---- Space ----
 
     /// <summary>A database's space, in MB: data (every fragment that isn't log-only) and log.</summary>
@@ -93,7 +84,7 @@ internal static class AseDba
             r => new DeviceSpace(DbQuery.Text(r, 0)!, DbQuery.Text(r, 1) ?? string.Empty, Number(r, 2), Number(r, 3)),
             cancellationToken);
 
-    private static async Task<ToolReport> SpaceAsync(DbConnection connection, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ToolReport> SpaceAsync(DbConnection connection, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var warnings = new List<string>();
         var sections = new List<ToolSection>();
@@ -232,7 +223,7 @@ internal static class AseDba
         }
         else
         {
-            sections.Add(await AseReplication.SectionAsync(connection, "Devices", "sp_helpdevice", cancellationToken));
+            sections.Add(await AseSections.RunAsync(connection, "Devices", "sp_helpdevice", cancellationToken));
         }
 
         return new ToolReport(warnings, [], sections, now);
@@ -252,7 +243,7 @@ internal static class AseDba
 
     private sealed record ReplicationRoles(string Database, int ReplicatedTables, bool Replicate, bool TicketHistory, bool Rssd);
 
-    private static async Task<ToolReport> DriftAsync(DbConnection connection, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ToolReport> DriftAsync(DbConnection connection, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var warnings = new List<string>();
         var sections = new List<ToolSection>();
@@ -365,7 +356,7 @@ internal static class AseDba
 
         foreach (var role in roles.Where(r => r.TicketHistory))
         {
-            sections.Add(await AseReplication.SectionAsync(
+            sections.Add(await AseSections.RunAsync(
                 connection,
                 $"rs_ticket history · {role.Database}",
                 $"SET ROWCOUNT 10 SELECT * FROM {Quote(role.Database)}..rs_ticket_history ORDER BY cnt DESC SET ROWCOUNT 0",
@@ -377,7 +368,7 @@ internal static class AseDba
 
         foreach (var role in roles.Where(r => r.Rssd))
         {
-            var exceptions = await AseReplication.SectionAsync(
+            var exceptions = await AseSections.RunAsync(
                 connection,
                 $"Exceptions log · {role.Database} (RSSD)",
                 $"""

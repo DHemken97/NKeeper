@@ -20,48 +20,17 @@ public sealed record ReplicationResumeRequest
     public bool SkipTransaction { get; init; }
 }
 
-/// <summary>
-/// Replication Health: on an ASE tab, the primary side (logs and Rep Agents); on a Replication Server tab,
-/// its threads, queues and stable devices, and resuming suspended connections (audited).
-/// </summary>
+/// <summary>Resuming a Replication Server's suspended connections (audited). Its reports are DatabaseController's.</summary>
 [ApiController]
 [Authorize]
-[Route("api/{engine:regex(^(ase|rs)$)}/sessions/{id}")]
-public sealed class ReplicationController(DatabaseSessionStore sessions, AuditLog audit, TimeProvider timeProvider) : ControllerBase
+[Route("api/rs/sessions/{id}")]
+public sealed class ReplicationController(DatabaseSessionStore sessions, AuditLog audit) : ControllerBase
 {
-    private DatabaseEngine Engine => DatabaseEngines.FromRoute(RouteData.Values["engine"] as string) ?? DatabaseEngine.Ase;
-
-    [HttpGet("replication")]
-    public Task<ActionResult<ToolReport>> Report(string id, CancellationToken cancellationToken) =>
-        DatabaseController.WithToolConnectionAsync(this, sessions, Engine, id, connection =>
-            Engine == DatabaseEngine.RepServer
-                ? AseReplication.ReplicationServerAsync(connection, timeProvider.GetUtcNow(), cancellationToken)
-                : AseReplication.PrimaryAsync(connection, timeProvider.GetUtcNow(), cancellationToken));
-
-    /// <summary>Replication Server's Admin Commands and License reports.</summary>
-    [HttpGet("reports/{tool:regex(^(admin|license)$)}")]
-    public Task<ActionResult<ToolReport>> RepServerReport(string id, string tool, CancellationToken cancellationToken)
-    {
-        if (Engine != DatabaseEngine.RepServer)
-        {
-            // ASE's reports are in AseToolsController (api/ase/sessions/{id}/reports/…).
-            return Task.FromResult<ActionResult<ToolReport>>(NotFound());
-        }
-
-        return DatabaseController.WithToolConnectionAsync(this, sessions, Engine, id, connection =>
-            tool == SybaseAdmin.Admin
-                ? SybaseAdmin.AdminAsync(connection, timeProvider.GetUtcNow(), cancellationToken)
-                : SybaseAdmin.ReplicationServerLicenseAsync(connection, timeProvider.GetUtcNow(), cancellationToken));
-    }
+    private const DatabaseEngine Engine = DatabaseEngine.RepServer;
 
     [HttpPost("replication/resume")]
     public async Task<IActionResult> Resume(string id, ReplicationResumeRequest request, CancellationToken cancellationToken)
     {
-        if (Engine != DatabaseEngine.RepServer)
-        {
-            return Problem(statusCode: StatusCodes.Status400BadRequest, title: "Connections are resumed on the Replication Server.");
-        }
-
         var result = await DatabaseController.WithToolConnectionAsync<bool>(this, sessions, Engine, id, async connection =>
         {
             await AseReplication.ResumeAsync(connection, request.Connection.Trim(), request.SkipTransaction, cancellationToken);

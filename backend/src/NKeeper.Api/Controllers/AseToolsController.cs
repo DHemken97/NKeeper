@@ -32,19 +32,14 @@ public sealed record AseCompareRequest
 }
 
 /// <summary>
-/// SAP ASE's Management tools beyond the explorer: Space and Replication Drift reports, comparing row counts with
-/// another server, and copying a database to another server (dump, load, online; each step audited).
+/// SAP ASE's tools that work between two servers: comparing row counts with another server, and copying a
+/// database to another server (dump, load, online; each step audited). Its reports are DatabaseController's.
 /// </summary>
 [ApiController]
 [Authorize]
 [Route("api/ase/sessions/{id}")]
 public sealed class AseToolsController(DatabaseSessionStore sessions, AuditLog audit, TimeProvider timeProvider) : ControllerBase
 {
-    [HttpGet("reports/{tool:regex(^(space|drift|license|dumps|errors|resources|security|maintenance)$)}")]
-    public Task<ActionResult<ToolReport>> Report(string id, string tool, CancellationToken cancellationToken) =>
-        DatabaseController.WithToolConnectionAsync(this, sessions, DatabaseEngine.Ase, id, connection =>
-            AseDba.ReportAsync(connection, tool, timeProvider.GetUtcNow(), cancellationToken));
-
     [HttpPost("drift/compare")]
     public Task<ActionResult<ToolReport>> Compare(string id, AseCompareRequest request, CancellationToken cancellationToken) =>
         WithBothAsync(id, request.OtherSessionId, (here, hereSession, there, thereSession) =>

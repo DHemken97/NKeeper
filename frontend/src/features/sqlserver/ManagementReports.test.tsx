@@ -87,7 +87,7 @@ function renderWorkspace(engine: 'oracle' | 'ase', tools: { label: string; name:
     },
     [`GET /api/${engine}/sessions/main/reports/storage`]: () => jsonResponse(200, report('Tablespaces')),
     [`GET /api/${engine}/sessions/main/reports/backups`]: () => jsonResponse(200, report('RMAN jobs')),
-    [`GET /api/${engine}/sessions/main/replication`]: () => jsonResponse(200, report('Transaction logs')),
+    [`GET /api/${engine}/sessions/main/reports/replication`]: () => jsonResponse(200, report('Transaction logs')),
     [`GET /api/${engine}/sessions/main/reports/license`]: () => jsonResponse(200, report('Licenses')),
     [`POST /api/${engine}/sessions/main/keepalive`]: () => (keptAlive.push(engine), new Response(null, { status: 204 })),
   })

@@ -1,7 +1,6 @@
 using System.Data.Common;
 using System.Globalization;
 using System.Text.RegularExpressions;
-using AdoNetCore.AseClient;
 using NKeeper.Api.Databases;
 using NKeeper.Api.SqlServer;
 using Kinds = NKeeper.Api.SqlServer.SqlObjectExplorer.Kinds;
@@ -22,8 +21,6 @@ internal static partial class AseReplication
 
     /// <summary>Stable devices at least this full are reported: when they fill, replication stops.</summary>
     private const double FullQueuePercent = 70;
-
-    private const int RowsPerResult = 500;
 
     public static SqlObjectNode ToolNode => new() { Kind = Kinds.Tool, Label = "Replication Health", Detail = "Rep Agents, logs, queues", Name = Tool };
 
@@ -109,7 +106,7 @@ internal static partial class AseReplication
             sections.Add(new ToolSection("Transaction logs", "master..sysusages, master..syslogshold", [], ex.Message));
         }
 
-        sections.Add(await SectionAsync(connection, "Rep Agents", "sp_help_rep_agent", cancellationToken));
+        sections.Add(await AseSections.RunAsync(connection, "Rep Agents", "sp_help_rep_agent", cancellationToken));
         return new ToolReport(warnings, [], sections, now);
     }
 
@@ -120,12 +117,12 @@ internal static partial class AseReplication
         var warnings = new List<string>();
         var suspended = new Dictionary<string, SuspendedConnection>(StringComparer.OrdinalIgnoreCase);
 
-        var health = await SectionAsync(connection, "Health", "admin health", cancellationToken);
-        var down = await SectionAsync(connection, "Down", "admin who_is_down", cancellationToken);
-        var who = await SectionAsync(connection, "Threads", "admin who", cancellationToken);
-        var queues = await SectionAsync(connection, "Queues", "admin who, sqm", cancellationToken);
-        var disk = await SectionAsync(connection, "Stable devices", "admin disk_space", cancellationToken);
-        var standby = await SectionAsync(connection, "Warm standby", "admin logical_status", cancellationToken);
+        var health = await AseSections.RunAsync(connection, "Health", "admin health", cancellationToken);
+        var down = await AseSections.RunAsync(connection, "Down", "admin who_is_down", cancellationToken);
+        var who = await AseSections.RunAsync(connection, "Threads", "admin who", cancellationToken);
+        var queues = await AseSections.RunAsync(connection, "Queues", "admin who, sqm", cancellationToken);
+        var disk = await AseSections.RunAsync(connection, "Stable devices", "admin disk_space", cancellationToken);
+        var standby = await AseSections.RunAsync(connection, "Warm standby", "admin logical_status", cancellationToken);
 
         var downCount = ToolReports.Rows(down).Count();
         if (downCount > 0)
@@ -184,65 +181,6 @@ internal static partial class AseReplication
     }
 
     // ---- Helpers ----
-
-    /// <summary>Runs a command and keeps everything it returned; a failure is the section's error, not the report's.</summary>
-    internal static async Task<ToolSection> SectionAsync(DbConnection connection, string title, string command, CancellationToken cancellationToken)
-    {
-        var results = new List<SqlOutput>();
-        var ase = connection as AseConnection;
-
-        void OnInfo(object sender, AseInfoMessageEventArgs e)
-        {
-            lock (results)
-            {
-                foreach (AseError error in e.Errors)
-                {
-                    if (error.Severity <= 10 && !string.IsNullOrWhiteSpace(error.Message))
-                    {
-                        results.Add(new SqlOutput("message", error.Message.TrimEnd()));
-                    }
-                }
-            }
-        }
-
-        if (ase is not null)
-        {
-            ase.InfoMessage += OnInfo;
-        }
-
-        try
-        {
-            await using var cmd = connection.CreateCommand();
-            cmd.CommandText = command;
-            cmd.CommandTimeout = 60;
-            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-            do
-            {
-                if (reader.FieldCount > 0)
-                {
-                    var result = await AseDialect.ReadResultAsync(reader, RowsPerResult, cancellationToken);
-                    lock (results)
-                    {
-                        results.Add(result);
-                    }
-                }
-            }
-            while (await reader.NextResultAsync(cancellationToken));
-
-            return new ToolSection(title, command, results, null);
-        }
-        catch (DbException ex)
-        {
-            return new ToolSection(title, command, results, ex.Message);
-        }
-        finally
-        {
-            if (ase is not null)
-            {
-                ase.InfoMessage -= OnInfo;
-            }
-        }
-    }
 
     /// <summary>A DSI thread's Info, e.g. "101 PDS.pdb" or "102(1) LDS.ldb": the connection is the server.database part.</summary>
     [GeneratedRegex(@"[A-Za-z_][A-Za-z0-9_$#@]*\.[A-Za-z_][A-Za-z0-9_$#@]*")]

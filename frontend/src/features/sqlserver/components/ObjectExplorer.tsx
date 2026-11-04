@@ -194,7 +194,7 @@ export function ObjectExplorer({ sessionId, server, onNewQuery, onScript, onOpen
       entries.push({ kind: 'item', label: 'New Query', onSelect: () => onNewQuery(node.kind === 'database' ? (node.name ?? undefined) : undefined) })
     }
     entries.push(...scripts)
-    if (node.name && node.kind !== 'tool') {
+    if (node.name && node.kind !== 'tool' && node.kind !== 'toolFolder') {
       entries.push({ kind: 'item', label: 'Copy name', detail: quotedName(node), onSelect: () => void navigator.clipboard?.writeText(quotedName(node)).catch(() => {}) })
     }
     if (node.expandable) {

@@ -59,7 +59,7 @@ export function ToolReportView({ tool, sessionId, active, onOpenQuery }: ToolRep
     setLoading(true)
     setError(null)
     try {
-      setReport(await (tool === 'replication' ? db.replication(sessionId) : db.report(sessionId, tool)))
+      setReport(await db.report(sessionId, tool))
     } catch (e) {
       setError(e instanceof ApiError ? e.message : `Couldn’t read ${HEADINGS[tool].title}.`)
     } finally {

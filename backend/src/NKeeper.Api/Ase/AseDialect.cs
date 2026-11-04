@@ -305,14 +305,8 @@ internal sealed class AseDialect(bool replicationServer = false) : IDatabaseDial
                 cancellationToken),
             Kinds.ServerRoles => await DbQuery.ListAsync(
                 connection, "SELECT name FROM master..syssrvroles ORDER BY name", [], r => new SqlObjectNode { Kind = Kinds.ServerRole, Label = DbQuery.Text(r, 0)! }, cancellationToken),
-            Kinds.Management =>
-            [
-                new SqlObjectNode { Kind = Kinds.Tool, Label = "Blocking Manager", Detail = "Blocking chains", Name = SqlObjectExplorer.BlockingManagerTool },
-                AseReplication.ToolNode,
-                .. AseDba.ToolNodes,
-                .. AseHealth.ToolNodes,
-                SybaseAdmin.LicenseNode,
-            ],
+            Kinds.Management => AseTools.Management,
+            Kinds.ToolFolder => AseTools.InFolder(node.Name),
             _ => throw new SqlExplorerException($"“{node.Kind}” has no children."),
         };
     }

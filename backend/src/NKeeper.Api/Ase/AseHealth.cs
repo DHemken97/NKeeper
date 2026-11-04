@@ -65,7 +65,7 @@ internal static class AseHealth
         var warnings = new List<string>();
         var boot = await ScalarDateAsync(connection, "SELECT @@boottime", cancellationToken);
 
-        var dumps = await SectionAsync(
+        var dumps = await AseSections.RunAsync(
             connection,
             "Last dumps",
             "master..sysdatabases, master..monOpenDatabases",
@@ -171,7 +171,7 @@ internal static class AseHealth
         dumps = dumps with { Scripts = scripts };
 
         var history = await ScalarIntAsync(connection, "SELECT value FROM master..sysconfigures WHERE name = 'enable dump history'", cancellationToken) == 1
-            ? await AseReplication.SectionAsync(connection, "Dump history", "sp_dump_history", cancellationToken)
+            ? await AseSections.RunAsync(connection, "Dump history", "sp_dump_history", cancellationToken)
             : null;
 
         return new ToolReport(warnings, [], history is null ? [dumps] : [dumps, history], now);
@@ -182,7 +182,7 @@ internal static class AseHealth
     private static async Task<ToolReport> ErrorsAsync(DbConnection connection, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var warnings = new List<string>();
-        var errors = await SectionAsync(
+        var errors = await AseSections.RunAsync(
             connection,
             "Errors (24 hours)",
             "master..monErrorLog",
@@ -211,7 +211,7 @@ internal static class AseHealth
             ],
         };
 
-        var deadlocks = await SectionAsync(
+        var deadlocks = await AseSections.RunAsync(
             connection,
             "Deadlocks (24 hours)",
             "master..monDeadLock",
@@ -252,7 +252,7 @@ internal static class AseHealth
     {
         var warnings = new List<string>();
 
-        var limits = await AseReplication.SectionAsync(connection, "Configured limits in use", "sp_monitorconfig 'all'", cancellationToken);
+        var limits = await AseSections.RunAsync(connection, "Configured limits in use", "sp_monitorconfig 'all'", cancellationToken);
         var raise = new List<ToolScript>();
         foreach (var (columns, row) in ToolReports.Rows(limits))
         {
@@ -281,7 +281,7 @@ internal static class AseHealth
             Note = "Since the server started: Max_Used is the most ever in use at once; Reuse_cnt counts times something had to be thrown out for room.",
         };
 
-        var sessions = await SectionAsync(
+        var sessions = await AseSections.RunAsync(
             connection,
             "Top sessions by CPU",
             "master..sysprocesses",
@@ -294,7 +294,7 @@ internal static class AseHealth
             """,
             cancellationToken);
 
-        var transactions = await SectionAsync(
+        var transactions = await AseSections.RunAsync(
             connection,
             "Open transactions",
             "master..syslogshold, master..sysprocesses",
@@ -315,7 +315,7 @@ internal static class AseHealth
             }
         }
 
-        var caches = await SectionAsync(
+        var caches = await AseSections.RunAsync(
             connection,
             "Data caches",
             "master..monDataCache",
@@ -336,7 +336,7 @@ internal static class AseHealth
             }
         }
 
-        var engines = await SectionAsync(
+        var engines = await AseSections.RunAsync(
             connection,
             "Engines",
             "master..monEngine",
@@ -362,7 +362,7 @@ internal static class AseHealth
     private static async Task<ToolReport> SecurityAsync(DbConnection connection, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var warnings = new List<string>();
-        var logins = await SectionAsync(
+        var logins = await AseSections.RunAsync(
             connection,
             "Locked or expired logins",
             "master..syslogins",
@@ -468,7 +468,7 @@ internal static class AseHealth
             null,
             "A user maps to a login by its id (suid), not its name. Often deliberate; after loading a database from another server, check each one.");
 
-        var idle = await SectionAsync(
+        var idle = await AseSections.RunAsync(
             connection,
             "Logins not used for 90 days",
             "master..syslogins",
@@ -574,22 +574,6 @@ internal static class AseHealth
 
     /// <summary>A datetime as "yyyy-mm-dd hh:mm:ss" (style 23 has a T in it).</summary>
     private static string Stamp(string expression) => $"str_replace(convert(varchar(19), {expression}, 23), 'T', ' ')";
-
-    private static async Task<ToolSection> SectionAsync(
-        DbConnection connection, string title, string source, string sql, CancellationToken cancellationToken, string? fallbackSql = null, string? note = null)
-    {
-        var section = await AseReplication.SectionAsync(connection, title, sql, cancellationToken);
-        if (section.Error is not null && fallbackSql is not null)
-        {
-            var fallback = await AseReplication.SectionAsync(connection, title, fallbackSql, cancellationToken);
-            if (fallback.Error is null)
-            {
-                return fallback with { Command = source, Note = $"{note} Monitoring couldn't be read ({section.Error.Trim()}): showing what the server keeps itself.".Trim() };
-            }
-        }
-
-        return section with { Command = source, Note = note };
-    }
 
     private static async Task<IReadOnlyList<string>> OnlineDatabasesAsync(DbConnection connection, CancellationToken cancellationToken) =>
         await DbQuery.ListAsync(

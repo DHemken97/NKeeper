@@ -240,6 +240,11 @@ public sealed class DatabaseController(DatabaseSessionStore sessions, AuditLog a
     public Task<ActionResult<BlockingReport>> Blocking(string id, CancellationToken cancellationToken) =>
         WithToolConnectionAsync(id, connection => Dialect.BlockingAsync(connection, timeProvider.GetUtcNow(), cancellationToken));
 
+    /// <summary>A Management report (Storage, Space, Replication Health…), by the tool name the explorer gives it.</summary>
+    [HttpGet("sessions/{id}/reports/{tool:minlength(1):maxlength(32)}")]
+    public Task<ActionResult<ToolReport>> Report(string id, string tool, CancellationToken cancellationToken) =>
+        WithToolConnectionAsync(id, connection => DatabaseReports.RunAsync(Engine, tool, connection, timeProvider.GetUtcNow(), cancellationToken));
+
     /// <summary>Ends another session on the server, rolling back its open transaction. Audited.</summary>
     [HttpPost("sessions/{id}/kill")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

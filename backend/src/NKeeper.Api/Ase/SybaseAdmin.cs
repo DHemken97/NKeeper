@@ -52,7 +52,7 @@ internal static class SybaseAdmin
         var sections = new List<ToolSection>();
         foreach (var (title, command) in AdminCommands)
         {
-            sections.Add(await AseReplication.SectionAsync(connection, title, command, cancellationToken));
+            sections.Add(await AseSections.RunAsync(connection, title, command, cancellationToken));
         }
 
         var down = ToolReports.Rows(Section(sections, "admin who_is_down")).Count();
@@ -92,8 +92,8 @@ internal static class SybaseAdmin
     {
         var sections = new List<ToolSection>
         {
-            await AseReplication.SectionAsync(connection, "License configuration", "sysadmin lmconfig", cancellationToken),
-            await AseReplication.SectionAsync(connection, "Version", "admin version", cancellationToken),
+            await AseSections.RunAsync(connection, "License configuration", "sysadmin lmconfig", cancellationToken),
+            await AseSections.RunAsync(connection, "Version", "admin version", cancellationToken),
         };
         return new ToolReport(LicenseWarnings(sections, now), [], sections, now);
     }
@@ -103,7 +103,7 @@ internal static class SybaseAdmin
     {
         var sections = new List<ToolSection>
         {
-            await AseReplication.SectionAsync(
+            await AseSections.RunAsync(
                 connection,
                 "Licenses",
                 "SELECT Name, Quantity, Type, Version, Status, LicenseExpiry, GraceExpiry, LicenseID, Filter, Attributes FROM master..monLicense",
@@ -111,21 +111,21 @@ internal static class SybaseAdmin
             {
                 Note = "From monLicense: it needs mon_role. Status “graced” means the server runs in its grace period until GraceExpiry.",
             },
-            await AseReplication.SectionAsync(connection, "SySAM configuration", "sp_lmconfig", cancellationToken),
-            await AseReplication.SectionAsync(connection, "Version", "SELECT @@version", cancellationToken),
+            await AseSections.RunAsync(connection, "SySAM configuration", "sp_lmconfig", cancellationToken),
+            await AseSections.RunAsync(connection, "Version", "SELECT @@version", cancellationToken),
         };
 
         // Older servers lack some monLicense columns: fall back to all of them.
         if (sections[0].Error is not null)
         {
-            sections[0] = (await AseReplication.SectionAsync(connection, "Licenses", "SELECT * FROM master..monLicense", cancellationToken)) with { Note = sections[0].Note };
+            sections[0] = (await AseSections.RunAsync(connection, "Licenses", "SELECT * FROM master..monLicense", cancellationToken)) with { Note = sections[0].Note };
         }
 
         return new ToolReport(LicenseWarnings(sections, now), [], sections, now);
     }
 
     /// <summary>Licenses in their grace period, or expiring soon, with the date; any row that mentions a grace period.</summary>
-    private static List<string> LicenseWarnings(IEnumerable<ToolSection> sections, DateTimeOffset now)
+    internal static List<string> LicenseWarnings(IEnumerable<ToolSection> sections, DateTimeOffset now)
     {
         var warnings = new List<string>();
         foreach (var section in sections)

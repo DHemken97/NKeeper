@@ -15,7 +15,7 @@ public sealed class AseReportsLiveTests
 
     public static TheoryData<string> Reports() =>
     [
-        AseDba.Space, AseDba.Drift, SybaseAdmin.License,
+        AseReplication.Tool, AseDba.Space, AseDba.Drift, SybaseAdmin.License,
         AseHealth.Dumps, AseHealth.Errors, AseHealth.Resources, AseHealth.Security, AseHealth.Maintenance,
     ];
 
@@ -27,7 +27,7 @@ public sealed class AseReportsLiveTests
         await using var connection = new AseConnection(ConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
 
-        var report = await AseDba.ReportAsync(connection, tool, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken);
+        var report = await DatabaseReports.RunAsync(DatabaseEngine.Ase, tool, connection, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken);
 
         var failed = report.Sections.Where(s => s.Error is not null).Select(s => $"{s.Title}: {s.Error}").ToList();
         Assert.True(failed.Count == 0, string.Join("\n", failed));

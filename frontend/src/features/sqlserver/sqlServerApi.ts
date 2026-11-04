@@ -290,9 +290,8 @@ function createDbApi(engine: DbEngine) {
         { body: { fixes } },
       ),
     fixMatchedOrphans: (sessionId: string) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix-matched`),
-    replication: (sessionId: string) => api.get<ToolReport>(`${base(sessionId)}/replication`),
     /** Oracle: Storage, Backups or Health; ASE: Space, Replication Drift or License; Replication Server: Admin Commands or License. */
-    report: (sessionId: string, tool: OracleReport | AseReport | RepServerReport) => api.get<ToolReport>(`${base(sessionId)}/reports/${tool}`),
+    report: (sessionId: string, tool: Exclude<ToolKind, 'blocking' | 'orphans' | 'copy'>) => api.get<ToolReport>(`${base(sessionId)}/reports/${tool}`),
     /** Replication Server: resume connection to server.database (optionally skipping the failed transaction). Audited. */
     resumeConnection: (sessionId: string, connection: string, skipTransaction: boolean) =>
       api.post<void>(`${base(sessionId)}/replication/resume`, { body: { connection, skipTransaction } }),
