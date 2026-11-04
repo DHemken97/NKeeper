@@ -283,8 +283,11 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
                 onNewQuery={(database) => addDocument({ kind: 'query', sql: '', database })}
                 onScript={(node, action) => void script(node, action)}
                 onOpenTool={(name) => {
-                  if ((info.tools as string[]).includes(name)) {
+                  if (name in TOOL_TITLES) {
                     addDocument({ kind: name as ToolKind })
+                  } else {
+                    // The server offers a tool this page doesn't know: the page is older than the server.
+                    setExplorerError(`This page can't open “${name}” yet: reload the page to get the latest NKeeper.`)
                   }
                 }}
               />
