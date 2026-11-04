@@ -7,8 +7,8 @@ import { Dialog } from '../../../components/ui/Dialog'
 import { PasswordField } from '../../../components/ui/PasswordField'
 import { TextField } from '../../../components/ui/TextField'
 import { ApiError } from '../../../lib/api'
-import { sqlServerApi, type OrphanFix, type OrphanReport, type OrphanedUser } from '../sqlServerApi'
-import styles from './SqlServer.module.css'
+import { sqlServerApi, type OrphanFix, type OrphanReport, type OrphanedUser } from '../databaseApi'
+import styles from './Database.module.css'
 
 interface OrphanedUsersProps {
   /** The SQL Server tab's own session. */
@@ -222,13 +222,13 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
         : login !== '')
 
   return (
-    <div className={styles.blocking} hidden={!active} role="tabpanel" aria-label="Orphaned Users">
-      <header className={styles.blockingHeader}>
+    <div className={styles.toolPage} hidden={!active} role="tabpanel" aria-label="Orphaned Users">
+      <header className={styles.toolHeader}>
         <div>
           <h2>Orphaned Users</h2>
           <p>Database users whose login is missing or no longer matches, as after restoring a database on another server</p>
         </div>
-        <div className={styles.blockingActions}>
+        <div className={styles.toolActions}>
           <span className={styles.toolbarNote}>{report ? `${report.databasesChecked} databases checked` : null}</span>
           <Button size="sm" variant="secondary" onClick={() => void refresh()} loading={loading}>
             Refresh
@@ -271,7 +271,7 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
       {report && users.length === 0 && owners.length === 0 ? <p className={styles.blockingEmpty}>No orphaned users: every database user maps to a login.</p> : null}
 
       {users.length > 0 ? (
-        <div className={styles.blockingTableWrap}>
+        <div className={styles.toolTableWrap}>
           <div className={styles.bulkBar} role="toolbar" aria-label="Selected users">
             <span className={styles.toolbarNote}>Select:</span>
             <Button size="sm" variant="ghost" onClick={() => select(users)}>
@@ -296,7 +296,7 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
               </Button>
             </span>
           </div>
-          <table className={styles.blockingTable} aria-label="Orphaned users">
+          <table className={styles.toolTable} aria-label="Orphaned users">
             <thead>
               <tr>
                 <th scope="col" className={styles.checkCell}>
@@ -376,9 +376,9 @@ export function OrphanedUsers({ sessionId, active }: OrphanedUsersProps) {
       ) : null}
 
       {owners.length > 0 ? (
-        <div className={styles.blockingTableWrap}>
+        <div className={styles.toolTableWrap}>
           <h3 className={styles.sectionTitle}>Databases whose owner login is missing</h3>
-          <table className={styles.blockingTable} aria-label="Databases without an owner">
+          <table className={styles.toolTable} aria-label="Databases without an owner">
             <thead>
               <tr>
                 <th scope="col">Database</th>

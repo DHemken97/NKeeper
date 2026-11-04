@@ -1,6 +1,7 @@
 import { api } from '../../lib/api'
 import type { CertificatePrompt } from '../terminal/kvm'
 import type { SessionRequest } from '../terminal/types'
+import type { ReportTool } from './tools'
 
 /** What a database server says about itself when a session opens. */
 export interface SqlServerInfo {
@@ -235,32 +236,19 @@ export function openRequestBody(request: SessionRequest, trustFingerprint?: stri
 /** The database engines the explorer works with, by the API path they're under. */
 export type DbEngine = 'mssql' | 'oracle' | 'ase' | 'rs'
 
-/** The Management tools, by the name the explorer gives them. */
-export type ToolKind = 'blocking' | 'orphans' | 'replication' | 'copy' | OracleReport | AseReport | RepServerReport
-
-/** Oracle's read-only Management reports. */
-export type OracleReport = 'storage' | 'backups' | 'health'
-
-/** SAP ASE's read-only Management reports. */
-export type AseReport = 'space' | 'drift' | 'license' | 'dumps' | 'errors' | 'resources' | 'security' | 'maintenance'
-
-/** Replication Server's read-only Management reports. */
-export type RepServerReport = 'admin' | 'license'
 
 export interface DbEngineInfo {
   /** e.g. "SQL Server": the product, as the tab and messages name it. */
   product: string
   /** What a query window's database list holds: Oracle switches schemas; null when there's none (Replication Server). */
   databaseLabel: string | null
-  /** The Management tools this engine has. */
-  tools: ToolKind[]
 }
 
 export const DB_ENGINES: Record<DbEngine, DbEngineInfo> = {
-  mssql: { product: 'SQL Server', databaseLabel: 'Database', tools: ['blocking', 'orphans'] },
-  oracle: { product: 'Oracle', databaseLabel: 'Schema', tools: ['blocking', 'storage', 'backups', 'health'] },
-  ase: { product: 'SAP ASE', databaseLabel: 'Database', tools: ['blocking', 'replication', 'space', 'drift', 'copy', 'license', 'dumps', 'errors', 'resources', 'security', 'maintenance'] },
-  rs: { product: 'Replication Server', databaseLabel: null, tools: ['replication', 'admin', 'license'] },
+  mssql: { product: 'SQL Server', databaseLabel: 'Database' },
+  oracle: { product: 'Oracle', databaseLabel: 'Schema' },
+  ase: { product: 'SAP ASE', databaseLabel: 'Database' },
+  rs: { product: 'Replication Server', databaseLabel: null },
 }
 
 function createDbApi(engine: DbEngine) {
@@ -290,8 +278,8 @@ function createDbApi(engine: DbEngine) {
         { body: { fixes } },
       ),
     fixMatchedOrphans: (sessionId: string) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix-matched`),
-    /** Oracle: Storage, Backups or Health; ASE: Space, Replication Drift or License; Replication Server: Admin Commands or License. */
-    report: (sessionId: string, tool: Exclude<ToolKind, 'blocking' | 'orphans' | 'copy'>) => api.get<ToolReport>(`${base(sessionId)}/reports/${tool}`),
+    /** A Management report (tools.ts lists them). */
+    report: (sessionId: string, tool: ReportTool) => api.get<ToolReport>(`${base(sessionId)}/reports/${tool}`),
     /** Replication Server: resume connection to server.database (optionally skipping the failed transaction). Audited. */
     resumeConnection: (sessionId: string, connection: string, skipTransaction: boolean) =>
       api.post<void>(`${base(sessionId)}/replication/resume`, { body: { connection, skipTransaction } }),

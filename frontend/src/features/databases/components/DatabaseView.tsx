@@ -7,19 +7,20 @@ import sessionStyles from '../../terminal/components/Session.module.css'
 import type { HostKeyMessage, RemoteSession, SessionPhase } from '../../terminal/types'
 import { DbApiContext, DbEngineContext } from '../engineContext'
 import { reconnectingApi } from '../reconnectingApi'
-import { dbApi, DB_ENGINES, type DbEngine, type ToolKind, type SqlObjectNode, type SqlOpenResponse, type SqlScriptAction, type SqlServerInfo } from '../sqlServerApi'
+import { dbApi, DB_ENGINES, type DbEngine, type SqlObjectNode, type SqlOpenResponse, type SqlScriptAction, type SqlServerInfo } from '../databaseApi'
 import { useKeepAlive } from '../useKeepAlive'
 import { BlockingManager } from './BlockingManager'
 import { ObjectExplorer } from './ObjectExplorer'
 import { OrphanedUsers } from './OrphanedUsers'
 import { QueryWindow } from './QueryWindow'
 import { CopyDatabase } from './CopyDatabase'
-import { ToolReportView, type ReportTool } from './ToolReportView'
+import { ToolReportView } from './ToolReportView'
+import { isReport, isTool, TOOLS, type ToolKind } from '../tools'
 import { storedNumber, storeNumber } from '../storedSize'
 import { Splitter } from './Splitter'
-import styles from './SqlServer.module.css'
+import styles from './Database.module.css'
 
-interface SqlServerViewProps {
+interface DatabaseViewProps {
   session: RemoteSession
   active: boolean
   onShowHost: (hostId: string) => void
@@ -35,28 +36,9 @@ type SqlDocument =
 /** A document to open; it's titled SQLQueryN unless it says otherwise. */
 type NewDocument = { kind: 'query'; sql: string; database?: string; runOnOpen?: boolean; title?: string } | { kind: ToolKind; title?: string }
 
-const TOOL_TITLES: Record<ToolKind, string> = {
-  blocking: 'Blocking Manager',
-  orphans: 'Orphaned Users',
-  replication: 'Replication Health',
-  storage: 'Storage',
-  backups: 'Backups',
-  health: 'Health',
-  space: 'Space',
-  drift: 'Replication Drift',
-  copy: 'Copy Database',
-  admin: 'Admin Commands',
-  license: 'License',
-  dumps: 'Backups (dumps)',
-  errors: 'Error Log',
-  resources: 'Resources & Activity',
-  security: 'Logins & Users',
-  maintenance: 'Maintenance',
-}
 
 let nextDocument = 1
 
-const REPORT_TOOLS = new Set<string>(['replication', 'storage', 'backups', 'health', 'space', 'drift', 'admin', 'license', 'dumps', 'errors', 'resources', 'security', 'maintenance'])
 
 const EXPLORER_WIDTH_KEY = 'nkeeper.sql.explorerWidth'
 const DEFAULT_EXPLORER_WIDTH = 280
@@ -89,7 +71,7 @@ const SQL_CERTIFICATE_NOTE = {
  * and the blocking manager (opened from Management) as tabs on the right. The explorer and blocking manager use this tab's own
  * session; each query window opens another with the same login.
  */
-export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }: SqlServerViewProps) {
+export function DatabaseView({ session, active, onShowHost, engine = 'mssql' }: DatabaseViewProps) {
   const db = dbApi(engine)
   const info = DB_ENGINES[engine]
   const product = info.product
@@ -247,7 +229,7 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
     }
     const queries = documents.filter((d) => d.kind === 'query').length
     const id = `doc-${nextDocument++}`
-    const title = document.title ?? (document.kind === 'query' ? `SQLQuery${queries + 1}` : TOOL_TITLES[document.kind])
+    const title = document.title ?? (document.kind === 'query' ? `SQLQuery${queries + 1}` : TOOLS[document.kind].title)
     setDocuments((current) => [...current, { ...document, id, title } as SqlDocument])
     setActiveDocument(id)
   }
@@ -287,144 +269,144 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
 
   return (
     <DbEngineContext.Provider value={engine}>
-    <DbApiContext.Provider value={tabApi}>
-    <div className={sessionStyles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} ${product}`}>
-      <SessionStatusBar phase={phase}>
-        {connected ? (
-          <>
-            <span className={styles.serverInfo}>
-              {product} {main.server.productVersion}
-              {main.server.edition ? ` · ${main.server.edition}` : ''}
-            </span>
-            {liveId ? null : <span className={styles.serverInfo}>Disconnected · reconnects when used</span>}
-            <Button variant="ghost" size="sm" onClick={() => addDocument({ kind: 'query', sql: '' })}>
-              New Query
-            </Button>
-          </>
-        ) : null}
-      </SessionStatusBar>
+      <DbApiContext.Provider value={tabApi}>
+        <div className={sessionStyles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} ${product}`}>
+          <SessionStatusBar phase={phase}>
+            {connected ? (
+              <>
+                <span className={styles.serverInfo}>
+                  {product} {main.server.productVersion}
+                  {main.server.edition ? ` · ${main.server.edition}` : ''}
+                </span>
+                {liveId ? null : <span className={styles.serverInfo}>Disconnected · reconnects when used</span>}
+                <Button variant="ghost" size="sm" onClick={() => addDocument({ kind: 'query', sql: '' })}>
+                  New Query
+                </Button>
+              </>
+            ) : null}
+          </SessionStatusBar>
 
-      <div className={`${sessionStyles.terminalArea} ${styles.area}`}>
-        {phase.kind === 'connecting' ? <OpeningCard /> : null}
-        {phase.kind === 'hostKey' ? (
-          <TrustCard
-            prompt={phase.prompt}
-            target={phase.target}
-            onDecide={decide}
-            certificateNote={SQL_CERTIFICATE_NOTE}
-            intro={
-              renewed
-                ? `${phase.target} has a new self-signed certificate. SQL Server makes a new one each time it starts when it has none of its own, so this is expected after a restart.`
-                : undefined
-            }
-          />
-        ) : null}
-        {phase.kind === 'ended' ? (
-          <EndedCard message={phase.message} code={phase.code} canReconnect onReconnect={reconnect} onShowHost={() => onShowHost(session.hostId)} />
-        ) : null}
-
-        {connected ? (
-          <div className={styles.workspace} ref={workspaceRef}>
-            <aside className={styles.explorer} aria-label="Object Explorer" style={{ width: explorerWidth }}>
-              <div className={styles.paneTitle}>Object Explorer</div>
-              {explorerError ? (
-                <p className={styles.paneError} role="alert">
-                  {explorerError}
-                </p>
-              ) : null}
-              <ObjectExplorer
-                sessionId={main.id}
-                server={main.server}
-                onNewQuery={(database) => addDocument({ kind: 'query', sql: '', database })}
-                onScript={(node, action) => void script(node, action)}
-                onOpenTool={(name) => {
-                  if (name in TOOL_TITLES) {
-                    addDocument({ kind: name as ToolKind })
-                  } else {
-                    // The server offers a tool this page doesn't know: the page is older than the server.
-                    setExplorerError(`This page can't open “${name}” yet: reload the page to get the latest NKeeper.`)
-                  }
-                }}
+          <div className={`${sessionStyles.terminalArea} ${styles.area}`}>
+            {phase.kind === 'connecting' ? <OpeningCard /> : null}
+            {phase.kind === 'hostKey' ? (
+              <TrustCard
+                prompt={phase.prompt}
+                target={phase.target}
+                onDecide={decide}
+                certificateNote={SQL_CERTIFICATE_NOTE}
+                intro={
+                  renewed
+                    ? `${phase.target} has a new self-signed certificate. SQL Server makes a new one each time it starts when it has none of its own, so this is expected after a restart.`
+                    : undefined
+                }
               />
-            </aside>
-            <Splitter
-              direction="columns"
-              label="Resize Object Explorer"
-              value={explorerWidth}
-              min={MIN_EXPLORER_WIDTH}
-              max={maxExplorerWidth()}
-              onMove={(x) => resizeExplorer(x - (workspaceRef.current?.getBoundingClientRect().left ?? 0))}
-              onStep={(direction, big) => resizeExplorer(explorerWidth + direction * (big ? 80 : 16))}
-              onReset={() => resizeExplorer(DEFAULT_EXPLORER_WIDTH)}
-            />
+            ) : null}
+            {phase.kind === 'ended' ? (
+              <EndedCard message={phase.message} code={phase.code} canReconnect onReconnect={reconnect} onShowHost={() => onShowHost(session.hostId)} />
+            ) : null}
 
-            <section className={styles.documents}>
-              <div className={styles.documentTabs} role="tablist" aria-label="Query windows">
-                {documents.map((document) => (
-                  <div key={document.id} className={`${styles.documentTab} ${document.id === activeDocument ? styles.documentTabActive : ''}`}>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={document.id === activeDocument}
-                      className={styles.documentTabButton}
-                      onClick={() => setActiveDocument(document.id)}
-                    >
-                      {document.title}
-                    </button>
-                    <button type="button" className={styles.documentClose} onClick={() => closeDocument(document.id)} aria-label={`Close ${document.title}`}>
-                      ×
-                    </button>
+            {connected ? (
+              <div className={styles.workspace} ref={workspaceRef}>
+                <aside className={styles.explorer} aria-label="Object Explorer" style={{ width: explorerWidth }}>
+                  <div className={styles.paneTitle}>Object Explorer</div>
+                  {explorerError ? (
+                    <p className={styles.paneError} role="alert">
+                      {explorerError}
+                    </p>
+                  ) : null}
+                  <ObjectExplorer
+                    sessionId={main.id}
+                    server={main.server}
+                    onNewQuery={(database) => addDocument({ kind: 'query', sql: '', database })}
+                    onScript={(node, action) => void script(node, action)}
+                    onOpenTool={(name) => {
+                      if (isTool(name)) {
+                        addDocument({ kind: name })
+                      } else {
+                        // The server offers a tool this page doesn't know: the page is older than the server.
+                        setExplorerError(`This page can't open “${name}” yet: reload the page to get the latest NKeeper.`)
+                      }
+                    }}
+                  />
+                </aside>
+                <Splitter
+                  direction="columns"
+                  label="Resize Object Explorer"
+                  value={explorerWidth}
+                  min={MIN_EXPLORER_WIDTH}
+                  max={maxExplorerWidth()}
+                  onMove={(x) => resizeExplorer(x - (workspaceRef.current?.getBoundingClientRect().left ?? 0))}
+                  onStep={(direction, big) => resizeExplorer(explorerWidth + direction * (big ? 80 : 16))}
+                  onReset={() => resizeExplorer(DEFAULT_EXPLORER_WIDTH)}
+                />
+
+                <section className={styles.documents}>
+                  <div className={styles.documentTabs} role="tablist" aria-label="Query windows">
+                    {documents.map((document) => (
+                      <div key={document.id} className={`${styles.documentTab} ${document.id === activeDocument ? styles.documentTabActive : ''}`}>
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={document.id === activeDocument}
+                          className={styles.documentTabButton}
+                          onClick={() => setActiveDocument(document.id)}
+                        >
+                          {document.title}
+                        </button>
+                        <button type="button" className={styles.documentClose} onClick={() => closeDocument(document.id)} aria-label={`Close ${document.title}`}>
+                          ×
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                  {documents.length === 0 ? (
+                    <div className={styles.emptyDocuments}>
+                      <p>No query windows open.</p>
+                      <Button size="sm" onClick={() => addDocument({ kind: 'query', sql: '' })}>
+                        New Query
+                      </Button>
+                    </div>
+                  ) : null}
+                  {documents.map((document) =>
+                    document.kind === 'query' ? (
+                      <QueryWindow
+                        key={document.id}
+                        title={document.title}
+                        request={session.request}
+                        target={main.target}
+                        databases={databases}
+                        initialSql={document.sql}
+                        initialDatabase={document.database}
+                        runOnOpen={document.runOnOpen}
+                        active={active && document.id === activeDocument}
+                      />
+                    ) : document.kind === 'copy' ? (
+                      <CopyDatabase key={document.id} sessionId={main.id} active={active && document.id === activeDocument} />
+                    ) : isReport(document.kind) ? (
+                      <ToolReportView
+                        key={document.id}
+                        tool={document.kind}
+                        sessionId={main.id}
+                        active={active && document.id === activeDocument}
+                        onOpenQuery={(sql) => addDocument({ kind: 'query', sql })}
+                      />
+                    ) : document.kind === 'orphans' ? (
+                      <OrphanedUsers key={document.id} sessionId={main.id} active={active && document.id === activeDocument} />
+                    ) : (
+                      <BlockingManager
+                        key={document.id}
+                        sessionId={main.id}
+                        active={active && document.id === activeDocument}
+                        onOpenQuery={(sql) => addDocument({ kind: 'query', sql })}
+                      />
+                    ),
+                  )}
+                </section>
               </div>
-              {documents.length === 0 ? (
-                <div className={styles.emptyDocuments}>
-                  <p>No query windows open.</p>
-                  <Button size="sm" onClick={() => addDocument({ kind: 'query', sql: '' })}>
-                    New Query
-                  </Button>
-                </div>
-              ) : null}
-              {documents.map((document) =>
-                document.kind === 'query' ? (
-                  <QueryWindow
-                    key={document.id}
-                    title={document.title}
-                    request={session.request}
-                    target={main.target}
-                    databases={databases}
-                    initialSql={document.sql}
-                    initialDatabase={document.database}
-                    runOnOpen={document.runOnOpen}
-                    active={active && document.id === activeDocument}
-                  />
-                ) : document.kind === 'copy' ? (
-                  <CopyDatabase key={document.id} sessionId={main.id} active={active && document.id === activeDocument} />
-                ) : REPORT_TOOLS.has(document.kind) ? (
-                  <ToolReportView
-                    key={document.id}
-                    tool={document.kind as ReportTool}
-                    sessionId={main.id}
-                    active={active && document.id === activeDocument}
-                    onOpenQuery={(sql) => addDocument({ kind: 'query', sql })}
-                  />
-                ) : document.kind === 'orphans' ? (
-                  <OrphanedUsers key={document.id} sessionId={main.id} active={active && document.id === activeDocument} />
-                ) : (
-                  <BlockingManager
-                    key={document.id}
-                    sessionId={main.id}
-                    active={active && document.id === activeDocument}
-                    onOpenQuery={(sql) => addDocument({ kind: 'query', sql })}
-                  />
-                ),
-              )}
-            </section>
+            ) : null}
           </div>
-        ) : null}
-      </div>
-    </div>
-    </DbApiContext.Provider>
+        </div>
+      </DbApiContext.Provider>
     </DbEngineContext.Provider>
   )
 }

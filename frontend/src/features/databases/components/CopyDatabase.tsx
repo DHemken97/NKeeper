@@ -4,9 +4,9 @@ import { Button } from '../../../components/ui/Button'
 import { Dialog } from '../../../components/ui/Dialog'
 import { ApiError } from '../../../lib/api'
 import { useDbApi } from '../engineContext'
-import type { AseCopyPlan, AseCopyStep, DatabaseSessionSummary, ToolSection } from '../sqlServerApi'
+import type { AseCopyPlan, AseCopyStep, DatabaseSessionSummary, ToolSection } from '../databaseApi'
 import { ReportSections } from './ReportSections'
-import styles from './SqlServer.module.css'
+import styles from './Database.module.css'
 
 interface CopyDatabaseProps {
   /** The tab's own session: the source server. */
@@ -129,15 +129,15 @@ export function CopyDatabase({ sessionId, active }: CopyDatabaseProps) {
   const remaining = stepList.filter((s) => steps[s]?.state !== 'done')
 
   return (
-    <div className={styles.blocking} hidden={!active} role="tabpanel" aria-label="Copy Database">
-      <header className={styles.blockingHeader}>
+    <div className={styles.toolPage} hidden={!active} role="tabpanel" aria-label="Copy Database">
+      <header className={styles.toolHeader}>
         <div>
           <h2>Copy Database</h2>
           <p>Dump Here, Load on Another Server</p>
         </div>
       </header>
 
-      <section className={styles.replicationSection}>
+      <section className={styles.reportPanel}>
         <div className={styles.reportForm}>
           <label className={styles.toolbarField}>
             <span>Database</span>
@@ -177,7 +177,7 @@ export function CopyDatabase({ sessionId, active }: CopyDatabaseProps) {
       </section>
 
       {plan ? (
-        <section className={styles.replicationSection} aria-label="Copy plan">
+        <section className={styles.reportPanel} aria-label="Copy plan">
           <h3>
             {database} on {plan.source.server} ({plan.source.version}) → {name} on {plan.target.server} ({plan.target.version})
           </h3>

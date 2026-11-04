@@ -233,7 +233,7 @@
 }
 
 .queryWindow[hidden],
-.blocking[hidden] {
+.toolPage[hidden] {
   display: none;
 }
 
@@ -551,76 +551,148 @@
 
 /* Blocking manager */
 
-.replicationSection {
-  padding: 0 16px 12px;
+/* ---- Management reports (ReportSections, ToolReportView, DriftCompare, CopyDatabase) ---- */
+
+.reportNav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: 0 var(--space-4) var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
 }
 
-.replicationSection h3 {
-  margin: 12px 0 6px;
+.reportNav button {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.reportNav button:hover {
+  text-decoration: underline;
+}
+
+.reportNav button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.reportPanel {
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.reportPanel h3 {
+  margin: var(--space-3) 0 var(--space-2);
   font-size: 0.95rem;
 }
 
-.replicationSection h3 code {
-  margin-left: 8px;
-  font-weight: 400;
+.reportSection {
+  padding: 0 var(--space-4) var(--space-3);
+  scroll-margin-top: var(--space-2);
+}
+
+.reportSection > summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 var(--space-2);
+  cursor: pointer;
+}
+
+.reportSection > summary:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.reportSection h3 {
+  display: inline;
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.reportSection code {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
   font-size: 0.8rem;
-  color: var(--color-text-muted, inherit);
+  color: var(--color-text-muted);
 }
 
 .reportForm {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 8px 12px;
-  margin: 6px 0;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-2) 0;
+}
+
+/* Text fields beside the toolbar's selects, in both themes. */
+.reportForm input:not([type='checkbox']),
+.reportField textarea {
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px var(--space-1);
+  background: var(--color-input);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font: inherit;
 }
 
 .reportField {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin: 8px 0;
+  gap: var(--space-1);
+  margin: var(--space-2) 0;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
 }
 
 .reportField textarea {
-  font-family: var(--font-mono, monospace);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
   font-size: 0.85rem;
 }
 
 .copySteps {
-  margin: 12px 0;
-  padding-left: 20px;
+  margin: var(--space-3) 0;
+  padding-left: var(--space-5);
 }
 
 .copyStep {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  margin: 6px 0;
+  gap: var(--space-3);
+  margin: var(--space-2) 0;
 }
 
 .reportScripts {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 4px 0 8px;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 var(--space-2);
 }
 
-.replicationGrid {
+.reportGrid {
   display: flex;
   flex-direction: column;
   max-height: 320px;
   overflow: auto;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
-.replicationMessage {
-  margin: 0 0 6px;
+.reportMessage {
+  margin: 0 0 var(--space-2);
+  overflow-x: auto;
   white-space: pre-wrap;
-  font-size: 0.85rem;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.8125rem;
 }
 
-.blocking {
+.toolPage {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -629,7 +701,7 @@
   padding: var(--space-4);
 }
 
-.blockingHeader {
+.toolHeader {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
@@ -637,18 +709,18 @@
   gap: var(--space-3);
 }
 
-.blockingHeader h2 {
+.toolHeader h2 {
   margin: 0;
   font-size: 1.125rem;
 }
 
-.blockingHeader p {
+.toolHeader p {
   margin: 2px 0 0;
   color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 
-.blockingActions {
+.toolActions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -659,18 +731,18 @@
   color: var(--color-text-muted);
 }
 
-.blockingTableWrap {
+.toolTableWrap {
   overflow-x: auto;
 }
 
-.blockingTable {
+.toolTable {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.8125rem;
 }
 
-.blockingTable th,
-.blockingTable td {
+.toolTable th,
+.toolTable td {
   padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--color-border);
   text-align: left;
@@ -678,17 +750,17 @@
   white-space: nowrap;
 }
 
-.blockingTable thead th {
+.toolTable thead th {
   color: var(--color-text-muted);
   font-weight: 600;
 }
 
-.blockingTable tbody tr:focus-visible {
+.toolTable tbody tr:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: -2px;
 }
 
-.blockingTable tbody tr:hover {
+.toolTable tbody tr:hover {
   background: var(--color-surface-raised);
 }
 

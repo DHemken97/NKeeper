@@ -3,9 +3,9 @@ import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
 import { ApiError } from '../../../lib/api'
 import { useDbApi } from '../engineContext'
-import type { DatabaseSessionSummary, ToolReport } from '../sqlServerApi'
+import type { DatabaseSessionSummary, ToolReport } from '../databaseApi'
 import { ReportSections } from './ReportSections'
-import styles from './SqlServer.module.css'
+import styles from './Database.module.css'
 
 /** Compare the row counts of a database's replicated tables here with a database on another open ASE server. */
 export function DriftCompare({ sessionId }: { sessionId: string }) {
@@ -53,7 +53,7 @@ export function DriftCompare({ sessionId }: { sessionId: string }) {
   }
 
   return (
-    <section className={styles.replicationSection} aria-label="Compare with another server">
+    <section className={styles.reportPanel} aria-label="Compare with another server">
       <h3>Compare with another server</h3>
       <p className={styles.hint}>Counts the rows of the replicated tables in a database here and in its replicate. Open the other server in another tab to list it.</p>
       <div className={styles.reportForm}>

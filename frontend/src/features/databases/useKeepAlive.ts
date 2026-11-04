@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { ApiError } from '../../lib/api'
 import { useDbApi } from './engineContext'
-import type { DbApi } from './sqlServerApi'
+import type { DbApi } from './databaseApi'
 
 /** How often an open tab tells the server its database session is still in use (it closes ones not heard from in 3 minutes). */
 export const KEEP_ALIVE_MS = 60 * 1000

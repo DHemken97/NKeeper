@@ -6,8 +6,8 @@ import { Dialog } from '../../../components/ui/Dialog'
 import { ApiError } from '../../../lib/api'
 import { formatElapsed } from '../format'
 import { useDbApi, useDbEngineInfo } from '../engineContext'
-import { type BlockingReport, type BlockingSession } from '../sqlServerApi'
-import styles from './SqlServer.module.css'
+import { type BlockingReport, type BlockingSession } from '../databaseApi'
+import styles from './Database.module.css'
 
 interface BlockingManagerProps {
   /** The database tab's own session (the blocking manager reads and kills on a short connection of its own). */
@@ -175,13 +175,13 @@ export function BlockingManager({ sessionId, active, onOpenQuery }: BlockingMana
   const rows = flatten(leads, expanded)
 
   return (
-    <div className={styles.blocking} hidden={!active} role="tabpanel" aria-label="Blocking Manager">
-      <header className={styles.blockingHeader}>
+    <div className={styles.toolPage} hidden={!active} role="tabpanel" aria-label="Blocking Manager">
+      <header className={styles.toolHeader}>
         <div>
           <h2>Lead Blockers</h2>
           <p>Sessions at the Root of Each Blocking Chain</p>
         </div>
-        <div className={styles.blockingActions}>
+        <div className={styles.toolActions}>
           <span className={styles.toolbarNote}>
             {report
               ? `${leads.length} ${leads.length === 1 ? 'chain' : 'chains'} · ${report.blockedCount} blocked · ${new Date(report.atUtc).toLocaleTimeString()}`
@@ -218,8 +218,8 @@ export function BlockingManager({ sessionId, active, onOpenQuery }: BlockingMana
       {report && leads.length === 0 ? <p className={styles.blockingEmpty}>No blocking right now.</p> : null}
 
       {leads.length > 0 ? (
-        <div className={styles.blockingTableWrap}>
-          <table className={styles.blockingTable} aria-label="Blocking chains">
+        <div className={styles.toolTableWrap}>
+          <table className={styles.toolTable} aria-label="Blocking chains">
             <thead>
               <tr>
                 <th scope="col">Session</th>

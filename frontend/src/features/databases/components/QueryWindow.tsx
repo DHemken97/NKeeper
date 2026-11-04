@@ -6,12 +6,12 @@ import { useCloseOnPageExit } from '../../../lib/pageExit'
 import type { SessionRequest } from '../../terminal/types'
 import { errorHeading, formatElapsed, lineRange, outputText, scriptToRun } from '../format'
 import { useDbApi, useDbEngineInfo } from '../engineContext'
-import { type SqlQueryResult } from '../sqlServerApi'
+import { type SqlQueryResult } from '../databaseApi'
 import { useKeepAlive } from '../useKeepAlive'
 import { ResultGrid } from './ResultGrid'
 import { storedNumber, storeNumber } from '../storedSize'
 import { Splitter } from './Splitter'
-import styles from './SqlServer.module.css'
+import styles from './Database.module.css'
 
 interface QueryWindowProps {
   title: string

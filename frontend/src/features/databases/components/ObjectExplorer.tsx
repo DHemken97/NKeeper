@@ -3,8 +3,8 @@ import { ContextMenu, type MenuEntry } from '../../../components/ui/ContextMenu'
 import { Spinner } from '../../../components/ui/Spinner'
 import { ApiError } from '../../../lib/api'
 import { useDbApi, useDbEngine, useDbEngineInfo } from '../engineContext'
-import { scriptsFor, type SqlObjectNode, type SqlScriptAction, type SqlServerInfo } from '../sqlServerApi'
-import styles from './SqlServer.module.css'
+import { scriptsFor, type SqlObjectNode, type SqlScriptAction, type SqlServerInfo } from '../databaseApi'
+import styles from './Database.module.css'
 
 interface ObjectExplorerProps {
   sessionId: string

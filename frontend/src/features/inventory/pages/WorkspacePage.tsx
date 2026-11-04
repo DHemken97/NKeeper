@@ -87,7 +87,7 @@ const KvmVmConsole = lazy(() => import('../../terminal/components/KvmVmConsole')
 const FileBrowser = lazy(() => import('../../terminal/components/FileBrowser').then((m) => ({ default: m.FileBrowser })))
 const StorageView = lazy(() => import('../../terminal/components/StorageView').then((m) => ({ default: m.StorageView })))
 const IdracView = lazy(() => import('../../terminal/components/IdracView').then((m) => ({ default: m.IdracView })))
-const SqlServerView = lazy(() => import('../../sqlserver/components/SqlServerView').then((m) => ({ default: m.SqlServerView })))
+const DatabaseView = lazy(() => import('../../databases/components/DatabaseView').then((m) => ({ default: m.DatabaseView })))
 const RpcSession = lazy(() => import('../../terminal/components/RpcSession').then((m) => ({ default: m.RpcSession })))
 const SORTS: { value: HostSort; label: string }[] = [
   { value: 'name', label: 'Name' },
@@ -1053,7 +1053,7 @@ export function WorkspacePage() {
             ) : session.protocol === 'sftp' ? (
               <FileBrowser key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'mssql' || session.protocol === 'oracle' || session.protocol === 'ase' || session.protocol === 'rs' ? (
-              <SqlServerView key={session.id} session={session} engine={session.protocol} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+              <DatabaseView key={session.id} session={session} engine={session.protocol} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'storage' ? (
               <StorageView key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'idrac' ? (

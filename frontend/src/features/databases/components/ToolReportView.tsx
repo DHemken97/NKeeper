@@ -3,30 +3,13 @@ import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
 import { Dialog } from '../../../components/ui/Dialog'
 import { ApiError } from '../../../lib/api'
-import { useDbApi, useDbEngine } from '../engineContext'
-import type { SuspendedConnection, ToolKind, ToolReport, ToolScript } from '../sqlServerApi'
+import { useDbApi } from '../engineContext'
+import type { SuspendedConnection, ToolReport, ToolScript } from '../databaseApi'
+import { TOOLS, type ReportTool } from '../tools'
 import { DriftCompare } from './DriftCompare'
 import { ReportSections } from './ReportSections'
-import styles from './SqlServer.module.css'
+import styles from './Database.module.css'
 
-/** The tools that are reports: replication (ASE, Replication Server) and Oracle's. */
-export type ReportTool = Extract<ToolKind, 'replication' | 'storage' | 'backups' | 'health' | 'space' | 'drift' | 'admin' | 'license' | 'dumps' | 'errors' | 'resources' | 'security' | 'maintenance'>
-
-const HEADINGS: Record<ReportTool, { title: string; subtitle: (repServer: boolean) => string }> = {
-  replication: { title: 'Replication Health', subtitle: (repServer) => (repServer ? 'Threads, Queues and Stable Devices' : 'Transaction Logs and Rep Agents') },
-  storage: { title: 'Storage', subtitle: () => 'Tablespaces and Datafiles' },
-  backups: { title: 'Backups (RMAN)', subtitle: () => 'Backup History and Recovery Area' },
-  health: { title: 'Health', subtitle: () => 'Limits, Alerts and Invalid Objects' },
-  space: { title: 'Space', subtitle: () => 'Databases, Logs and Devices' },
-  drift: { title: 'Replication Drift', subtitle: () => 'Last Applied, Latency and Exceptions' },
-  admin: { title: 'Admin Commands', subtitle: () => 'Threads, Queues, Connections and Versions' },
-  license: { title: 'License', subtitle: () => 'Licenses and Expiry' },
-  dumps: { title: 'Backups (dumps)', subtitle: () => 'Last Full and Log Dumps' },
-  errors: { title: 'Error Log', subtitle: () => 'Recent Errors and Deadlocks' },
-  resources: { title: 'Resources & Activity', subtitle: () => 'Limits, Transactions, Sessions and Caches' },
-  security: { title: 'Logins & Users', subtitle: () => 'Locked Logins and Users Without Logins' },
-  maintenance: { title: 'Maintenance', subtitle: () => 'Largest Tables and Their Statistics' },
-}
 
 interface ToolReportViewProps {
   tool: ReportTool
@@ -45,7 +28,6 @@ interface ToolReportViewProps {
  */
 export function ToolReportView({ tool, sessionId, active, onOpenQuery }: ToolReportViewProps) {
   const db = useDbApi()
-  const engine = useDbEngine()
   const [report, setReport] = useState<ToolReport | null>(null)
   const [shown, setShown] = useState<ToolScript | null>(null)
   const [loading, setLoading] = useState(false)
@@ -61,7 +43,7 @@ export function ToolReportView({ tool, sessionId, active, onOpenQuery }: ToolRep
     try {
       setReport(await db.report(sessionId, tool))
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : `Couldn’t read ${HEADINGS[tool].title}.`)
+      setError(e instanceof ApiError ? e.message : `Couldn’t read ${TOOLS[tool].title}.`)
     } finally {
       setLoading(false)
     }
@@ -91,16 +73,14 @@ export function ToolReportView({ tool, sessionId, active, onOpenQuery }: ToolRep
     }
   }
 
-  const repServer = engine === 'rs'
-
   return (
-    <div className={styles.blocking} hidden={!active} role="tabpanel" aria-label={HEADINGS[tool].title}>
-      <header className={styles.blockingHeader}>
+    <div className={styles.toolPage} hidden={!active} role="tabpanel" aria-label={TOOLS[tool].title}>
+      <header className={styles.toolHeader}>
         <div>
-          <h2>{HEADINGS[tool].title}</h2>
-          <p>{HEADINGS[tool].subtitle(repServer)}</p>
+          <h2>{TOOLS[tool].title}</h2>
+          <p>{TOOLS[tool].subtitle}</p>
         </div>
-        <div className={styles.blockingActions}>
+        <div className={styles.toolActions}>
           <span className={styles.toolbarNote}>{report ? new Date(report.atUtc).toLocaleTimeString() : null}</span>
           <Button size="sm" onClick={() => void refresh()} loading={loading}>
             Refresh
@@ -118,9 +98,9 @@ export function ToolReportView({ tool, sessionId, active, onOpenQuery }: ToolRep
       ))}
 
       {report && report.suspended.length > 0 ? (
-        <section className={styles.replicationSection}>
+        <section className={styles.reportPanel}>
           <h3>Suspended connections</h3>
-          <table className={styles.blockingTable}>
+          <table className={styles.toolTable}>
             <thead>
               <tr>
                 <th scope="col">Connection</th>
@@ -170,7 +150,7 @@ export function ToolReportView({ tool, sessionId, active, onOpenQuery }: ToolRep
           <p>
             Run this on the database server: RMAN commands in <code>rman target /</code>, scripts starting with @ in SQL*Plus as SYSDBA.
           </p>
-          <pre className={styles.replicationMessage}>{shown.text}</pre>
+          <pre className={styles.reportMessage}>{shown.text}</pre>
         </Dialog>
       ) : null}
 

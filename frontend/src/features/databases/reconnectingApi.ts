@@ -1,5 +1,5 @@
 import { ApiError } from '../../lib/api'
-import type { DbApi } from './sqlServerApi'
+import type { DbApi } from './databaseApi'
 
 type SessionCall<A extends unknown[], R> = (sessionId: string, ...args: A) => Promise<R>
 

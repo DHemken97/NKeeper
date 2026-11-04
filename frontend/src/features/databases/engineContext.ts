@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import { dbApi, DB_ENGINES, type DbApi, type DbEngine, type DbEngineInfo } from './sqlServerApi'
+import { dbApi, DB_ENGINES, type DbApi, type DbEngine, type DbEngineInfo } from './databaseApi'
 
 /** The engine of the database tab a component is in (SQL Server unless a tab says otherwise). */
 export const DbEngineContext = createContext<DbEngine>('mssql')
