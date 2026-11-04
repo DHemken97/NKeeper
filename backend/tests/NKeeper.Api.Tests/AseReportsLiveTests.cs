@@ -29,7 +29,12 @@ public sealed class AseReportsLiveTests
 
         var report = await DatabaseReports.RunAsync(DatabaseEngine.Ase, tool, connection, DateTimeOffset.UtcNow, TestContext.Current.CancellationToken);
 
-        var failed = report.Sections.Where(s => s.Error is not null).Select(s => $"{s.Title}: {s.Error}").ToList();
+        // A server without monitoring turned on refuses the monitoring tables: that's its setting, not a fault, and the
+        // section says so. Any other error is.
+        var failed = report.Sections
+            .Where(s => s.Error is not null && !s.Error.Contains("'enable monitoring'", StringComparison.Ordinal))
+            .Select(s => $"{s.Title}: {s.Error}")
+            .ToList();
         Assert.True(failed.Count == 0, string.Join("\n", failed));
         foreach (var warning in report.Warnings)
         {

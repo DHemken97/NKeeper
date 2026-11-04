@@ -56,7 +56,7 @@ internal static class AseSections
 
             return new ToolSection(title, command, results, null);
         }
-        catch (DbException ex)
+        catch (Exception ex) when (DbErrors.Is(ex))
         {
             return new ToolSection(title, command, results, ex.Message);
         }

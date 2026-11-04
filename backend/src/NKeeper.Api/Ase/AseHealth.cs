@@ -435,7 +435,7 @@ internal static class AseHealth
                     }
                 }
             }
-            catch (DbException)
+            catch (Exception ex) when (DbErrors.Is(ex))
             {
                 // A database this login can't use: left out.
             }
@@ -532,7 +532,7 @@ internal static class AseHealth
                     }
                 }
             }
-            catch (DbException)
+            catch (Exception ex) when (DbErrors.Is(ex))
             {
                 // A database this login can't use: left out.
             }
@@ -586,7 +586,7 @@ internal static class AseHealth
             var found = await DbQuery.ListAsync(connection, sql, [], r => r.IsDBNull(0) ? (DateTime?)null : Convert.ToDateTime(r.GetValue(0), CultureInfo.InvariantCulture), cancellationToken);
             return found.Count > 0 ? found[0] : null;
         }
-        catch (DbException)
+        catch (Exception ex) when (DbErrors.Is(ex))
         {
             return null;
         }
@@ -599,7 +599,7 @@ internal static class AseHealth
             var found = await DbQuery.ListAsync(connection, sql, [], r => r.IsDBNull(0) ? (int?)null : DbQuery.Int(r, 0), cancellationToken);
             return found.Count > 0 ? found[0] : null;
         }
-        catch (DbException)
+        catch (Exception ex) when (DbErrors.Is(ex))
         {
             return null;
         }
