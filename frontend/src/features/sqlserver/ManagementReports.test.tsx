@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { routes } from '../../app/router'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
 import { AuthProvider } from '../auth/components/AuthProvider'
@@ -59,6 +59,7 @@ const report = (title: string): ToolReport => ({
 })
 
 function renderWorkspace(engine: 'oracle' | 'ase', tools: { label: string; name: string }[]) {
+  const keptAlive: string[] = []
   mockFetch({
     ...antiforgeryRoute,
     'GET /api/auth/me': () => jsonResponse(200, admin),
@@ -87,13 +88,14 @@ function renderWorkspace(engine: 'oracle' | 'ase', tools: { label: string; name:
     [`GET /api/${engine}/sessions/main/reports/storage`]: () => jsonResponse(200, report('Tablespaces')),
     [`GET /api/${engine}/sessions/main/reports/backups`]: () => jsonResponse(200, report('RMAN jobs')),
     [`GET /api/${engine}/sessions/main/replication`]: () => jsonResponse(200, report('Transaction logs')),
+    [`POST /api/${engine}/sessions/main/keepalive`]: () => (keptAlive.push(engine), new Response(null, { status: 204 })),
   })
   render(
     <AuthProvider>
       <RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/'] })} />
     </AuthProvider>,
   )
-  return userEvent.setup()
+  return { user: userEvent.setup(vi.isFakeTimers() ? { advanceTimers: vi.advanceTimersByTime } : {}), keptAlive }
 }
 
 async function connect(user: ReturnType<typeof userEvent.setup>, path: RegExp[]) {
@@ -107,8 +109,25 @@ async function connect(user: ReturnType<typeof userEvent.setup>, path: RegExp[])
 }
 
 describe('Management reports', () => {
+  it('keeps an Oracle tab open: its keep-alive goes to the Oracle API', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const { user, keptAlive } = renderWorkspace('oracle', [])
+      await connect(user, [/^Oracle/, /^ORCLPDB1/])
+      await screen.findByRole('tree', { name: 'Objects' })
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(61_000)
+      })
+      expect(keptAlive).toContain('oracle')
+      expect(screen.queryByText(/session has ended/)).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('opens Oracle Storage and Backups as tabs; SQL scripts open a query window, RMAN ones a dialog to copy', async () => {
-    const user = renderWorkspace('oracle', [
+    const { user } = renderWorkspace('oracle', [
       { label: 'Storage', name: 'storage' },
       { label: 'Backups (RMAN)', name: 'backups' },
     ])
@@ -132,7 +151,7 @@ describe('Management reports', () => {
   })
 
   it('opens Replication Health on an ASE tab', async () => {
-    const user = renderWorkspace('ase', [
+    const { user } = renderWorkspace('ase', [
       { label: 'Blocking Manager', name: 'blocking' },
       { label: 'Replication Health', name: 'replication' },
     ])

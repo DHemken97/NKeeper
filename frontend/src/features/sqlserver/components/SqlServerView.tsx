@@ -149,7 +149,7 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
   }, [db, product, session.request, attempt])
 
   useCloseOnPageExit(main ? db.sessionPath(main.id) : null)
-  useKeepAlive(main?.id ?? null, () => setPhase({ kind: 'ended', message: `This ${product} session has ended. Connect again.` }))
+  useKeepAlive(main?.id ?? null, () => setPhase({ kind: 'ended', message: `This ${product} session has ended. Connect again.` }), db)
 
   useEffect(() => {
     if (!main) {
