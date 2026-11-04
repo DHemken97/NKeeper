@@ -165,6 +165,8 @@ const GROUPS: { group: ScanProposal['group']; title: string }[] = [
 function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onApplied }: ScanResultsProps) {
   const proposals = useMemo(() => scanProposals(host, findings, sshPort), [host, findings, sshPort])
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set(proposals.filter((p) => p.checked).map((p) => p.key)))
+  // Names typed for proposals that need one (an Oracle service seen from outside).
+  const [names, setNames] = useState<Record<string, string>>({})
   const links = useMemo(() => findings.guests.filter((g) => g.linkProposed && g.guestHostId && g.hypervisorHostId), [findings])
   const [chosenLinks, setChosenLinks] = useState<ReadonlySet<string>>(() => new Set(links.map((g) => g.virtualMachineId)))
   const [saving, setSaving] = useState(false)
@@ -221,7 +223,7 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
 
   async function apply() {
     const draft = toHostDraft(host)
-    proposals.filter((p) => chosen.has(p.key)).forEach((p) => p.apply(draft))
+    proposals.filter((p) => chosen.has(p.key) && (!p.needsName || names[p.key]?.trim())).forEach((p) => p.apply(draft, names[p.key]))
     setSaving(true)
     setError(null)
     try {
@@ -305,8 +307,29 @@ function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onA
               <legend className={styles.heading}>{heading}</legend>
               {items.map((p) => (
                 <div key={p.key} className={styles.proposal}>
-                  <Checkbox label={p.label} checked={chosen.has(p.key)} onChange={(event) => toggle(p.key, event.target.checked)} />
+                  <Checkbox
+                    label={p.label}
+                    checked={chosen.has(p.key)}
+                    disabled={Boolean(p.needsName && !names[p.key]?.trim())}
+                    onChange={(event) => toggle(p.key, event.target.checked)}
+                  />
                   <span className={styles.detail}>{p.detail}</span>
+                  {p.needsName ? (
+                    <input
+                      className={styles.nameInput}
+                      value={names[p.key] ?? ''}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setNames((current) => ({ ...current, [p.key]: value }))
+                        // Naming it is choosing it; clearing the name unchooses it.
+                        toggle(p.key, value.trim().length > 0)
+                      }}
+                      placeholder={p.needsName.placeholder}
+                      aria-label={`${p.needsName.label} for ${p.label} (${p.detail})`}
+                      maxLength={128}
+                      spellCheck={false}
+                    />
+                  ) : null}
                 </div>
               ))}
             </fieldset>

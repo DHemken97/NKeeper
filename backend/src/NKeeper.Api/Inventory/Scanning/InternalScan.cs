@@ -44,6 +44,16 @@ internal static class InternalScan
         [ -x /opt/mssql/bin/sqlservr ] && echo installed
         sed -n 's/^[[:space:]]*tcpport[[:space:]]*=[[:space:]]*\([0-9]*\).*/tcpport \1/p' /var/opt/mssql/mssql.conf 2>/dev/null
         (sudo -n ss -Hltnp 2>/dev/null || ss -Hltnp 2>/dev/null) | grep '"sqlservr"' | awk '{print "listen", $4}'
+        s oracle
+        # Oracle: its databases (/etc/oratab), running instances (ora_pmon_<SID>), the ports its listener
+        # listens on, and the services the listener offers (lsnrctl, as this login: it may not be allowed).
+        sed -n 's/^\([A-Za-z][A-Za-z0-9_$#]*\):\([^:]*\):.*/oratab \1 \2/p' /etc/oratab 2>/dev/null
+        ps -eo args 2>/dev/null | sed -n 's/^ora_pmon_\([A-Za-z0-9_$#]*\).*/pmon \1/p'
+        (sudo -n ss -Hltnp 2>/dev/null || ss -Hltnp 2>/dev/null) | grep '"tnslsnr"' | awk '{print "listen", $4}'
+        command -v timeout >/dev/null 2>&1 && t='timeout 15' || t=''
+        for h in $(sed -n 's/^[A-Za-z][^:]*:\([^:]*\):.*/\1/p' /etc/oratab 2>/dev/null | sort -u); do
+          [ -x "$h/bin/lsnrctl" ] && ORACLE_HOME="$h" $t "$h/bin/lsnrctl" status 2>/dev/null | sed -n 's/^Service "\([^"]*\)" has.*/service \1/p'
+        done
         s virt; systemd-detect-virt 2>/dev/null
         s cpus; nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null
         s memory
@@ -178,6 +188,13 @@ internal static class InternalScan
             : null;
         var sqlInstance = SqlServerInstances.OnLinux(sqlProcessPorts, sqlConfigured, Lines(sections, "sqlserver").Contains("installed"), ports, notes);
         var scannedPorts = SqlServerInstances.Apply(ports.Select(ScanPorts.Describe), sqlInstance is null ? [] : [sqlInstance], notes);
+        var oracleListens = Lines(sections, "oracle")
+            .Where(l => l.StartsWith("listen ", StringComparison.Ordinal))
+            .Select(l => SplitEndpoint(l[7..].Trim()))
+            .Where(e => e is { } endpoint && !IsLoopback(endpoint.Item1))
+            .Select(e => e!.Value.Item2)
+            .ToHashSet();
+        scannedPorts = OracleDatabases.Apply(scannedPorts, Lines(sections, "oracle"), oracleListens, notes);
 
         var uidMin = int.TryParse(First(sections, "uidmin"), CultureInfo.InvariantCulture, out var min) ? min : 1000;
         var users = new List<ScannedUser>();

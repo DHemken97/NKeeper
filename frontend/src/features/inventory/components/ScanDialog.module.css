@@ -51,6 +51,12 @@
   color: var(--color-text);
 }
 
+.nameInput {
+  flex-basis: 100%;
+  max-width: 280px;
+  margin: 2px 0 6px 28px;
+}
+
 .proposal {
   display: flex;
   flex-wrap: wrap;

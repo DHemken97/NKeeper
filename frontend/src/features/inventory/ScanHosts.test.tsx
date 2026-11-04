@@ -141,6 +141,38 @@ describe('SQL Server instances found by a scan', () => {
   })
 })
 
+describe('Oracle databases found by a scan', () => {
+  it('offers each database an internal scan named, ready to add, unless the host has it', () => {
+    const oracleFindings: ScanFindings = {
+      ...findings,
+      ports: [
+        { port: 1521, name: 'Oracle (ORCL)', protocol: 'Oracle', instance: 'ORCL' },
+        { port: 1521, name: 'Oracle (orclpdb1)', protocol: 'Oracle', instance: 'orclpdb1' },
+      ],
+      users: [],
+    }
+    const host = { ...web01, services: [...web01.services, { protocol: 'Oracle' as const, port: null, label: null, instance: 'orcl' }] }
+
+    const proposals = scanProposals(host, oracleFindings, 22).filter((p) => p.group === 'Services')
+
+    expect(proposals.map((p) => [p.label, p.checked, Boolean(p.needsName)])).toEqual([['Oracle · orclpdb1', true, false]])
+    const draft = toHostDraft(host)
+    proposals.forEach((p) => p.apply(draft))
+    expect(draft.services.at(-1)).toMatchObject({ protocol: 'Oracle', port: '', instance: 'orclpdb1' })
+  })
+
+  it('asks for the service name of a listener an external scan saw, and uses what is typed', () => {
+    const external: ScanFindings = { ...findings, ports: [{ port: 1521, name: 'Oracle', protocol: 'Oracle' }], users: [] }
+
+    const [proposal] = scanProposals(web01, external, null).filter((p) => p.group === 'Services')
+
+    expect(proposal).toMatchObject({ label: 'Oracle', checked: false, needsName: { label: 'Service name' } })
+    const draft = toHostDraft(web01)
+    proposal.apply(draft, ' XEPDB1 ')
+    expect(draft.services.at(-1)).toMatchObject({ protocol: 'Oracle', instance: 'XEPDB1' })
+  })
+})
+
 describe('Tasks ▸ Scan', () => {
   it('runs an internal scan with a saved credential, confirms the host key, and applies the chosen findings', async () => {
     const scans: unknown[] = []
