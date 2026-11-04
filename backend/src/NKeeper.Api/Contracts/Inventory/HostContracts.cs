@@ -210,6 +210,19 @@ public sealed record HostRequest : IValidatableObject
                     "Instance names start with a letter or underscore, and contain only letters, digits, _, $ and #.", [$"services[{index}].instance"]);
             }
 
+            if (Services[index].Protocol == ServiceProtocol.Oracle)
+            {
+                var service = Services[index].Instance?.Trim();
+                if (string.IsNullOrEmpty(service))
+                {
+                    yield return new ValidationResult("Enter the database's service name (e.g. ORCLPDB1, or its SID).", [$"services[{index}].instance"]);
+                }
+                else if (!SqlServerInstance.IsValidOracleService(service))
+                {
+                    yield return new ValidationResult("Service names start with a letter, and contain only letters, digits, _, $, #, . and -.", [$"services[{index}].instance"]);
+                }
+            }
+
             if (Services[index].Protocol != ServiceProtocol.Idrac)
             {
                 continue;

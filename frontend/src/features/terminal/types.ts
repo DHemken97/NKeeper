@@ -23,6 +23,9 @@ export type SessionProtocol =
   | 'idrac'
   | 'idracconsole'
   | 'mssql'
+  | 'oracle'
+  | 'ase'
+  | 'rs'
 
 /** What the browser asks the server to connect to. Secrets for saved credentials stay on the server. */
 export interface SessionRequest {

@@ -22,7 +22,7 @@ public sealed class UserAdministration(
     SessionLimiter remoteSessions,
     Web.WebSessionStore webSessions,
     Kvm.ConsoleSessionStore consoles,
-    SqlServer.SqlServerSessionStore sqlSessions,
+    Databases.DatabaseSessionStore sqlSessions,
     TimeProvider timeProvider,
     ILogger<UserAdministration> logger)
 {

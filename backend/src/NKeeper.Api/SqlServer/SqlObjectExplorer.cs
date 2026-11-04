@@ -86,6 +86,9 @@ internal static class SqlObjectExplorer
 
         /// <summary>A tool that opens in its own document tab (the blocking manager).</summary>
         public const string Tool = "tool";
+
+        /// <summary>A folder of Management tools (ASE has enough to group).</summary>
+        public const string ToolFolder = "toolFolder";
     }
 
     public const string BlockingManagerTool = "blocking";

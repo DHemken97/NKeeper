@@ -313,7 +313,7 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
       return [e.message, ...Object.values(e.fields)].filter(Boolean).join(' ') || 'it couldn’t be saved'
     }
     for (const { item, proposals } of perHost) {
-      const picked: ScanProposal[] = proposals.filter((p) => chosen.has(`${item.host.id}:${p.key}`))
+      const picked: ScanProposal[] = proposals.filter((p) => chosen.has(`${item.host.id}:${p.key}`) && !p.needsName)
       if (picked.length === 0) {
         continue
       }
@@ -417,10 +417,11 @@ function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps)
               <div key={p.key} className={styles.proposal}>
                 <Checkbox
                   label={p.label}
-                  checked={chosen.has(`${item.host.id}:${p.key}`)}
+                  checked={chosen.has(`${item.host.id}:${p.key}`) && !p.needsName}
+                  disabled={Boolean(p.needsName)}
                   onChange={(event) => toggle(`${item.host.id}:${p.key}`, event.target.checked)}
                 />
-                <span className={styles.detail}>{p.detail}</span>
+                <span className={styles.detail}>{p.needsName ? `${p.detail} · needs its service name: scan this host on its own (internally finds it)` : p.detail}</span>
               </div>
             ))}
           </fieldset>

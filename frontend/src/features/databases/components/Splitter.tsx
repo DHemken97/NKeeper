@@ -1,5 +1,5 @@
 import { useRef, type KeyboardEvent, type PointerEvent } from 'react'
-import styles from './SqlServer.module.css'
+import styles from './Database.module.css'
 
 interface SplitterProps {
   /** `columns`: a vertical bar between side-by-side panes (drag left and right); `rows`: a bar between stacked panes. */

@@ -1,15 +1,11 @@
 using Microsoft.Data.SqlClient;
 using NKeeper.Api.Access;
-using NKeeper.Api.Controllers;
+using NKeeper.Api.Databases;
 using NKeeper.Api.RemoteSessions;
 using NKeeper.Api.Web;
 using NKeeper.Infrastructure.Inventory;
 
 namespace NKeeper.Api.SqlServer;
-
-/// <summary>The outcome of opening a session: the session, or the certificate the user must trust first.</summary>
-/// <param name="Renewed">The prompt is for a new self-signed certificate SQL Server made in place of the trusted one.</param>
-internal sealed record SqlServerOpenResult(SqlServerSession? Session, WebCertificate? Prompt, string Target, bool Renewed = false);
 
 /// <summary>
 /// Opens SQL Server sessions from the inventory: the host's SQL Server service (default or named
@@ -23,8 +19,10 @@ internal sealed record SqlServerOpenResult(SqlServerSession? Session, WebCertifi
 /// asked again (and the new one replaces the old) instead of the connection being refused as for
 /// any other changed certificate. Give the server a real certificate to have changes refused outright.
 /// </remarks>
-internal sealed class SqlServerConnector(SessionTargetResolver resolver, TrustedKeyStore trustedKeys, TimeProvider timeProvider)
+internal sealed class SqlServerConnector(SessionTargetResolver resolver, TrustedKeyStore trustedKeys, TimeProvider timeProvider) : IDatabaseConnector
 {
+    public DatabaseEngine Engine => DatabaseEngine.SqlServer;
+
     public const int DefaultPort = 1433;
 
     /// <summary>The subject of the certificate SQL Server makes for itself at startup when it has none.</summary>
@@ -33,7 +31,7 @@ internal sealed class SqlServerConnector(SessionTargetResolver resolver, Trusted
 
     /// <exception cref="SessionException">The server can't be reached or refused the login.</exception>
     /// <exception cref="CertificateChangedException">The server's certificate changed since it was trusted.</exception>
-    public async Task<SqlServerOpenResult> OpenAsync(SqlServerOpenRequest request, RequestUser user, CancellationToken cancellationToken)
+    public async Task<DatabaseOpenResult> OpenAsync(DatabaseOpenRequest request, RequestUser user, CancellationToken cancellationToken)
     {
         var target = await resolver.ResolveAsync(request, user, ServiceProtocol.Ssms, DefaultPort, cancellationToken);
         if (target.Domain is not null)
@@ -82,7 +80,7 @@ internal sealed class SqlServerConnector(SessionTargetResolver resolver, Trusted
                 if (!string.Equals(request.TrustFingerprint, fingerprint, StringComparison.OrdinalIgnoreCase))
                 {
                     tunnel.Dispose();
-                    return new SqlServerOpenResult(null, certificate.Certificate, display, Renewed: true);
+                    return new DatabaseOpenResult(null, certificate.Certificate, display, Renewed: true);
                 }
 
                 await trustedKeys.ReplaceAsync(target.HostId, target.Port, target.KeyProtocol, CertificateTrust.Algorithm, fingerprint, user.Id);
@@ -97,7 +95,7 @@ internal sealed class SqlServerConnector(SessionTargetResolver resolver, Trusted
             if (trust.Prompt is { } prompt)
             {
                 tunnel.Dispose();
-                return new SqlServerOpenResult(null, prompt, display);
+                return new DatabaseOpenResult(null, prompt, display);
             }
 
             var settings = new SqlConnectionStringBuilder
@@ -140,8 +138,45 @@ internal sealed class SqlServerConnector(SessionTargetResolver resolver, Trusted
             }
 
             var server = await ReadServerInfoAsync(connection, cancellationToken);
-            var session = new SqlServerSession(
-                user.Id, target.HostId, display, settings, connection, server, tunnel.IsTunnel ? tunnel : null, certificateFile, timeProvider.GetUtcNow());
+            var keptTunnel = tunnel.IsTunnel ? tunnel : null;
+            var keptCertificate = certificateFile;
+            var session = new DatabaseSession(
+                DatabaseEngine.SqlServer,
+                user.Id,
+                target.HostId,
+                display,
+                connection,
+                server,
+                async ct =>
+                {
+                    var tool = new SqlConnection(settings.ConnectionString);
+                    try
+                    {
+                        await tool.OpenAsync(ct);
+                        return tool;
+                    }
+                    catch
+                    {
+                        await tool.DisposeAsync();
+                        throw;
+                    }
+                },
+                () =>
+                {
+                    keptTunnel?.Dispose();
+                    if (keptCertificate is not null)
+                    {
+                        try
+                        {
+                            File.Delete(keptCertificate);
+                        }
+                        catch (IOException)
+                        {
+                            // A temporary file of a public certificate: nothing to worry about if it stays.
+                        }
+                    }
+                },
+                timeProvider.GetUtcNow());
             if (!tunnel.IsTunnel)
             {
                 tunnel.Dispose();
@@ -149,7 +184,7 @@ internal sealed class SqlServerConnector(SessionTargetResolver resolver, Trusted
 
             connection = null;
             certificateFile = null;
-            return new SqlServerOpenResult(session, null, display);
+            return new DatabaseOpenResult(session, null, display);
         }
         catch
         {
@@ -168,7 +203,7 @@ internal sealed class SqlServerConnector(SessionTargetResolver resolver, Trusted
         }
     }
 
-    private static async Task<SqlServerInfo> ReadServerInfoAsync(SqlConnection connection, CancellationToken cancellationToken)
+    private static async Task<DatabaseServerInfo> ReadServerInfoAsync(SqlConnection connection, CancellationToken cancellationToken)
     {
         await using var command = new SqlCommand(
             """
@@ -182,7 +217,7 @@ internal sealed class SqlServerConnector(SessionTargetResolver resolver, Trusted
             connection);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         await reader.ReadAsync(cancellationToken);
-        return new SqlServerInfo(
+        return new DatabaseServerInfo(
             reader.IsDBNull(0) ? connection.DataSource : reader.GetString(0),
             reader.GetString(1),
             reader.IsDBNull(2) ? null : reader.GetString(2),

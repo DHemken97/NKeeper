@@ -1,8 +1,8 @@
 import { useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { ContextMenu, type MenuEntry } from '../../../components/ui/ContextMenu'
 import { displayValue, tabSeparated } from '../format'
-import type { SqlOutput } from '../sqlServerApi'
-import styles from './SqlServer.module.css'
+import type { SqlOutput } from '../databaseApi'
+import styles from './Database.module.css'
 
 /** Rows drawn at first; more on request (a result set can have 10,000). */
 const PAGE = 500

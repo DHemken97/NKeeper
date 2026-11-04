@@ -6,7 +6,7 @@ import { routes } from '../../app/router'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
 import { AuthProvider } from '../auth/components/AuthProvider'
 import type { Host } from '../inventory/types'
-import type { BlockingReport, OrphanReport, SqlQueryResult } from './sqlServerApi'
+import type { BlockingReport, OrphanReport, SqlQueryResult } from './databaseApi'
 
 const admin = { id: 'u1', userName: 'admin', email: 'admin@example.com', roles: ['Administrator'], mustChangePassword: false }
 

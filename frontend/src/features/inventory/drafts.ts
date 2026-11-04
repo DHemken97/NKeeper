@@ -12,7 +12,7 @@ export interface ServiceDraft {
   rdpSecurity: RdpSecurity
   /** Only used for iDRAC services: the iDRAC's own address. */
   address: string
-  /** Only used for SQL Server services: the named instance, empty for the default one. */
+  /** SQL Server: the named instance, empty for the default one. Oracle: the service name (or SID). */
   instance: string
 }
 
@@ -188,7 +188,7 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
       label: blankToNull(s.label),
       ...(s.protocol === 'Rdp' ? { rdpSecurity: s.rdpSecurity } : {}),
       ...(s.protocol === 'Idrac' ? { address: blankToNull(s.address) } : {}),
-      ...(s.protocol === 'Ssms' ? { instance: blankToNull(s.instance) } : {}),
+      ...(s.protocol === 'Ssms' || s.protocol === 'Oracle' ? { instance: blankToNull(s.instance) } : {}),
     })),
     credentials: draft.credentials.map((c) => ({
       ...(c.id ? { id: c.id } : {}),

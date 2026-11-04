@@ -5,12 +5,13 @@ import { ApiError } from '../../../lib/api'
 import { useCloseOnPageExit } from '../../../lib/pageExit'
 import type { SessionRequest } from '../../terminal/types'
 import { errorHeading, formatElapsed, lineRange, outputText, scriptToRun } from '../format'
-import { sqlServerApi, type SqlQueryResult } from '../sqlServerApi'
+import { useDbApi, useDbEngineInfo } from '../engineContext'
+import { type SqlQueryResult } from '../databaseApi'
 import { useKeepAlive } from '../useKeepAlive'
 import { ResultGrid } from './ResultGrid'
 import { storedNumber, storeNumber } from '../storedSize'
 import { Splitter } from './Splitter'
-import styles from './SqlServer.module.css'
+import styles from './Database.module.css'
 
 interface QueryWindowProps {
   title: string
@@ -36,6 +37,8 @@ const clampShare = (share: number) => Math.min(Math.max(share, MIN_SHARE), MAX_S
 type Connection =
   | { state: 'opening' }
   | { state: 'ready'; id: string; spid: number; login: string }
+  /** The server closed it (idle, or a severe error): running again reconnects. */
+  | { state: 'disconnected' }
   | { state: 'ended'; message: string }
 
 /**
@@ -47,6 +50,8 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
   const [connection, setConnection] = useState<Connection>({ state: 'opening' })
   const [attempt, setAttempt] = useState(0)
   const [sql, setSql] = useState(initialSql)
+  const db = useDbApi()
+  const { databaseLabel } = useDbEngineInfo()
   const [database, setDatabase] = useState(initialDatabase ?? '')
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<SqlQueryResult | null>(null)
@@ -57,6 +62,8 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
   const editorRef = useRef<HTMLTextAreaElement>(null)
   const gutterRef = useRef<HTMLDivElement>(null)
   const ranOnOpen = useRef(false)
+  // A session opened to reconnect: closed with the window.
+  const reopenedRef = useRef<string | null>(null)
   const editorPaneRef = useRef<HTMLDivElement>(null)
   const resultsPaneRef = useRef<HTMLDivElement>(null)
   // Shared by every window in this browser: the last split you chose.
@@ -78,16 +85,16 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
   useEffect(() => {
     let cancelled = false
     let opened: string | null = null
-    sqlServerApi.open(request, undefined, initialDatabase).then(
+    db.open(request, undefined, initialDatabase).then(
       (response) => {
         if (cancelled) {
           if (response.sessionId) {
-            void sqlServerApi.close(response.sessionId).catch(() => {})
+            void db.close(response.sessionId).catch(() => {})
           }
           return
         }
         if (response.status !== 'ready' || !response.sessionId || !response.server) {
-          setConnection({ state: 'ended', message: 'The server’s certificate needs to be trusted again. Reconnect the SQL Server tab.' })
+          setConnection({ state: 'ended', message: 'The server’s certificate needs to be trusted again. Reconnect the database tab.' })
           return
         }
         opened = response.sessionId
@@ -99,16 +106,53 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
     return () => {
       cancelled = true
       if (opened) {
-        void sqlServerApi.close(opened).catch(() => {})
+        void db.close(opened).catch(() => {})
       }
     }
     // The request and starting database are fixed for the window's life; `attempt` reconnects.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt])
+  }, [attempt, db])
 
   const sessionId = connection.state === 'ready' ? connection.id : null
-  useCloseOnPageExit(sessionId ? `/api/mssql/sessions/${sessionId}` : null)
-  useKeepAlive(sessionId, () => setConnection({ state: 'ended', message: 'This window’s connection has ended.' }))
+  useCloseOnPageExit(sessionId ? db.sessionPath(sessionId) : null)
+  useKeepAlive(sessionId, (ended) =>
+    // A late answer about a session this window has already replaced changes nothing.
+    setConnection((current) => (current.state === 'ready' && current.id === ended ? { state: 'disconnected' } : current)),
+  )
+
+  useEffect(
+    () => () => {
+      if (reopenedRef.current) {
+        void db.close(reopenedRef.current).catch(() => {})
+      }
+    },
+    [db],
+  )
+
+  /** Opens a new session for the window, in the database it was in. */
+  async function reopen(): Promise<string | null> {
+    setConnection({ state: 'opening' })
+    try {
+      const response = await db.open(request, undefined, database || initialDatabase)
+      if (response.status !== 'ready' || !response.sessionId || !response.server) {
+        setConnection({ state: 'ended', message: 'The server’s certificate needs to be trusted again. Reconnect the database tab.' })
+        return null
+      }
+      if (reopenedRef.current && reopenedRef.current !== response.sessionId) {
+        void db.close(reopenedRef.current).catch(() => {})
+      }
+      reopenedRef.current = response.sessionId
+      setConnection({ state: 'ready', id: response.sessionId, spid: response.server.sessionId, login: response.server.login })
+      if (response.database) {
+        setDatabase(response.database)
+      }
+      return response.sessionId
+    } catch (error) {
+      setConnection({ state: 'disconnected' })
+      setRunError(error instanceof ApiError ? `Couldn’t reconnect: ${error.message}` : 'Couldn’t reconnect.')
+      return null
+    }
+  }
 
   useEffect(() => {
     if (sessionId && runOnOpen && !ranOnOpen.current) {
@@ -126,7 +170,7 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
   }, [active, sessionId])
 
   async function execute() {
-    if (!sessionId || running) {
+    if (running || (connection.state !== 'ready' && connection.state !== 'disconnected')) {
       return
     }
     const editor = editorRef.current
@@ -137,7 +181,24 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
     setRunning(true)
     setRunError(null)
     try {
-      const next = await sqlServerApi.query(sessionId, script, lineOffset)
+      let id = connection.state === 'ready' ? connection.id : await reopen()
+      if (!id) {
+        return
+      }
+      let next: SqlQueryResult
+      try {
+        next = await db.query(id, script, lineOffset)
+      } catch (error) {
+        // Closed since the last keep-alive: nothing ran, so connect again and run it there.
+        if (!(error instanceof ApiError && error.code === 'session_not_found')) {
+          throw error
+        }
+        id = await reopen()
+        if (!id) {
+          return
+        }
+        next = await db.query(id, script, lineOffset)
+      }
       setResult(next)
       setFinishedAt(new Date())
       setTab(next.output.some((o) => o.kind === 'results') ? 'results' : 'messages')
@@ -145,14 +206,11 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
         setDatabase(next.database)
       }
       if (next.connectionLost) {
-        setConnection({ state: 'ended', message: 'The connection was lost (the server ended it, or a severe error closed it).' })
+        // The server ended it, or a severe error closed it: the next run reconnects.
+        setConnection({ state: 'disconnected' })
       }
     } catch (error) {
-      if (error instanceof ApiError && error.code === 'session_not_found') {
-        setConnection({ state: 'ended', message: error.message })
-      } else {
-        setRunError(error instanceof ApiError ? error.message : 'Couldn’t run the query.')
-      }
+      setRunError(error instanceof ApiError ? error.message : 'Couldn’t run the query.')
     } finally {
       setRunning(false)
     }
@@ -160,7 +218,7 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
 
   function cancel() {
     if (sessionId) {
-      void sqlServerApi.cancel(sessionId).catch(() => {})
+      void db.cancel(sessionId).catch(() => {})
     }
   }
 
@@ -170,7 +228,7 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
     }
     setRunError(null)
     try {
-      setDatabase((await sqlServerApi.changeDatabase(sessionId, name)).name)
+      setDatabase((await db.changeDatabase(sessionId, name)).name)
     } catch (error) {
       setRunError(error instanceof ApiError ? error.message : 'Couldn’t change the database.')
     }
@@ -218,13 +276,14 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
             Cancel
           </Button>
         ) : (
-          <Button size="sm" onClick={() => void execute()} disabled={!sessionId} title="F5 or Ctrl+Enter">
+          <Button size="sm" onClick={() => void execute()} disabled={connection.state !== 'ready' && connection.state !== 'disconnected'} title="F5 or Ctrl+Enter">
             ▶ Execute
           </Button>
         )}
+        {databaseLabel ? (
         <label className={styles.toolbarField}>
-          <span>Database</span>
-          <select value={database} onChange={(event) => void changeDatabase(event.target.value)} disabled={!sessionId || running} aria-label="Database">
+          <span>{databaseLabel}</span>
+          <select value={database} onChange={(event) => void changeDatabase(event.target.value)} disabled={!sessionId || running} aria-label={databaseLabel}>
             {databaseOptions.map((name) => (
               <option key={name} value={name}>
                 {name}
@@ -232,6 +291,7 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
             ))}
           </select>
         </label>
+        ) : null}
         <div className={styles.segmented} role="group" aria-label="Results to">
           <button type="button" aria-pressed={view === 'grid'} onClick={() => setView('grid')}>
             Grid
@@ -244,6 +304,8 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
           <span className={styles.toolbarNote}>
             {connection.login} ({connection.spid})
           </span>
+        ) : connection.state === 'disconnected' ? (
+          <span className={styles.toolbarNote}>Disconnected · reconnects when you run</span>
         ) : null}
       </div>
 

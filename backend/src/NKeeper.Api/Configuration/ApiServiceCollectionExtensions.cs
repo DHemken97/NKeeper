@@ -100,9 +100,13 @@ internal static class ApiServiceCollectionExtensions
         services.AddHostedService<NKeeper.Api.Web.WebSessionSweeper>();
         services.AddSingleton<NKeeper.Api.Kvm.ConsoleSessionStore>();
         services.AddHostedService<NKeeper.Api.Kvm.ConsoleSessionSweeper>();
-        services.AddSingleton<NKeeper.Api.SqlServer.SqlServerSessionStore>();
-        services.AddHostedService<NKeeper.Api.SqlServer.SqlServerSessionSweeper>();
-        services.AddScoped<NKeeper.Api.SqlServer.SqlServerConnector>();
+        services.AddSingleton<NKeeper.Api.Databases.DatabaseSessionStore>();
+        services.AddHostedService<NKeeper.Api.Databases.DatabaseSessionSweeper>();
+        services.AddScoped<NKeeper.Api.Databases.IDatabaseConnector, NKeeper.Api.SqlServer.SqlServerConnector>();
+        services.AddScoped<NKeeper.Api.Databases.IDatabaseConnector, NKeeper.Api.Oracle.OracleConnector>();
+        services.AddScoped<NKeeper.Api.Databases.IDatabaseConnector, NKeeper.Api.Ase.AseConnector>();
+        services.AddScoped<NKeeper.Api.Databases.IDatabaseConnector>(provider => new NKeeper.Api.Ase.AseConnector(
+            provider.GetRequiredService<NKeeper.Api.RemoteSessions.SessionTargetResolver>(), provider.GetRequiredService<TimeProvider>(), replicationServer: true));
         services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier));
         services.AddOpenApi();

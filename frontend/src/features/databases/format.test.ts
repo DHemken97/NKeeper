@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { errorHeading, formatElapsed, lineRange, outputText, resultSetText, scriptToRun, tabSeparated } from './format'
-import type { SqlOutput } from './sqlServerApi'
+import type { SqlOutput } from './databaseApi'
 
 const result: SqlOutput = {
   kind: 'results',

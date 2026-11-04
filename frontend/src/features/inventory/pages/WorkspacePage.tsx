@@ -43,6 +43,7 @@ import {
   IDRAC_MODES,
   guestId,
   serviceLabel,
+  oracleServiceLabel,
   sqlInstanceLabel,
   WEB_PROTOCOLS,
   type HostMenuActions,
@@ -86,7 +87,7 @@ const KvmVmConsole = lazy(() => import('../../terminal/components/KvmVmConsole')
 const FileBrowser = lazy(() => import('../../terminal/components/FileBrowser').then((m) => ({ default: m.FileBrowser })))
 const StorageView = lazy(() => import('../../terminal/components/StorageView').then((m) => ({ default: m.StorageView })))
 const IdracView = lazy(() => import('../../terminal/components/IdracView').then((m) => ({ default: m.IdracView })))
-const SqlServerView = lazy(() => import('../../sqlserver/components/SqlServerView').then((m) => ({ default: m.SqlServerView })))
+const DatabaseView = lazy(() => import('../../databases/components/DatabaseView').then((m) => ({ default: m.DatabaseView })))
 const RpcSession = lazy(() => import('../../terminal/components/RpcSession').then((m) => ({ default: m.RpcSession })))
 const SORTS: { value: HostSort; label: string }[] = [
   { value: 'name', label: 'Name' },
@@ -120,6 +121,15 @@ function sessionProtocol(protocol: ServiceProtocol, mode?: OpenMode): RemoteSess
   }
   if (protocol === 'Ssms') {
     return 'mssql'
+  }
+  if (protocol === 'Oracle') {
+    return 'oracle'
+  }
+  if (protocol === 'Ase') {
+    return 'ase'
+  }
+  if (protocol === 'RepServer') {
+    return 'rs'
   }
   return protocol === 'Telnet' ? 'telnet' : protocol === 'Rdp' ? 'rdp' : protocol === 'Vnc' ? 'vnc' : protocol === 'Kvm' ? 'kvm' : protocol === 'Rpc' ? 'rpc' : 'ssh'
 }
@@ -407,7 +417,9 @@ export function WorkspacePage() {
           ? 'Storage'
           : service.protocol === 'Ssms'
             ? sqlInstanceLabel(service)
-            : service.protocol !== 'Idrac'
+            : service.protocol === 'Oracle'
+              ? oracleServiceLabel(service)
+              : service.protocol !== 'Idrac'
               ? null
               : mode === 'web'
                 ? 'Web interface'
@@ -1040,8 +1052,8 @@ export function WorkspacePage() {
               />
             ) : session.protocol === 'sftp' ? (
               <FileBrowser key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
-            ) : session.protocol === 'mssql' ? (
-              <SqlServerView key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'mssql' || session.protocol === 'oracle' || session.protocol === 'ase' || session.protocol === 'rs' ? (
+              <DatabaseView key={session.id} session={session} engine={session.protocol} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'storage' ? (
               <StorageView key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'idrac' ? (

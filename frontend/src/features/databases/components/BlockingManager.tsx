@@ -5,11 +5,12 @@ import { ContextMenu, type MenuEntry } from '../../../components/ui/ContextMenu'
 import { Dialog } from '../../../components/ui/Dialog'
 import { ApiError } from '../../../lib/api'
 import { formatElapsed } from '../format'
-import { sqlServerApi, type BlockingReport, type BlockingSession } from '../sqlServerApi'
-import styles from './SqlServer.module.css'
+import { useDbApi, useDbEngineInfo } from '../engineContext'
+import { type BlockingReport, type BlockingSession } from '../databaseApi'
+import styles from './Database.module.css'
 
 interface BlockingManagerProps {
-  /** The SQL Server tab's own session (the blocking manager reads and kills on a short connection of its own). */
+  /** The database tab's own session (the blocking manager reads and kills on a short connection of its own). */
   sessionId: string
   active: boolean
   /** Opens a session's SQL in a new query window. */
@@ -60,6 +61,8 @@ function oneLine(sql: string | null): string {
  * (or Shift+F10) to kill that session, after confirming.
  */
 export function BlockingManager({ sessionId, active, onOpenQuery }: BlockingManagerProps) {
+  const db = useDbApi()
+  const engine = useDbEngineInfo()
   const [report, setReport] = useState<BlockingReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -74,14 +77,14 @@ export function BlockingManager({ sessionId, active, onOpenQuery }: BlockingMana
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      setReport(await sqlServerApi.blocking(sessionId))
+      setReport(await db.blocking(sessionId))
       setError(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Couldn’t read the blocking chains.')
     } finally {
       setLoading(false)
     }
-  }, [sessionId])
+  }, [db, sessionId])
 
   useEffect(() => {
     if (!active) {
@@ -116,7 +119,7 @@ export function BlockingManager({ sessionId, active, onOpenQuery }: BlockingMana
     setKillBusy(true)
     setKillError(null)
     try {
-      await sqlServerApi.kill(sessionId, session.sessionId)
+      await db.kill(sessionId, session.sessionId, session.serial)
       setKilling(null)
       setNotice(`Session ${session.sessionId} was killed. Its open work is being rolled back.`)
       await refresh()
@@ -172,13 +175,13 @@ export function BlockingManager({ sessionId, active, onOpenQuery }: BlockingMana
   const rows = flatten(leads, expanded)
 
   return (
-    <div className={styles.blocking} hidden={!active} role="tabpanel" aria-label="Blocking Manager">
-      <header className={styles.blockingHeader}>
+    <div className={styles.toolPage} hidden={!active} role="tabpanel" aria-label="Blocking Manager">
+      <header className={styles.toolHeader}>
         <div>
           <h2>Lead Blockers</h2>
           <p>Sessions at the Root of Each Blocking Chain</p>
         </div>
-        <div className={styles.blockingActions}>
+        <div className={styles.toolActions}>
           <span className={styles.toolbarNote}>
             {report
               ? `${leads.length} ${leads.length === 1 ? 'chain' : 'chains'} · ${report.blockedCount} blocked · ${new Date(report.atUtc).toLocaleTimeString()}`
@@ -215,8 +218,8 @@ export function BlockingManager({ sessionId, active, onOpenQuery }: BlockingMana
       {report && leads.length === 0 ? <p className={styles.blockingEmpty}>No blocking right now.</p> : null}
 
       {leads.length > 0 ? (
-        <div className={styles.blockingTableWrap}>
-          <table className={styles.blockingTable} aria-label="Blocking chains">
+        <div className={styles.toolTableWrap}>
+          <table className={styles.toolTable} aria-label="Blocking chains">
             <thead>
               <tr>
                 <th scope="col">Session</th>
@@ -331,7 +334,7 @@ export function BlockingManager({ sessionId, active, onOpenQuery }: BlockingMana
             <dd>{killing.blockedVolume} {killing.blockedVolume === 1 ? 'session' : 'sessions'}</dd>
           </dl>
           <p>
-            SQL Server ends the session and rolls back its open transaction, which can take as long as the work it undoes. The application that owns it
+            {engine.product} ends the session and rolls back its open transaction, which can take as long as the work it undoes. The application that owns it
             will see its connection drop.
           </p>
           {killError ? <Alert variant="error">{killError}</Alert> : null}

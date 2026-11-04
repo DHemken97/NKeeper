@@ -15,7 +15,9 @@ export interface ScanProposal {
   detail: string
   /** Proposals that fill gaps start checked; ones that replace a value start unchecked. */
   checked: boolean
-  apply: (draft: HostDraft) => void
+  /** It needs a name the scan couldn't find (an Oracle service seen only from outside): asked for beside it. */
+  needsName?: { label: string; placeholder: string }
+  apply: (draft: HostDraft, name?: string) => void
 }
 
 const sameText = (a: string | null | undefined, b: string | null | undefined) => (a ?? '').toLowerCase() === (b ?? '').toLowerCase()
@@ -31,6 +33,10 @@ function hasService(host: Host, protocol: ServiceProtocol, port: number | null, 
     // SQL Server instances are told apart by name: a named one the host has may be on a dynamic port,
     // or found by the SQL Server Browser (no port); the default instance by its port.
     return host.services.some((s) => s.protocol === 'Ssms' && (instance ? sameText(s.instance, instance) : !s.instance && portOf(s) === wanted))
+  }
+  if (protocol === 'Oracle') {
+    // One listener serves several databases: each is a service of its own, by its service name.
+    return host.services.some((s) => s.protocol === 'Oracle' && portOf(s) === wanted && (!instance || sameText(s.instance, instance)))
   }
   return host.services.some((s) => s.protocol === protocol && portOf(s) === wanted)
 }
@@ -166,13 +172,17 @@ export function scanProposals(host: Host, findings: ScanFindings, sshPort: numbe
       continue
     }
     const stored = storedPort(protocol, port)
+    const named = protocol === 'Ssms' || protocol === 'Oracle' ? (instance ?? null) : null
+    // An Oracle listener seen from outside: its databases' names come from an internal scan, or the user.
+    const unnamedOracle = protocol === 'Oracle' && !instance
     proposals.push({
-      key: `service-${protocol}-${port}`,
+      key: `service-${protocol}-${port}${named ? `-${named}` : ''}`,
       group: 'Services',
-      label: protocol === 'Ssms' && instance ? `${PROTOCOL_INFO[protocol].label} · ${instance}` : PROTOCOL_INFO[protocol].label,
+      label: named ? `${PROTOCOL_INFO[protocol].label} · ${named}` : PROTOCOL_INFO[protocol].label,
       detail: `port ${port}${name && name !== PROTOCOL_INFO[protocol].label ? ` · ${name}` : ''}`,
-      checked: true,
-      apply: (draft) => void draft.services.push(newServiceDraft(protocol, stored, null, null, null, protocol === 'Ssms' ? (instance ?? null) : null)),
+      checked: !unnamedOracle,
+      needsName: unnamedOracle ? { label: 'Service name', placeholder: 'e.g. ORCLPDB1 (or the SID)' } : undefined,
+      apply: (draft, typed) => void draft.services.push(newServiceDraft(protocol, stored, null, null, null, unnamedOracle ? (typed?.trim() ?? null) : named)),
     })
   }
 

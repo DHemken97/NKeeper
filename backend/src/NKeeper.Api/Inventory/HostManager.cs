@@ -806,7 +806,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             Position = index,
             RdpSecurity = s.Protocol == ServiceProtocol.Rdp && s.RdpSecurity is not RdpSecurityMode.Auto ? s.RdpSecurity : null,
             Address = s.Protocol == ServiceProtocol.Idrac ? NormalizeAddress(s.Address) : null,
-            Instance = s.Protocol == ServiceProtocol.Ssms ? SqlServerInstance.Normalize(s.Instance) : null,
+            Instance = s.Protocol == ServiceProtocol.Ssms ? SqlServerInstance.Normalize(s.Instance) : s.Protocol == ServiceProtocol.Oracle ? InventoryText.TrimToNull(s.Instance) : null,
         }));
     }
 

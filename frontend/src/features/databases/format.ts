@@ -1,4 +1,4 @@
-import type { SqlOutput } from './sqlServerApi'
+import type { SqlOutput } from './databaseApi'
 
 /** Widest a column gets in text results; longer values are cut, as SSMS cuts them. */
 const MAX_TEXT_WIDTH = 256
