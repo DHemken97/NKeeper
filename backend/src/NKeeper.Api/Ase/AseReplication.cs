@@ -82,9 +82,10 @@ internal static partial class AseReplication
 
                 if (log.Pages > 0 && usedPercent >= FullLogPercent)
                 {
-                    warnings.Add(log.ReplicationSince is not null
+                    var oldest = log.OldestSpid is { } holder ? $" The oldest open transaction (spid {holder}) has been open since {log.OldestSince:yyyy-MM-dd HH:mm}." : string.Empty;
+                    warnings.Add((log.ReplicationSince is not null
                         ? $"{log.Name}: the log is {usedPercent:0}% full and replication holds its truncation point (since {log.ReplicationSince:yyyy-MM-dd HH:mm}). If the Rep Agent is behind or down, the log can't be truncated."
-                        : $"{log.Name}: the log is {usedPercent:0}% full.");
+                        : $"{log.Name}: the log is {usedPercent:0}% full.") + oldest);
                 }
             }
 

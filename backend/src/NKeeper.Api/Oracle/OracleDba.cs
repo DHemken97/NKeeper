@@ -244,7 +244,8 @@ internal static class OracleDba
             "RMAN jobs (14 days)",
             "v$rman_backup_job_details",
             """
-            SELECT TO_CHAR(start_time, 'YYYY-MM-DD HH24:MI') "Started", ROUND((SYSDATE - end_time) * 24, 1) "Hours ago",
+            SELECT TO_CHAR(start_time, 'YYYY-MM-DD HH24:MI') "Started", TO_CHAR(end_time, 'YYYY-MM-DD HH24:MI') "Ended",
+                   ROUND((SYSDATE - end_time) * 24, 1) "Hours ago",
                    input_type "Type", status "Status", time_taken_display "Took",
                    input_bytes_display "Read", output_bytes_display "Written", output_device_type "Device", session_recid "Session"
             FROM v$rman_backup_job_details
@@ -255,6 +256,8 @@ internal static class OracleDba
         if (jobs.Error is null)
         {
             double? lastDatabase = null;
+            string? lastDatabaseEnded = null;
+            string? lastFailed = null;
             var failed = 0;
             foreach (var (columns, row) in ToolReports.Rows(jobs))
             {
@@ -264,27 +267,34 @@ internal static class OracleDba
                 if (status.StartsWith("COMPLETED", StringComparison.OrdinalIgnoreCase) && !status.Contains("ERRORS", StringComparison.OrdinalIgnoreCase)
                     && DatabaseBackupTypes.Contains(type, StringComparer.OrdinalIgnoreCase) && hours is { } h)
                 {
-                    lastDatabase = lastDatabase is null ? h : Math.Min(lastDatabase.Value, h);
+                    if (lastDatabase is null || h < lastDatabase)
+                    {
+                        lastDatabase = h;
+                        lastDatabaseEnded = ToolReports.Cell(columns, row, "Ended");
+                    }
                 }
 
                 if ((status.Contains("FAILED", StringComparison.OrdinalIgnoreCase) || status.Contains("ERRORS", StringComparison.OrdinalIgnoreCase)) && (hours ?? 0) <= 24 * 7)
                 {
                     failed++;
+                    // Newest first: the first one met is the latest.
+                    lastFailed ??= ToolReports.Cell(columns, row, "Started");
                 }
             }
 
             if (lastDatabase is null)
             {
-                warnings.Insert(0, "No database backup has completed in the last 14 days (by the control file's RMAN history).");
+                var ever = await LastBackupEverAsync(connection, cancellationToken);
+                warnings.Insert(0, $"No database backup has completed in the last 14 days (by the control file's RMAN history){(ever is null ? ", and none is on record" : $": the last one on record finished at {ever}")}.");
             }
             else if (lastDatabase > 26)
             {
-                warnings.Insert(0, $"The last database backup finished {FormatHours(lastDatabase.Value)} ago.");
+                warnings.Insert(0, $"The last database backup finished {FormatHours(lastDatabase.Value)} ago, at {lastDatabaseEnded}.");
             }
 
             if (failed > 0)
             {
-                warnings.Add($"{failed} RMAN job{(failed == 1 ? "" : "s")} failed or finished with errors in the last 7 days.");
+                warnings.Add($"{failed} RMAN job{(failed == 1 ? "" : "s")} failed or finished with errors in the last 7 days; the latest started at {lastFailed}.");
             }
         }
 
@@ -476,7 +486,8 @@ internal static class OracleDba
         var alertCount = ToolReports.Rows(alerts).Count();
         if (alertCount > 0)
         {
-            warnings.Add($"{alertCount} outstanding server alert{(alertCount == 1 ? "" : "s")}.");
+            var latestAlert = ToolReports.Rows(alerts).Select(x => ToolReports.Cell(x.Columns, x.Row, "Raised")).FirstOrDefault();
+            warnings.Add($"{alertCount} outstanding server alert{(alertCount == 1 ? "" : "s")}; the latest raised at {latestAlert}.");
         }
 
         var alertLog = await SectionAsync(
@@ -497,7 +508,8 @@ internal static class OracleDba
         var errors = ToolReports.Rows(alertLog).Count();
         if (errors > 0)
         {
-            warnings.Add($"{errors} error{(errors == 1 ? "" : "s")} in the alert log in the last 24 hours.");
+            var latest = ToolReports.Rows(alertLog).Select(x => (Time: ToolReports.Cell(x.Columns, x.Row, "Time"), Message: ToolReports.Cell(x.Columns, x.Row, "Message"))).First();
+            warnings.Add($"{errors} error{(errors == 1 ? "" : "s")} in the alert log in the last 24 hours; the latest at {latest.Time}: {Shorten(latest.Message)}");
         }
 
         var switches = await SectionAsync(
@@ -513,10 +525,14 @@ internal static class OracleDba
             """,
             cancellationToken,
             note: "More than a few switches an hour usually means the redo logs are too small.");
-        var busiest = ToolReports.Rows(switches).Select(x => ToolReports.Number(x.Columns, x.Row, "Switches") ?? 0).DefaultIfEmpty(0).Max();
-        if (busiest >= 20)
+        var busiest = ToolReports.Rows(switches)
+            .Select(x => (Count: ToolReports.Number(x.Columns, x.Row, "Switches") ?? 0, Hour: ToolReports.Cell(x.Columns, x.Row, "Hour")))
+            .OrderByDescending(x => x.Count)
+            .FirstOrDefault();
+        if (busiest.Count >= 20)
         {
-            warnings.Add($"Up to {busiest:0} redo log switches in an hour: consider larger redo logs.");
+            var heavy = ToolReports.Rows(switches).Where(x => (ToolReports.Number(x.Columns, x.Row, "Switches") ?? 0) >= 20).Select(x => ToolReports.Cell(x.Columns, x.Row, "Hour")).FirstOrDefault();
+            warnings.Add($"Up to {busiest.Count:0} redo log switches in an hour (the hour from {busiest.Hour}; most recently that busy from {heavy}): consider larger redo logs.");
         }
 
         var invalid = await SectionAsync(
@@ -583,7 +599,8 @@ internal static class OracleDba
 
             if (status.Contains("TIMED", StringComparison.OrdinalIgnoreCase))
             {
-                warnings.Add($"{user} is locked after failed sign-ins.");
+                var locked = ToolReports.Cell(columns, row, "Locked");
+                warnings.Add($"{user} is locked after failed sign-ins{(locked is null ? "" : $", since {locked}")}.");
             }
 
             if (unlock.Count < MaxScripts && status.Contains("LOCKED", StringComparison.OrdinalIgnoreCase))
@@ -648,6 +665,31 @@ internal static class OracleDba
         await using var reader = (OracleDataReader)await command.ExecuteReaderAsync(cancellationToken);
         return await OracleDialect.ReadResultAsync(reader, RowsPerResult, cancellationToken);
     }
+
+    /// <summary>When the last database backup on record finished, however long ago (null when there's none).</summary>
+    private static async Task<string?> LastBackupEverAsync(DbConnection connection, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var found = await DbQuery.ListAsync(
+                connection,
+                """
+                SELECT TO_CHAR(MAX(end_time), 'YYYY-MM-DD HH24:MI') FROM v$rman_backup_job_details
+                WHERE status LIKE 'COMPLETED%' AND input_type IN ('DB FULL', 'DB INCR', 'DATAFILE FULL', 'DATAFILE INCR')
+                """,
+                [],
+                r => DbQuery.Text(r, 0),
+                cancellationToken);
+            return found.Count > 0 ? found[0] : null;
+        }
+        catch (DbException)
+        {
+            return null;
+        }
+    }
+
+    private static string Shorten(string? text) =>
+        text is null ? string.Empty : text.ReplaceLineEndings(" ").Trim() is var one && one.Length > 160 ? $"{one[..157]}…" : one;
 
     private static string FormatHours(double hours) => hours >= 48 ? $"{hours / 24:0.#} days" : $"{hours:0} hours";
 

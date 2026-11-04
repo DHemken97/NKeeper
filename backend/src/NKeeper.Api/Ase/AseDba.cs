@@ -106,6 +106,29 @@ internal static class AseDba
             // Shown as the devices section's error below.
         }
 
+        var holds = new Dictionary<string, (DateTime? Transaction, int? Spid, DateTime? Replication)>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var hold in await DbQuery.ListAsync(
+                connection,
+                """
+                SELECT db_name(dbid),
+                       min(CASE WHEN spid <> 0 THEN starttime END), min(CASE WHEN spid <> 0 THEN spid END),
+                       min(CASE WHEN name = '$replication_truncation_point' THEN starttime END)
+                FROM master..syslogshold GROUP BY dbid
+                """,
+                [],
+                r => (Db: DbQuery.Text(r, 0) ?? string.Empty, Transaction: Date(r, 1), Spid: r.IsDBNull(2) ? (int?)null : DbQuery.Int(r, 2), Replication: Date(r, 3)),
+                cancellationToken))
+            {
+                holds[hold.Db] = (hold.Transaction, hold.Spid, hold.Replication);
+            }
+        }
+        catch (DbException)
+        {
+            // Without syslogshold, the warning just doesn't say what holds the log.
+        }
+
         try
         {
             var databases = await DatabaseSpaceAsync(connection, cancellationToken);
@@ -137,7 +160,14 @@ internal static class AseDba
 
                 if (logUsed >= 80)
                 {
-                    warnings.Add($"{db.Name}: the log is {logUsed:0}% full. Dump the transaction log, or check what holds it (Replication Health shows the oldest transaction and replication's truncation point).");
+                    var held = holds.TryGetValue(db.Name, out var h)
+                        ? string.Join("; ", new[]
+                        {
+                            h.Transaction is { } t ? $"the oldest open transaction (spid {h.Spid}) has held it since {Stamp(t)}" : null,
+                            h.Replication is { } r ? $"replication's truncation point has held it since {Stamp(r)}" : null,
+                        }.Where(x => x is not null))
+                        : string.Empty;
+                    warnings.Add($"{db.Name}: the log is {logUsed:0}% full{(held.Length > 0 ? $": {held}" : "")}. Dump the transaction log, or end what holds it.");
                     if (scripts.Count < MaxScripts && Roomiest(devices) is { } device)
                     {
                         scripts.Add(new ToolScript($"{db.Name}: add log space on {device.Name}", $"alter database {Quote(db.Name)} log on {device.Name} = '{GrowBy(db.LogMb, device)}'"));
@@ -296,12 +326,12 @@ internal static class AseDba
                     ]);
                     if (since > TimeSpan.FromHours(1))
                     {
-                        warnings.Add($"{role.Database}: the last transaction from origin {a.Origin} was applied {Duration(since.Value)} ago. If the primary has changed since, replication is behind or stopped.");
+                        warnings.Add($"{role.Database}: the last transaction from origin {a.Origin} was applied {Duration(since.Value)} ago, at {Stamp(a.Applied)} (committed on the primary at {Stamp(a.OriginTime)}). If the primary has changed since, replication is behind or stopped.");
                     }
 
                     if (latency > TimeSpan.FromMinutes(5))
                     {
-                        warnings.Add($"{role.Database}: the last transaction from origin {a.Origin} took {Duration(latency.Value)} to arrive.");
+                        warnings.Add($"{role.Database}: the last transaction from origin {a.Origin} took {Duration(latency.Value)} to arrive (committed on the primary at {Stamp(a.OriginTime)}, applied at {Stamp(a.Applied)}).");
                     }
                 }
             }
@@ -359,7 +389,9 @@ internal static class AseDba
             var failed = ToolReports.Rows(exceptions).Sum(x => ToolReports.Number(x.Columns, x.Row, "Transactions") ?? 0);
             if (failed > 0)
             {
-                warnings.Add($"{failed:0} transaction{(failed == 1 ? " is" : "s are")} in the exceptions log ({role.Database}): skipped or failed on a replicate, so it differs from its primary.");
+                // Newest first: the first row's Latest is the most recent of all.
+                var latest = ToolReports.Rows(exceptions).Select(x => ToolReports.Cell(x.Columns, x.Row, "Latest")).FirstOrDefault();
+                warnings.Add($"{failed:0} transaction{(failed == 1 ? " is" : "s are")} in the exceptions log ({role.Database}), the latest logged at {Trim(latest)}: skipped or failed on a replicate, so it differs from its primary.");
             }
 
             sections.Add(exceptions with
@@ -469,6 +501,12 @@ internal static class AseDba
 
     private static DateTime? Date(DbDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : Convert.ToDateTime(reader.GetValue(ordinal), CultureInfo.InvariantCulture);
+
+    /// <summary>A server time, as the reports show them (the database server's own clock).</summary>
+    private static string Stamp(DateTime? time) => time?.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) ?? "an unknown time";
+
+    /// <summary>A grid's date without its milliseconds.</summary>
+    private static string Trim(string? cell) => cell is { Length: > 19 } ? cell[..19] : cell ?? "an unknown time";
 
     private static double? Percent(double part, double whole) => whole > 0 ? Math.Clamp(100 * part / whole, 0, 100) : null;
 
