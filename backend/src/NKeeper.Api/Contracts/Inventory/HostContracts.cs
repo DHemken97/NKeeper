@@ -157,13 +157,13 @@ public sealed record HostRequest : IValidatableObject
     [RegularExpression(@"^\s*[0-9]+\s*$", ErrorMessage = "A Zabbix host ID is a number, e.g. 10084.")]
     public string? ZabbixHostId { get; init; }
 
-    [MaxLength(50, ErrorMessage = "A host can have at most 50 tags.")]
+    [MaxLength(InventoryLimits.CeilingTags, ErrorMessage = "A host can have at most 500 tags.")]
     public HostTagRequest[] Tags { get; init; } = [];
 
-    [MaxLength(20, ErrorMessage = "A host can have at most 20 services.")]
+    [MaxLength(InventoryLimits.CeilingServices, ErrorMessage = "A host can have at most 1000 services.")]
     public HostServiceRequest[] Services { get; init; } = [];
 
-    [MaxLength(20, ErrorMessage = "A host can have at most 20 credentials.")]
+    [MaxLength(InventoryLimits.CeilingCredentials, ErrorMessage = "A host can have at most 1000 credentials.")]
     public HostCredentialRequest[] Credentials { get; init; } = [];
 
     /// <summary>The <c>version</c> from the last read. Required when updating.</summary>
@@ -430,33 +430,33 @@ public sealed record BulkHostUpdateRequest : IValidatableObject
     [MaxLength(5000, ErrorMessage = "Change at most 5000 hosts at a time.")]
     public Guid[] HostIds { get; init; } = [];
 
-    [MaxLength(50)]
+    [MaxLength(InventoryLimits.CeilingTags)]
     public HostTagRequest[] AddTags { get; init; } = [];
 
-    [MaxLength(50)]
+    [MaxLength(InventoryLimits.CeilingTags)]
     public HostTagRequest[] SetTags { get; init; } = [];
 
-    [MaxLength(50)]
+    [MaxLength(InventoryLimits.CeilingTags)]
     public BulkTagRemoval[] RemoveTags { get; init; } = [];
 
     /// <summary>Set: the hosts become virtual machines running on it. Null leaves them unchanged.</summary>
     public BulkHypervisorChange? Hypervisor { get; init; }
 
-    [MaxLength(20)]
+    [MaxLength(InventoryLimits.CeilingServices)]
     public BulkServiceRemoval[] RemoveServices { get; init; } = [];
 
     /// <summary>Services each host gets, after its own; a host that already has one (same type and port) keeps it as it is.</summary>
-    [MaxLength(20)]
+    [MaxLength(InventoryLimits.CeilingServices)]
     public HostServiceRequest[] AddServices { get; init; } = [];
 
-    [MaxLength(20)]
+    [MaxLength(InventoryLimits.CeilingCredentials)]
     public BulkCredentialMatch[] RemoveCredentials { get; init; } = [];
 
-    [MaxLength(20)]
+    [MaxLength(InventoryLimits.CeilingCredentials)]
     public BulkCredentialUpdate[] UpdateCredentials { get; init; } = [];
 
     /// <summary>Credentials each host gets, after its own; a host that already has the account (or label) keeps its own.</summary>
-    [MaxLength(20)]
+    [MaxLength(InventoryLimits.CeilingCredentials)]
     public HostCredentialRequest[] AddCredentials { get; init; } = [];
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)

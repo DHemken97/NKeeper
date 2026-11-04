@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { useInventoryLimits } from '../limits'
 import { Button } from '../../../components/ui/Button'
 import { newTagDraft, type TagDraft } from '../drafts'
 import type { InheritedTag } from '../types'
@@ -17,10 +18,10 @@ interface TagEditorProps {
   inherited?: InheritedTag[]
 }
 
-const MAX_TAGS = 50
 
 /** Zabbix-style `name: value` tags. Tags drive the tree's "group by", e.g. site → role. */
 export function TagEditor({ value, onChange, knownNames, knownValues, errors, inherited = [] }: TagEditorProps) {
+  const limits = useInventoryLimits()
   const id = useId()
   const namesListId = `${id}-names`
 
@@ -125,7 +126,7 @@ export function TagEditor({ value, onChange, knownNames, knownValues, errors, in
       ) : null}
 
       <div>
-        <Button variant="secondary" size="sm" onClick={() => onChange([...value, newTagDraft()])} disabled={value.length >= MAX_TAGS}>
+        <Button variant="secondary" size="sm" onClick={() => onChange([...value, newTagDraft()])} disabled={value.length >= limits.maxTagsPerHost}>
           Add tag
         </Button>
       </div>

@@ -1,4 +1,5 @@
 import { newCredentialDraft, newServiceDraft, newTagDraft, type HostDraft } from './drafts'
+import { DEFAULT_LIMITS } from './limits'
 import { formatMemory, PROTOCOL_INFO, type Host, type HostService, type ScanFindings, type ScannedPort, type ServiceProtocol } from './types'
 
 /** The tag a scan records the operating system in, e.g. `os: Ubuntu 24.04.1 LTS`. */
@@ -44,8 +45,14 @@ function hasService(host: Host, protocol: ServiceProtocol, port: number | null, 
 /**
  * Turns scan findings into proposed changes, leaving out what the host already has.
  * @param sshPort The SSH port an internal scan logged in on (a KVM host is reached there).
+ * @param usersPreselectedUpTo Found users start ticked when there are at most this many new ones (Settings ▸ Limits).
  */
-export function scanProposals(host: Host, findings: ScanFindings, sshPort: number | null): ScanProposal[] {
+export function scanProposals(
+  host: Host,
+  findings: ScanFindings,
+  sshPort: number | null,
+  usersPreselectedUpTo = DEFAULT_LIMITS.scanUsersPreselectedUpTo,
+): ScanProposal[] {
   const proposals: ScanProposal[] = []
   const now = (current: string | null) => (current ? ` (now ${current})` : '')
 
@@ -186,17 +193,17 @@ export function scanProposals(host: Host, findings: ScanFindings, sshPort: numbe
     })
   }
 
-  for (const user of findings.users) {
-    if (host.credentials.some((c) => sameText(c.username, user.username))) {
-      continue
-    }
+  const newUsers = findings.users.filter((user) => !host.credentials.some((c) => sameText(c.username, user.username)))
+  // A server with many accounts rarely needs each as a credential: past the limit, the user picks.
+  const preselectUsers = newUsers.length <= usersPreselectedUpTo
+  for (const user of newUsers) {
     proposals.push({
       key: `user-${user.username}`,
       group: 'Logins',
       label: user.username,
       detail: [user.fullName, `uid ${user.uid}`, 'no password: asks when used'].filter(Boolean).join(' · '),
       // root logins are often disabled over SSH; offer it, but don't assume it.
-      checked: user.uid !== 0,
+      checked: preselectUsers && user.uid !== 0,
       apply: (draft) => void draft.credentials.push({ ...newCredentialDraft(), username: user.username }),
     })
   }

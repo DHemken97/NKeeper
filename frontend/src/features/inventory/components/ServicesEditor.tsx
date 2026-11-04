@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useInventoryLimits } from '../limits'
 import { Button } from '../../../components/ui/Button'
 import { errorFor } from '../../../lib/formErrors'
 import { newServiceDraft, type ServiceDraft } from '../drafts'
@@ -22,7 +23,6 @@ interface ServicesEditorProps {
   note?: (service: ServiceDraft) => string | null
 }
 
-const MAX_SERVICES = 20
 
 /** Ordered list of the ways to connect to a host (the first one is the default). */
 export function ServicesEditor({
@@ -36,6 +36,7 @@ export function ServicesEditor({
   reorderable = true,
   note,
 }: ServicesEditorProps) {
+  const limits = useInventoryLimits()
   function update(key: number, patch: Partial<ServiceDraft>) {
     onChange(value.map((s) => (s.key === key ? { ...s, ...patch } : s)))
   }
@@ -212,7 +213,7 @@ export function ServicesEditor({
       {errors.services ? <p className={styles.error}>{errors.services}</p> : null}
 
       <div>
-        <Button variant="secondary" size="sm" onClick={addService} disabled={value.length >= MAX_SERVICES}>
+        <Button variant="secondary" size="sm" onClick={addService} disabled={value.length >= limits.maxServicesPerHost}>
           Add service
         </Button>
       </div>
