@@ -178,10 +178,13 @@ export function DatabaseView({ session, active, onShowHost, engine = 'mssql' }: 
   useCloseOnPageExit(liveId ? db.sessionPath(liveId) : null)
   useKeepAlive(
     liveId,
-    () => {
+    (ended) => {
       // Closed by the server (idle, or it restarted): stay as we are, disconnected, until something needs it.
-      liveRef.current = null
-      setLiveId(null)
+      // A late answer about a session the tab has already replaced changes nothing.
+      if (liveRef.current === ended) {
+        liveRef.current = null
+        setLiveId(null)
+      }
     },
     db,
   )

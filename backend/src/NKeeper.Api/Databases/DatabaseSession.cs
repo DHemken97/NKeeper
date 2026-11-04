@@ -112,9 +112,16 @@ public sealed class DatabaseSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        Cancel();
-        await Connection.DisposeAsync();
-        _cleanup?.Invoke();
+        try
+        {
+            Cancel();
+            await Connection.DisposeAsync();
+        }
+        finally
+        {
+            // The jump tunnel and certificate file go even if closing the connection failed.
+            _cleanup?.Invoke();
+        }
     }
 
     internal sealed class QueryLease(DatabaseSession session, CancellationTokenSource cancel) : IDisposable
@@ -146,16 +153,23 @@ public sealed class DatabaseSessionStore(TimeProvider timeProvider, Auditing.Aud
 
     private readonly ConcurrentDictionary<string, DatabaseSession> _sessions = new(StringComparer.Ordinal);
 
+    /// <summary>Counting a user's sessions and adding one happen together, so sessions opened at once can't pass the cap.</summary>
+    private readonly Lock _adding = new();
+
     /// <summary>Adds a session, unless the user has too many open; the caller then disposes it.</summary>
     internal bool TryAdd(DatabaseSession session)
     {
         RemoveExpired();
-        if (_sessions.Values.Count(s => s.UserId == session.UserId) >= MaxSessionsPerUser)
+        lock (_adding)
         {
-            return false;
+            if (_sessions.Values.Count(s => s.UserId == session.UserId) >= MaxSessionsPerUser)
+            {
+                return false;
+            }
+
+            _sessions[session.Id] = session;
         }
 
-        _sessions[session.Id] = session;
         logger.LogInformation(
             "{Engine} session {SessionId} opened by user {UserId} to {Target} on host {HostId}", session.Engine, session.Id, session.UserId, session.Display, session.HostId);
         _ = audit.RecordAsync(new Auditing.AuditEntry(

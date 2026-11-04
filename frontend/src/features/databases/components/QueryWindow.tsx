@@ -115,7 +115,10 @@ export function QueryWindow({ title, request, target, databases, initialSql, ini
 
   const sessionId = connection.state === 'ready' ? connection.id : null
   useCloseOnPageExit(sessionId ? db.sessionPath(sessionId) : null)
-  useKeepAlive(sessionId, () => setConnection({ state: 'disconnected' }))
+  useKeepAlive(sessionId, (ended) =>
+    // A late answer about a session this window has already replaced changes nothing.
+    setConnection((current) => (current.state === 'ready' && current.id === ended ? { state: 'disconnected' } : current)),
+  )
 
   useEffect(
     () => () => {

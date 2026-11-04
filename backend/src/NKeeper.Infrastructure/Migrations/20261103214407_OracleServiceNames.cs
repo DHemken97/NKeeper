@@ -25,6 +25,10 @@ namespace NKeeper.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Only Oracle service names can be longer than 16 (SQL Server instance names can't): versions before
+            // this one have no Oracle services, so those names are cleared rather than cut short.
+            migrationBuilder.Sql("UPDATE \"HostServices\" SET \"Instance\" = NULL WHERE length(\"Instance\") > 16;");
+
             migrationBuilder.AlterColumn<string>(
                 name: "Instance",
                 table: "HostServices",
