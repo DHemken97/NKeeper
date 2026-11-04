@@ -37,6 +37,7 @@ internal static class AseDba
     {
         Space => SpaceAsync(connection, now, cancellationToken),
         SybaseAdmin.License => SybaseAdmin.AseLicenseAsync(connection, now, cancellationToken),
+        AseHealth.Dumps or AseHealth.Errors or AseHealth.Resources or AseHealth.Security or AseHealth.Maintenance => AseHealth.ReportAsync(connection, tool, now, cancellationToken),
         Drift => DriftAsync(connection, now, cancellationToken),
         _ => throw new SqlExplorerException($"There's no “{tool}” report."),
     };

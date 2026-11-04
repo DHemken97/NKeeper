@@ -1,6 +1,6 @@
 import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
-import type { ToolScript, ToolSection } from '../sqlServerApi'
+import type { SqlOutput, ToolScript, ToolSection } from '../sqlServerApi'
 import { ResultGrid } from './ResultGrid'
 import styles from './SqlServer.module.css'
 
@@ -10,6 +10,20 @@ interface ReportSectionsProps {
   onOpenQuery?: (sql: string) => void
   /** Shows a script to copy and run elsewhere (RMAN, SQL*Plus). */
   onShowScript?: (script: ToolScript) => void
+}
+
+/** Grids as they are; runs of messages joined into one block, as a procedure that prints its output reads best. */
+function grouped(results: SqlOutput[]): SqlOutput[] {
+  const out: SqlOutput[] = []
+  for (const result of results) {
+    const last = out.at(-1)
+    if (result.kind !== 'results' && last && last.kind !== 'results') {
+      out[out.length - 1] = { ...last, text: `${last.text ?? ''}\n${result.text ?? ''}` }
+    } else {
+      out.push(result)
+    }
+  }
+  return out
 }
 
 /** A report's sections: each command's grids and messages, its error, and the scripts it offers. */
@@ -23,7 +37,7 @@ export function ReportSections({ sections, onOpenQuery, onShowScript }: ReportSe
           </h3>
           {section.note ? <p className={styles.hint}>{section.note}</p> : null}
           {section.error ? <Alert variant="error">{section.error}</Alert> : null}
-          {section.results.map((result, index) =>
+          {grouped(section.results).map((result, index) =>
             result.kind === 'results' ? (
               <div key={index} className={styles.replicationGrid}>
                 {result.rows && result.rows.length > 0 ? <ResultGrid output={result} label={`${section.title} results`} /> : <p className={styles.hint}>No rows.</p>}

@@ -242,7 +242,7 @@ export type ToolKind = 'blocking' | 'orphans' | 'replication' | 'copy' | OracleR
 export type OracleReport = 'storage' | 'backups' | 'health'
 
 /** SAP ASE's read-only Management reports. */
-export type AseReport = 'space' | 'drift' | 'license'
+export type AseReport = 'space' | 'drift' | 'license' | 'dumps' | 'errors' | 'resources' | 'security' | 'maintenance'
 
 /** Replication Server's read-only Management reports. */
 export type RepServerReport = 'admin' | 'license'
@@ -259,7 +259,7 @@ export interface DbEngineInfo {
 export const DB_ENGINES: Record<DbEngine, DbEngineInfo> = {
   mssql: { product: 'SQL Server', databaseLabel: 'Database', tools: ['blocking', 'orphans'] },
   oracle: { product: 'Oracle', databaseLabel: 'Schema', tools: ['blocking', 'storage', 'backups', 'health'] },
-  ase: { product: 'SAP ASE', databaseLabel: 'Database', tools: ['blocking', 'replication', 'space', 'drift', 'copy', 'license'] },
+  ase: { product: 'SAP ASE', databaseLabel: 'Database', tools: ['blocking', 'replication', 'space', 'drift', 'copy', 'license', 'dumps', 'errors', 'resources', 'security', 'maintenance'] },
   rs: { product: 'Replication Server', databaseLabel: null, tools: ['replication', 'admin', 'license'] },
 }
 

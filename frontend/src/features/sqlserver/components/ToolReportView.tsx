@@ -10,7 +10,7 @@ import { ReportSections } from './ReportSections'
 import styles from './SqlServer.module.css'
 
 /** The tools that are reports: replication (ASE, Replication Server) and Oracle's. */
-export type ReportTool = Extract<ToolKind, 'replication' | 'storage' | 'backups' | 'health' | 'space' | 'drift' | 'admin' | 'license'>
+export type ReportTool = Extract<ToolKind, 'replication' | 'storage' | 'backups' | 'health' | 'space' | 'drift' | 'admin' | 'license' | 'dumps' | 'errors' | 'resources' | 'security' | 'maintenance'>
 
 const HEADINGS: Record<ReportTool, { title: string; subtitle: (repServer: boolean) => string }> = {
   replication: { title: 'Replication Health', subtitle: (repServer) => (repServer ? 'Threads, Queues and Stable Devices' : 'Transaction Logs and Rep Agents') },
@@ -21,6 +21,11 @@ const HEADINGS: Record<ReportTool, { title: string; subtitle: (repServer: boolea
   drift: { title: 'Replication Drift', subtitle: () => 'Last Applied, Latency and Exceptions' },
   admin: { title: 'Admin Commands', subtitle: () => 'Threads, Queues, Connections and Versions' },
   license: { title: 'License', subtitle: () => 'Licenses and Expiry' },
+  dumps: { title: 'Backups (dumps)', subtitle: () => 'Last Full and Log Dumps' },
+  errors: { title: 'Error Log', subtitle: () => 'Recent Errors and Deadlocks' },
+  resources: { title: 'Resources & Activity', subtitle: () => 'Limits, Transactions, Sessions and Caches' },
+  security: { title: 'Logins & Users', subtitle: () => 'Locked Logins and Users Without Logins' },
+  maintenance: { title: 'Maintenance', subtitle: () => 'Largest Tables and Their Statistics' },
 }
 
 interface ToolReportViewProps {

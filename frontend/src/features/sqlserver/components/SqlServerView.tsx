@@ -47,11 +47,16 @@ const TOOL_TITLES: Record<ToolKind, string> = {
   copy: 'Copy Database',
   admin: 'Admin Commands',
   license: 'License',
+  dumps: 'Backups (dumps)',
+  errors: 'Error Log',
+  resources: 'Resources & Activity',
+  security: 'Logins & Users',
+  maintenance: 'Maintenance',
 }
 
 let nextDocument = 1
 
-const REPORT_TOOLS = new Set<string>(['replication', 'storage', 'backups', 'health', 'space', 'drift', 'admin', 'license'])
+const REPORT_TOOLS = new Set<string>(['replication', 'storage', 'backups', 'health', 'space', 'drift', 'admin', 'license', 'dumps', 'errors', 'resources', 'security', 'maintenance'])
 
 const EXPLORER_WIDTH_KEY = 'nkeeper.sql.explorerWidth'
 const DEFAULT_EXPLORER_WIDTH = 280
