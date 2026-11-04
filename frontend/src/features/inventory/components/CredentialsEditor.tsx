@@ -1,4 +1,5 @@
 import { Button } from '../../../components/ui/Button'
+import { useInventoryLimits } from '../limits'
 import { Checkbox } from '../../../components/ui/Checkbox'
 import { PasswordField } from '../../../components/ui/PasswordField'
 import { TextArea } from '../../../components/ui/TextArea'
@@ -23,13 +24,13 @@ function serviceName(service: ServiceDraft): string {
     .join(' · ') + (service.port ? ` :${service.port}` : '')
 }
 
-const MAX_CREDENTIALS = 20
 
 /**
  * The host's own credentials. Stored secrets are never sent to the browser: an empty
  * secret field keeps what is stored, and "Remove" clears it.
  */
 export function CredentialsEditor({ value, onChange, errors, services = [] }: CredentialsEditorProps) {
+  const limits = useInventoryLimits()
   function update(key: number, patch: Partial<CredentialDraft>) {
     onChange(value.map((c) => (c.key === key ? { ...c, ...patch } : c)))
   }
@@ -181,7 +182,7 @@ export function CredentialsEditor({ value, onChange, errors, services = [] }: Cr
           variant="secondary"
           size="sm"
           onClick={() => onChange([...value, newCredentialDraft()])}
-          disabled={value.length >= MAX_CREDENTIALS}
+          disabled={value.length >= limits.maxCredentialsPerHost}
         >
           Add credential
         </Button>

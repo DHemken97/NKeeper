@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useInventoryLimits } from '../limits'
 import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
 import { Checkbox } from '../../../components/ui/Checkbox'
@@ -233,11 +234,12 @@ function uniqueGuests(guests: ScannedGuest[]): ScannedGuest[] {
 }
 
 function BulkScanReview({ items, canAddHosts, onClose, onApplied }: ReviewProps) {
+  const { scanUsersPreselectedUpTo } = useInventoryLimits()
   const scanned = useMemo(() => items.filter((i) => i.status === 'done' && i.findings), [items])
   const problems = useMemo(() => items.filter((i) => i.status === 'failed' || i.status === 'skipped'), [items])
   const perHost = useMemo(
-    () => scanned.map((item) => ({ item, proposals: scanProposals(item.host, item.findings!, item.sshPort) })).filter((h) => h.proposals.length > 0),
-    [scanned],
+    () => scanned.map((item) => ({ item, proposals: scanProposals(item.host, item.findings!, item.sshPort, scanUsersPreselectedUpTo) })).filter((h) => h.proposals.length > 0),
+    [scanned, scanUsersPreselectedUpTo],
   )
   const guests = useMemo(() => scanned.flatMap((i) => i.findings!.guests), [scanned])
   const links = useMemo(() => uniqueGuests(guests.filter((g) => g.linkProposed && g.guestHostId && g.hypervisorHostId)), [guests])

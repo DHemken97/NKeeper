@@ -854,6 +854,39 @@ namespace NKeeper.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.InventoryLimits", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MaxCredentialsPerHost")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MaxServicesPerHost")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MaxTagsPerHost")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ScanUsersPreselectedUpTo")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.ToTable("InventoryLimits", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_InventoryLimits_Singleton", "\"Id\" = 1");
+                        });
+                });
+
             modelBuilder.Entity("NKeeper.Infrastructure.Inventory.ServiceCheck", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1113,6 +1146,14 @@ namespace NKeeper.Infrastructure.Migrations
                     b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("LockedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Inventory.InventoryLimits", b =>
+                {
+                    b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
                         .OnDelete(DeleteBehavior.SetNull);
                 });
 

@@ -10,12 +10,28 @@ export function jsonResponse(status: number, body?: unknown, headers: Record<str
 
 type Handler = (url: string, init: RequestInit) => Response | Promise<Response>
 
+/** Requests pages make in the background, answered unless a test routes them itself. */
+const defaultRoutes: Record<string, Handler> = {
+  'GET /api/settings/limits': () =>
+    jsonResponse(200, {
+      maxServicesPerHost: 100,
+      maxCredentialsPerHost: 100,
+      maxTagsPerHost: 50,
+      scanUsersPreselectedUpTo: 10,
+      updatedAtUtc: null,
+      ceilingServices: 1000,
+      ceilingCredentials: 1000,
+      ceilingTags: 500,
+      ceilingScanUsers: 1000,
+    }),
+}
+
 /** Replaces global fetch with a route table keyed by "METHOD /path". Unmatched calls fail the test. */
 export function mockFetch(routes: Record<string, Handler>) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = typeof input === 'string' ? input : input.toString()
     const key = `${init.method ?? 'GET'} ${new URL(url, 'http://localhost').pathname}`
-    const handler = routes[key]
+    const handler = routes[key] ?? defaultRoutes[key]
     if (!handler) {
       throw new Error(`Unexpected request: ${key}`)
     }

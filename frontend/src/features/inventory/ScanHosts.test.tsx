@@ -141,6 +141,25 @@ describe('SQL Server instances found by a scan', () => {
   })
 })
 
+describe('users found by a scan', () => {
+  const many = (count: number): ScanFindings => ({
+    ...findings,
+    ports: [],
+    users: Array.from({ length: count }, (_, i) => ({ username: `user${i}`, uid: 1000 + i, fullName: null, shell: '/bin/bash' })),
+  })
+  const ticked = (f: ScanFindings, upTo?: number) =>
+    scanProposals(web01, f, 22, upTo)
+      .filter((p) => p.group === 'Logins')
+      .map((p) => p.checked)
+
+  it('ticks them when there are no more than the limit, and leaves them all unticked past it', () => {
+    expect(ticked(many(10))).toEqual(Array(10).fill(true))
+    expect(ticked(many(11))).toEqual(Array(11).fill(false))
+    expect(ticked(many(3), 2)).toEqual([false, false, false])
+    expect(ticked(many(3), 0)).toEqual([false, false, false])
+  })
+})
+
 describe('Oracle databases found by a scan', () => {
   it('offers each database an internal scan named, ready to add, unless the host has it', () => {
     const oracleFindings: ScanFindings = {

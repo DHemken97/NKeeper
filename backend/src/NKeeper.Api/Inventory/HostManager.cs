@@ -84,6 +84,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
     {
         var userId = user.Id;
         var host = new Host { Id = Guid.NewGuid(), CreatedAtUtc = timeProvider.GetUtcNow(), CreatedByUserId = userId };
+        await CheckLimitsAsync(request, (0, 0, 0), cancellationToken);
         await CheckHypervisorAsync(host.Id, request.IsVirtualMachine ? request.HypervisorId : null, user, cancellationToken);
         await CheckJumpHostAsync(host.Id, request, user, cancellationToken);
         Apply(host, request, userId, await LoadCopySourcesAsync(request, user, cancellationToken));
@@ -120,6 +121,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         }
 
         db.Entry(host).Property(h => h.Version).OriginalValue = version;
+        await CheckLimitsAsync(request, (host.Tags.Count, host.Services.Count, host.Credentials.Count), cancellationToken);
         await CheckHypervisorAsync(id, request.IsVirtualMachine ? request.HypervisorId : null, user, cancellationToken);
         await CheckJumpHostAsync(id, request, user, cancellationToken);
         var previousAddress = (host.Hostname, host.IpAddress);
@@ -388,6 +390,8 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             await CheckBulkHypervisorAsync(hypervisorId, ids, user, cancellationToken);
         }
 
+        var limits = await InventoryLimits.ReadAsync(db, cancellationToken);
+
         static string Norm(string? value) => value?.Trim() ?? string.Empty;
         var removals = request.RemoveTags.Select(r => (Name: Norm(r.Name), Value: r.Value is null ? null : Norm(r.Value))).ToList();
         var sets = request.SetTags.Select(t => (Name: Norm(t.Name), Value: Norm(t.Value), t.Inheritable)).ToList();
@@ -400,6 +404,10 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         {
             var changed = false;
             var previousIdracAddresses = IdracAddresses(host);
+            // A host already over a lowered limit may stay there, but not gain more.
+            var tagLimit = Math.Max(limits.MaxTagsPerHost, host.Tags.Count);
+            var serviceLimit = Math.Max(limits.MaxServicesPerHost, host.Services.Count);
+            var credentialLimit = Math.Max(limits.MaxCredentialsPerHost, host.Credentials.Count);
             bool Is(HostTag tag, string name, string? value) =>
                 tag.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && (value is null || tag.Value.Equals(value, StringComparison.OrdinalIgnoreCase));
 
@@ -429,9 +437,9 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
                 }
             }
 
-            if (host.Tags.Count > 50)
+            if (host.Tags.Count > tagLimit)
             {
-                throw new InventoryValidationException("addTags", $"“{host.Name}” would have more than 50 tags.");
+                throw new InventoryValidationException("addTags", $"“{host.Name}” would have more than {limits.MaxTagsPerHost} tags (the limit set in Settings).");
             }
 
             if (request.Hypervisor is { } hypervisor)
@@ -470,12 +478,12 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
                 changed = true;
             }
 
-            if (host.Services.Count > 20)
+            if (host.Services.Count > serviceLimit)
             {
-                throw new InventoryValidationException("addServices", $"“{host.Name}” would have more than 20 services.");
+                throw new InventoryValidationException("addServices", $"“{host.Name}” would have more than {limits.MaxServicesPerHost} services (the limit set in Settings).");
             }
 
-            changed |= ApplyBulkCredentials(host, request);
+            changed |= ApplyBulkCredentials(host, request, credentialLimit, limits.MaxCredentialsPerHost);
 
             if (hadSsh && !host.Services.Any(s => s.Protocol == ServiceProtocol.Ssh))
             {
@@ -524,7 +532,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
     /// host's own (skipping accounts, or labels, it already has).
     /// </summary>
     /// <returns>Whether anything changed.</returns>
-    private bool ApplyBulkCredentials(Host host, BulkHostUpdateRequest request)
+    private bool ApplyBulkCredentials(Host host, BulkHostUpdateRequest request, int credentialLimit, int configuredLimit)
     {
         static bool Same(string? a, string? b) => string.Equals(a?.Trim() ?? string.Empty, b?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         static bool Matches(HostCredential credential, BulkCredentialMatch match) =>
@@ -589,9 +597,9 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             changed = true;
         }
 
-        if (host.Credentials.Count > 20)
+        if (host.Credentials.Count > credentialLimit)
         {
-            throw new InventoryValidationException("addCredentials", $"“{host.Name}” would have more than 20 credentials.");
+            throw new InventoryValidationException("addCredentials", $"“{host.Name}” would have more than {configuredLimit} credentials (the limit set in Settings).");
         }
 
         return changed;
@@ -626,6 +634,29 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
 
     /// <summary>Forgets every trusted SSH host key and RDP certificate, so the next connection asks again.</summary>
     /// <returns>False when the host does not exist or isn't visible to the user.</returns>
+    /// <summary>
+    /// A host's tags, services and credentials within the limits an administrator set (Settings ▸ Limits). A host
+    /// already over a lowered limit can still be saved, as long as it doesn't gain more.
+    /// </summary>
+    private async Task CheckLimitsAsync(HostRequest request, (int Tags, int Services, int Credentials) now, CancellationToken cancellationToken)
+    {
+        var limits = await InventoryLimits.ReadAsync(db, cancellationToken);
+        if (request.Tags.Length > Math.Max(limits.MaxTagsPerHost, now.Tags))
+        {
+            throw new InventoryValidationException("tags", $"A host can have at most {limits.MaxTagsPerHost} tags (the limit set in Settings).");
+        }
+
+        if (request.Services.Length > Math.Max(limits.MaxServicesPerHost, now.Services))
+        {
+            throw new InventoryValidationException("services", $"A host can have at most {limits.MaxServicesPerHost} services (the limit set in Settings).");
+        }
+
+        if (request.Credentials.Length > Math.Max(limits.MaxCredentialsPerHost, now.Credentials))
+        {
+            throw new InventoryValidationException("credentials", $"A host can have at most {limits.MaxCredentialsPerHost} credentials (the limit set in Settings).");
+        }
+    }
+
     public async Task<bool> ForgetTrustedKeysAsync(Guid id, RequestUser user, CancellationToken cancellationToken)
     {
         if (!await RequireManageAsync(id, user, cancellationToken))

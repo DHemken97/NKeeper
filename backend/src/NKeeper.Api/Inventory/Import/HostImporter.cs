@@ -18,10 +18,11 @@ public sealed class HostImporter(NKeeperDbContext db, HostAccess access, Credent
     /// <summary>The tag holding a host's mRemoteNG folder path, e.g. <c>folder: Servers/SQL</c>.</summary>
     public const string FolderTag = "folder";
 
-    private const int MaxServices = 20;
-    private const int MaxCredentials = 20;
 
     /// <summary>Default ports, as the client shows them: an imported port equal to its default is stored as "default".</summary>
+    /// <summary>The limits an administrator set (Settings ▸ Limits), read when an import starts.</summary>
+    private InventoryLimits _limits = new();
+
     private static readonly Dictionary<ServiceProtocol, int> DefaultPorts = new()
     {
         [ServiceProtocol.Ssh] = 22,
@@ -36,6 +37,7 @@ public sealed class HostImporter(NKeeperDbContext db, HostAccess access, Credent
     /// <exception cref="DbUpdateConcurrencyException">A host changed while the import was saving.</exception>
     public async Task<HostImportResponse> ImportAsync(HostImportRequest request, RequestUser user, CancellationToken cancellationToken)
     {
+        _limits = await InventoryLimits.ReadAsync(db, cancellationToken);
         var connections = MRemoteNgFile.Read(request.Content, request.MasterPassword);
         var skipped = new List<HostImportSkip>();
         var warnings = new List<string>();
@@ -227,9 +229,9 @@ public sealed class HostImporter(NKeeperDbContext db, HostAccess access, Credent
                 && (service.Protocol != ServiceProtocol.Other || string.Equals(s.Label, service.Label, StringComparison.OrdinalIgnoreCase)));
             if (existing is null)
             {
-                if (host.Services.Count >= MaxServices)
+                if (host.Services.Count >= _limits.MaxServicesPerHost)
                 {
-                    warnings.Add($"{host.Name}: it already has {MaxServices} services, so {service.Protocol} wasn't added.");
+                    warnings.Add($"{host.Name}: it already has {_limits.MaxServicesPerHost} services, so {service.Protocol} wasn't added.");
                     continue;
                 }
 
@@ -258,9 +260,9 @@ public sealed class HostImporter(NKeeperDbContext db, HostAccess access, Credent
                     : c.Username is null && c.Label == ImportedHost.PasswordOnlyLabel);
             if (existing is null)
             {
-                if (host.Credentials.Count >= MaxCredentials)
+                if (host.Credentials.Count >= _limits.MaxCredentialsPerHost)
                 {
-                    warnings.Add($"{host.Name}: it already has {MaxCredentials} credentials, so {login.Username ?? "a password"} wasn't added.");
+                    warnings.Add($"{host.Name}: it already has {_limits.MaxCredentialsPerHost} credentials, so {login.Username ?? "a password"} wasn't added.");
                     continue;
                 }
 

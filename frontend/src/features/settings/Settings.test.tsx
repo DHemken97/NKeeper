@@ -47,7 +47,7 @@ describe('Settings: email', () => {
 
     await user.clear(screen.getByLabelText('SMTP server'))
     await user.type(screen.getByLabelText('SMTP server'), 'mail.example.com')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(within(screen.getByRole('region', { name: 'Email' })).getByRole('button', { name: 'Save' }))
 
     await screen.findByLabelText('SMTP server')
     expect(body).toMatchObject({ host: 'mail.example.com', password: null, clearPassword: false, security: 'StartTls', port: 587 })
@@ -90,6 +90,35 @@ const certificate = {
   issuer: 'CN=zabbix.example.com',
   expires: '2027-10-20T10:00:00Z',
 }
+
+describe('Settings: limits', () => {
+  it('shows the limits in force and saves new ones', async () => {
+    const puts: unknown[] = []
+    mockFetch({
+      ...antiforgeryRoute,
+      'GET /api/admin/email': () => jsonResponse(200, savedEmail),
+      'GET /api/admin/zabbix': () => jsonResponse(200, { enabled: false, url: '', hasToken: false, trustedFingerprint: null, updatedAtUtc: null }),
+      'PUT /api/admin/limits': (_url, init) => {
+        const body = JSON.parse(String(init.body))
+        puts.push(body)
+        return jsonResponse(200, { ...body, updatedAtUtc: '2026-11-04T12:00:00Z', ceilingServices: 1000, ceilingCredentials: 1000, ceilingTags: 500, ceilingScanUsers: 1000 })
+      },
+    })
+    const user = renderPage()
+
+    const panel = within(await screen.findByRole('region', { name: 'Limits' }))
+    expect(panel.getByLabelText('Services per host')).toHaveValue(100)
+    expect(panel.getByLabelText('Users a scan ticks for you')).toHaveValue(10)
+    await user.clear(panel.getByLabelText('Services per host'))
+    await user.type(panel.getByLabelText('Services per host'), '250')
+    await user.clear(panel.getByLabelText('Users a scan ticks for you'))
+    await user.type(panel.getByLabelText('Users a scan ticks for you'), '5')
+    await user.click(panel.getByRole('button', { name: 'Save' }))
+
+    expect(await panel.findByText('Saved. The host editor and scans use them now.')).toBeInTheDocument()
+    expect(puts).toEqual([{ maxServicesPerHost: 250, maxCredentialsPerHost: 100, maxTagsPerHost: 50, scanUsersPreselectedUpTo: 5 }])
+  })
+})
 
 describe('Settings: Zabbix', () => {
   it('asks to trust a self-signed certificate, then tests and saves with it', { timeout: 20_000 }, async () => {

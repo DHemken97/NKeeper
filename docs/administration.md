@@ -89,6 +89,19 @@ With email set up, **Email 2FA challenge code** can be turned on for any user, w
 - **Audit log:** saving the settings, linking hosts and adding them from Zabbix are recorded.
 - **Moving to a new server** carries the settings (token included, inside the encrypted file) and every host's link.
 
+## Limits
+
+**Settings → Limits** (administrators only) sets how much one host may hold, and how scans pre-select what they find. Everyone's host editor, bulk edits, imports and scans follow them; the server refuses a save that goes over.
+
+| Setting | Default | Most |
+| --- | --- | --- |
+| Services per host | 100 | 1000 |
+| Credentials per host | 100 | 1000 |
+| Tags per host | 50 | 500 |
+| Users a scan ticks for you | 10 | 1000 |
+
+**Users a scan ticks for you:** when a scan finds more new local users than this, they all start unticked, and you tick the ones you want as credentials. At 0 they're never ticked. Lowering a limit doesn't touch hosts that already have more: they can still be edited and saved, but can't gain more until they're under it. Changes are audited (`settings.limits`).
+
 ## Moving to a new server
 
 Move a whole instance (Docker, native Linux or IIS, to any of them) from the UI. Use this, not a database dump: a dump also carries the old server's encryption keys, and needs the same database tools on both sides.

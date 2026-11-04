@@ -236,8 +236,10 @@ public sealed class BulkUpdateTests(PostgresServerFixture postgres) : IAsyncLife
     }
 
     [Fact]
-    public async Task BulkServices_CantBeIdrac_OrPassTwentyPerHost()
+    public async Task BulkServices_CantBeIdrac_OrPassTheLimitPerHost()
     {
+        // Settings ▸ Limits: 20 services per host.
+        (await _client.SendJsonAsync(HttpMethod.Put, "/api/admin/limits", new { maxServicesPerHost = 20, maxCredentialsPerHost = 100, maxTagsPerHost = 50, scanUsersPreselectedUpTo = 10 }, Ct)).EnsureSuccessStatusCode();
         var host = await CreateAsync("web1");
         var idrac = await PostAsync(new { hostIds = new[] { host.Id }, addServices = new object[] { new { protocol = "Idrac", address = "10.0.0.5" } } });
         Assert.Equal(HttpStatusCode.BadRequest, idrac.StatusCode);
@@ -246,6 +248,7 @@ public sealed class BulkUpdateTests(PostgresServerFixture postgres) : IAsyncLife
         Assert.Single(await BulkAsync(new { hostIds = new[] { host.Id }, addServices = services }));
         var tooMany = await PostAsync(new { hostIds = new[] { host.Id }, addServices = new object[] { new { protocol = "Rdp" } } });
         Assert.Equal(HttpStatusCode.BadRequest, tooMany.StatusCode);
+        Assert.Contains("more than 20 services (the limit set in Settings)", await tooMany.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
     }
 
     [Fact]

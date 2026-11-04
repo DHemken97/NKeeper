@@ -12,14 +12,17 @@ import styles from '../../transfer/pages/TransferPage.module.css'
 import own from './SettingsPage.module.css'
 import { ZabbixSettingsPanel } from '../../zabbix/components/ZabbixSettingsPanel'
 import { zabbixApi } from '../../zabbix/zabbixApi'
+import { limitsApi } from '../../inventory/limits'
+import { LimitsPanel } from '../components/LimitsPanel'
 import { settingsApi, SMTP_SECURITY, type EmailSettings, type EmailSettingsInput, type SmtpSecurity } from '../settingsApi'
 
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
-/** Instance-wide settings (administrators): the SMTP server NKeeper sends email through, and Zabbix. */
+/** Instance-wide settings (administrators): the SMTP server NKeeper sends email through, Zabbix, and inventory limits. */
 export function SettingsPage() {
   const email = useResource((signal) => settingsApi.getEmail(signal))
   const zabbix = useResource((signal) => zabbixApi.getSettings(signal))
+  const limits = useResource((signal) => limitsApi.get(signal))
 
   return (
     <div className={styles.page}>
@@ -34,6 +37,9 @@ export function SettingsPage() {
 
       {zabbix.error && !zabbix.data ? <Alert>{toFormErrors(zabbix.error).message}</Alert> : null}
       {zabbix.data ? <ZabbixSettingsPanel key={zabbix.data.updatedAtUtc ?? 'new'} saved={zabbix.data} onSaved={zabbix.reload} /> : null}
+
+      {limits.error && !limits.data ? <Alert>{toFormErrors(limits.error).message}</Alert> : null}
+      {limits.data ? <LimitsPanel saved={limits.data} /> : null}
     </div>
   )
 }

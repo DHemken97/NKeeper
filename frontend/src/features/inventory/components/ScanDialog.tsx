@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useInventoryLimits } from '../limits'
 import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
 import { Checkbox } from '../../../components/ui/Checkbox'
@@ -163,7 +164,8 @@ const GROUPS: { group: ScanProposal['group']; title: string }[] = [
 ]
 
 function ScanResults({ title, host, findings, sshPort, canAddHosts, onClose, onApplied }: ScanResultsProps) {
-  const proposals = useMemo(() => scanProposals(host, findings, sshPort), [host, findings, sshPort])
+  const { scanUsersPreselectedUpTo } = useInventoryLimits()
+  const proposals = useMemo(() => scanProposals(host, findings, sshPort, scanUsersPreselectedUpTo), [host, findings, sshPort, scanUsersPreselectedUpTo])
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set(proposals.filter((p) => p.checked).map((p) => p.key)))
   // Names typed for proposals that need one (an Oracle service seen from outside).
   const [names, setNames] = useState<Record<string, string>>({})

@@ -37,6 +37,8 @@ public sealed class NKeeperDbContext(DbContextOptions<NKeeperDbContext> options)
 
     public DbSet<Email.EmailSettings> EmailSettings => Set<Email.EmailSettings>();
 
+    public DbSet<Inventory.InventoryLimits> InventoryLimits => Set<Inventory.InventoryLimits>();
+
     public DbSet<TwoFactorChallenge> TwoFactorChallenges => Set<TwoFactorChallenge>();
 
     public DbSet<Zabbix.ZabbixSettings> ZabbixSettings => Set<Zabbix.ZabbixSettings>();
