@@ -11,6 +11,8 @@
 - [Files (SFTP)](#files-sftp)
 - [Storage (iSCSI, multipath, DRBD)](#storage-iscsi-multipath-drbd)
 - [Microsoft SQL Server](#microsoft-sql-server)
+- [Oracle](#oracle)
+- [SAP ASE and Replication Server](#sap-ase-and-replication-server)
 - [Jump hosts](#jump-hosts)
 - [RDP](#rdp)
 - [VNC](#vnc)
@@ -92,7 +94,7 @@ A host has:
 - optionally, a **jump host** to **reach it through** (see [Jump hosts](#jump-hosts));
 - its own **tags**, **services** and **credentials**:
   - **Tags** are `name: value` pairs (the value is optional), e.g. `site: Datacenter A`, `env: production`, `role: sql`. A host can have the same tag name twice with different values. Tags are what you group, search and grant access by; hosts don't live in folders.
-  - **Services** are the ways to connect: SSH, Telnet, RDP, RPC, VNC, HTTP, HTTPS, KVM, Proxmox, iDRAC and Microsoft SQL Server. Those are the only types you can add. A host may still have an SFTP, FTP, WinRM, PowerShell or Other service from an older version; its details mark it *Not supported*, and editing the host says it will be removed when you save (cancel to keep it). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's. A **SQL Server** service has an optional **instance** name (empty for the default instance).
+  - **Services** are the ways to connect: SSH, Telnet, RDP, RPC, VNC, HTTP, HTTPS, KVM, Proxmox, iDRAC, Microsoft SQL Server, Oracle, SAP ASE and Rep Server (SAP Replication Server). Those are the only types you can add. A host may still have an SFTP, FTP, WinRM, PowerShell or Other service from an older version; its details mark it *Not supported*, and editing the host says it will be removed when you save (cancel to keep it). Each has an optional port and label. The first one is the default. An **iDRAC** service also has the iDRAC's own **address**, since it isn't the server's. A **SQL Server** service has an optional **instance** name (empty for the default instance). An **Oracle** service needs its **service name**.
   - **Credentials** have a username, domain, label, password, SSH private key and notes. Passwords and keys are **write-only**: once saved, NKeeper only shows that one is stored. Leave the field empty when editing to keep it, or choose to clear it.
   - **Use with** says which of the host's services a credential is for: **All services** (the default), or the ones you tick. For example, `sa` only for MS SQL and `administrator` only for RDP and RPC: the Connect, Tools and Scan menus then offer each only where it belongs, and NKeeper refuses it for any other service. A credential follows its services when you reorder them, and isn't given services you add later (tick them too).
 
@@ -134,6 +136,7 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - the MAC address of the network interface NKeeper reached;
   - the TCP ports it listens on, except those that only listen on localhost;
   - **SQL Server**: the port `sqlservr` listens on and the one set in `/var/opt/mssql/mssql.conf` (seeing SQL Server's process needs root, or `sudo` without a password; otherwise it's found by its install and configuration);
+  - **Oracle**: the databases in `/etc/oratab`, the running instances (`ora_pmon_<SID>`), the listener's port, and the service names it offers (`lsnrctl status`, when the login may run it; its internal XDB, `SYS$` and GUID-named services are left out);
   - the local accounts that can log in (a real shell; root and regular users);
   - the CPU cores (`nproc`), installed memory (`lsmem`, else the kernel's total) and, on physical hardware, the serial number. Only root can read the serial number on most systems: scan as root, or as a user with passwordless sudo, to get it.
 
@@ -153,6 +156,8 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
   - a service for each open port NKeeper has a service for. Other open ports are listed for information;
 
   Internal scans offer each **SQL Server instance** they find as an MS SQL service with its instance name and port (e.g. *MS SQL · SQLEXPRESS, port 49712*), unless the host already has that instance. An instance on a dynamic port, one with TCP/IP turned off, or one installed but not running is explained in the scan's notes.
+
+  Internal scans offer each **Oracle database** they find as an Oracle service with its service name (e.g. *Oracle · ORCLPDB1*). If the listener's services can't be read, its instances are offered by SID, and the notes say so. An external scan only sees the listener's port: its Oracle proposal has a **Service name** box, and typing a name ticks it.
   - a **KVM** service when libvirt is installed, or the host is a Proxmox VE node (internal scans);
   - each local account as a **credential without a password**. Using it asks for the password; set the password in the host's editor to save it;
   - **Virtual machine**, when the scan finds the host runs under a hypervisor (it asks `systemd-detect-virt`);
@@ -178,7 +183,7 @@ Changing a host's hostname or IP address forgets its trusted keys too, for the s
 
 Right-click a host in the tree, or press the Menu key or Shift+F10 on it, then choose **Connect ▸ service ▸ credential**. Each session opens as a tab next to the host details and keeps running while you switch tabs.
 
-**Connect** lists the clients: SSH, Telnet, RDP, VNC, RPC, web interfaces, iDRAC and VM consoles. The tools that do more than open a client are under **Connect ▸ Tools**: **Files** and **Storage** (on an SSH service), **KVM** (a hypervisor's VMs) and **MS SQL**.
+**Connect** lists the clients: SSH, Telnet, RDP, VNC, RPC, web interfaces, iDRAC and VM consoles. The tools that do more than open a client are under **Connect ▸ Tools**: **Files** and **Storage** (on an SSH service), **KVM** (a hypervisor's VMs), **MS SQL**, **Oracle**, **SAP ASE** and **Replication Server**.
 
 - **Double-click** a host to connect with its first connectable service and first suitable credential. If none fits, you're asked for a login.
 - The **Connect** button in the host details opens the same menu, which is the way to connect on touch screens.
@@ -188,7 +193,7 @@ Right-click a host in the tree, or press the Menu key or Shift+F10 on it, then c
 
 A credential that can't work for the service is shown greyed out with the reason, for example "No username". A credential without a stored password (or SSH key) shows **Asks for password**: choosing it asks for the password, with its username filled in, and uses it once. To stop being asked, edit the host and set the password.
 
-**No connection is left open behind you.** Closing a session's tab closes its connection to the host. Closing the browser tab or window does too, for every session in it. If the browser just disappears (it crashed, the computer went to sleep, the network dropped), the server notices within about a minute for SSH, Telnet, RDP, VNC, RPC and VM consoles, and within about 3 minutes for web and SQL Server sessions, then closes their connections. That includes a SQL query still running.
+**No connection is left open behind you.** Closing a session's tab closes its connection to the host. Closing the browser tab or window does too, for every session in it. If the browser just disappears (it crashed, the computer went to sleep, the network dropped), the server notices within about a minute for SSH, Telnet, RDP, VNC, RPC and VM consoles, and within about 3 minutes for web and database sessions (SQL Server, Oracle, SAP ASE, Replication Server), then closes their connections. That includes a SQL query still running. A database tab whose session the server closed stays as it is, marked *Disconnected*. The next thing you do in it (expanding the explorer, a report, running a query) connects again: a query window reconnects in the database or schema it was in. Temporary tables and uncommitted work from before are gone.
 
 **The NKeeper server makes every connection**, not your PC. Hosts must be reachable and resolvable from the server. Your passwords and keys are decrypted only there, never sent to your browser.
 
@@ -250,6 +255,72 @@ Add a **Microsoft SQL Server** service to the host for each instance. Leave **In
   Right-click a user (or Shift+F10) for every fix. Databases whose owner login is missing are listed below, with **Set owner…**. Users created without a login on purpose, and contained users, aren't orphans. Fixes are recorded in the audit log (category *SQL Server*), never with the password; they need permission to alter users and create logins (sysadmin, or securityadmin and db_owner).
 - **Encryption and trust**: the connection is always encrypted. The server's certificate is trusted like an HTTPS server's: once, then pinned. A SQL Server without a certificate of its own makes a new self-signed one (*SSL_Self_Signed_Fallback*) every time it starts, so NKeeper asks you to trust the new one after a restart instead of refusing to connect. Give the server a real certificate to have any change refused outright.
 - **Jump hosts**: SQL Server goes through the host's jump host. A named instance then needs its port set on the service (the SQL Server Browser can't be asked through the tunnel).
+
+## Oracle
+
+Add an **Oracle** service to the host for each database you sign in to. **Service name** is required: the database's service name (e.g. `ORCLPDB1`, `XEPDB1`) or its SID. If no service has that name, NKeeper tries it as a SID. Each pluggable database has a service name of its own. The port is 1521 by default. Add a database user (e.g. `system`) as a credential with a password; a credential with a domain can't be used. Signing in as `SYS` connects as SYSDBA. Then **Connect ▸ Tools ▸ Oracle ▸ service name ▸ login**. An internal scan finds the service names for you (see [Scanning hosts](#scanning-hosts)).
+
+The tab works like the SQL Server one: Object Explorer, query windows, results and messages, and Blocking Manager. The differences:
+- **Schemas, not databases:** the Object Explorer lists schemas (Oracle's own are under *Oracle-maintained Schemas*), and a query window's **Schema** list sets its current schema (`ALTER SESSION SET CURRENT_SCHEMA`).
+- **Scripts as in SQL\*Plus:** a SQL statement ends at `;`. A PL/SQL block (`DECLARE`, `BEGIN`, `CREATE PROCEDURE`…) ends at a line holding only `/`. `EXEC proc(…)` works, and SQL\*Plus settings such as `SET SERVEROUTPUT` are skipped. `DBMS_OUTPUT` shows under Messages. A compile error lists its errors with their lines.
+- **Script as CREATE** uses `DBMS_METADATA`, for tables, views, procedures, functions, packages, triggers, sequences and synonyms.
+- **Blocking Manager** kills with `ALTER SYSTEM KILL SESSION 'sid,serial#' IMMEDIATE`. It needs the `ALTER SYSTEM` privilege.
+
+**Management** also has three reports. They only read; anything that would change the database is offered as a script, which opens in a query window for you to review and run.
+- **Storage:**
+  - Tablespaces with their size, used, free, % used and **% of maximum size**. The maximum counts autoextend: a file's MAXSIZE, or its size when it doesn't autoextend.
+  - Temporary tablespaces, and every datafile.
+  - Warns at 85% of the maximum. For tablespaces past 70%, it offers `ADD DATAFILE` (beside the last file, or in its ASM disk group or the Oracle-managed file location) and `AUTOEXTEND ON` scripts.
+- **Backups (RMAN):**
+  - Archivelog mode, 14 days of RMAN jobs, any running now with % done, and each datafile's last backup.
+  - The fast recovery area, RMAN settings changed from the defaults, and the last job's output.
+  - Warns when the last database backup is over 26 hours old (with when it finished), when jobs failed, when datafiles were never backed up, and when the recovery area is 85% full.
+  - RMAN can't run over a database connection, so its commands (full and incremental backups, crosscheck, delete obsolete, validate…) are shown to copy and run in `rman target /` on the server.
+- **Health:**
+  - Instance, uptime and size; sessions and processes against their limits.
+  - Outstanding alerts, alert-log errors from the last 24 hours (Oracle 12c and later), and redo log switches per hour.
+  - Invalid objects (with recompile scripts), locked or expiring accounts (with unlock scripts), and long-running operations.
+
+The reports read the `DBA_` and `V$` views, so the login needs `SELECT_CATALOG_ROLE` or `SELECT ANY DICTIONARY`. Without it, each section shows its own error.
+
+**Encryption:** NKeeper asks the server for Oracle's native network encryption and integrity checking, but connects without it if the server doesn't offer it. To make it required, set `SQLNET.ENCRYPTION_SERVER = required` in the server's `sqlnet.ora`. There's no certificate to trust.
+
+## SAP ASE and Replication Server
+
+**SAP ASE (Sybase):** add a **SAP ASE** service (port 5000 by default) and an ASE login with a password. Then **Connect ▸ Tools ▸ SAP ASE ▸ login**. Query windows split batches on `GO`, as `isql` does. The Object Explorer lists databases (system ones apart), tables, views, procedures, functions, users, groups and logins, with *Select Top 1000 Rows* and *Script as CREATE* (from `syscomments`). The Blocking Manager reads `sysprocesses` and kills with `kill`.
+
+ASE's **Management** has **Copy Database** and four folders of tools. Reports only read; what they'd change is a script that opens in a query window.
+- **Activity:**
+  - **Blocking Manager.**
+  - **Resources & Activity:** `sp_monitorconfig` limits close to running out (with `sp_configure` scripts to raise them), long-open transactions, top sessions by CPU, cache hit rates, engines.
+  - **Error Log:** errors of severity 17 and up, and deadlocks, from the last 24 hours. This is from what the server keeps in memory; the report offers the settings that turn that on.
+- **Storage & Backups:**
+  - **Space:** each database's data and log (size, free, % used) and the devices, with `alter database` scripts for full ones.
+  - **Backups (dumps):** each database's last full and log dump, failed or running dumps, and full logs. Full-dump times come from monitoring, so they're known since the server started, unless dump history is on.
+  - **Maintenance:** each database's largest tables, and statistics older than 30 days (with `update index statistics` scripts).
+- **Replication:**
+  - **Replication Health:** each database's log against replication's truncation point and the oldest open transaction, and the Rep Agents.
+  - **Replication Drift:** for each replicate database, the last transaction applied from each primary (when, and how long it took), `rs_ticket` history, and the exceptions log when the RSSD is on this server.
+  - **Compare** (in Replication Drift): counts the rows of a database's replicated tables here and on another ASE server you have open in a tab. Estimated counts are instant; exact ones run `count(*)`.
+- **Security:**
+  - **Logins & Users:** locked or expired logins (with unlock scripts); users with no login, or matched to a login of another name, as after a load from another server; logins unused for 90 days.
+  - **License:** each license, its status and expiry (`monLicense`, `sp_lmconfig`). Warns in a grace period or within 30 days of expiry.
+
+**Copy Database** dumps a database here and loads it on another ASE server you have open in a tab:
+1. **Choose and check:** choose the database, the target server and the copy's name, then **Check**. It checks the page size, version and character set; that the target isn't a system database or in use; and that there's room. If the target database doesn't exist, it writes a `create database … for load` on the target's roomiest devices, which you can edit.
+2. **Run the steps:** create, dump, load, online, then clearing the replication truncation point if the source is replicated. Run them one by one, or **Run all** (it asks first, and stops at the first failure).
+3. **Getting the dump file across:** the target's Backup Server must be able to read the dump. Either dump **through** the target's Backup Server, so the file is written on its machine, or use storage both machines share. Dumping through it needs that Backup Server in the source's `sysservers`; the list shows their network names.
+4. **Long runs:** each step runs for as long as it takes, even if you close the page. Each is recorded in the audit log.
+5. **Afterwards:** users map to logins by ID, so check them with **Logins & Users**.
+
+**Replication Server:** add a **Rep Server** service (port 11752 by default) and a Replication Server login. Then **Connect ▸ Tools ▸ Replication Server ▸ login**. Its query window runs `admin` commands. **Management** has:
+- **Replication Health:** what's down, the threads, queue backlog, stable devices and warm standby. Suspended connections can be **Resumed**, or resumed skipping the failed transaction (it goes to the exceptions log), after confirming. Both are audited.
+- **Admin Commands:** `admin version`, `rssd_name`, `health`, `who_is_down`, `who_is_up`, `who` (and by thread: SQM, SQT, DIST, DSI, RSI), `show_connections`, `logical_status`, `disk_space`, `statistics, backlog`, route and site versions, and `config`. A command your version doesn't have shows its error; the rest still run.
+- **License:** `sysadmin lmconfig`.
+
+**Permissions:** the monitoring tables (Error Log, caches, engines, full-dump times, `monLicense`) need `mon_role` and `enable monitoring`. `sp_help_rep_agent` needs `sa_role` or `replication_role`. Copying needs permission to dump and load (`sa_role`, or `oper_role` and owning the database), and clearing the truncation point needs `sa_role` or `replication_role`. A section the login can't read shows why, and the rest of the report still loads.
+
+**Encryption:** the password is sent encrypted. The rest of the connection is whatever the server is set up for: NKeeper doesn't use ASE's own SSL. Use a jump host or a network you trust.
 
 ## Jump hosts
 
