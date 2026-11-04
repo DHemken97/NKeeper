@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { ApiError } from '../../../lib/api'
 import { useCloseOnPageExit } from '../../../lib/pageExit'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from '../../terminal/components/SessionChrome'
 import sessionStyles from '../../terminal/components/Session.module.css'
 import type { HostKeyMessage, RemoteSession, SessionPhase } from '../../terminal/types'
-import { DbEngineContext } from '../engineContext'
+import { DbApiContext, DbEngineContext } from '../engineContext'
+import { reconnectingApi } from '../reconnectingApi'
 import { dbApi, DB_ENGINES, type DbEngine, type ToolKind, type SqlObjectNode, type SqlOpenResponse, type SqlScriptAction, type SqlServerInfo } from '../sqlServerApi'
 import { useKeepAlive } from '../useKeepAlive'
 import { BlockingManager } from './BlockingManager'
@@ -88,6 +89,11 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
   const [databases, setDatabases] = useState<string[]>([])
   const [explorerError, setExplorerError] = useState<string | null>(null)
   const trustRef = useRef<string | undefined>(undefined)
+  // The server session the tab's explorer and tools use now: null once the server has closed it (idle). The tab stays
+  // as it is, and the next thing that needs it reconnects.
+  const [liveId, setLiveId] = useState<string | null>(null)
+  const liveRef = useRef<string | null>(null)
+  const reopening = useRef<Promise<string> | null>(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
   const [explorerWidth, setExplorerWidth] = useState(() => storedNumber(EXPLORER_WIDTH_KEY, DEFAULT_EXPLORER_WIDTH))
 
@@ -119,6 +125,8 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
           return
         }
         opened = response.sessionId!
+        liveRef.current = opened
+        setLiveId(opened)
         setMain({ id: response.sessionId!, server: response.server!, target: response.target })
         setPhase({ kind: 'connected', target: response.target })
         setDocuments((current) => {
@@ -142,28 +150,60 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
     )
     return () => {
       cancelled = true
-      if (opened) {
-        void db.close(opened).catch(() => {})
+      // The session opened here, and any opened since to reconnect.
+      for (const id of new Set([opened, liveRef.current])) {
+        if (id) {
+          void db.close(id).catch(() => {})
+        }
       }
+      liveRef.current = null
     }
   }, [db, product, session.request, attempt])
 
-  useCloseOnPageExit(main ? db.sessionPath(main.id) : null)
-  useKeepAlive(main?.id ?? null, () => setPhase({ kind: 'ended', message: `This ${product} session has ended. Connect again.` }), db)
+  /** Opens a new server session for the tab (once, however many calls are waiting for it). */
+  const reopen = useCallback((): Promise<string> => {
+    reopening.current ??= db
+      .open(session.request, trustRef.current)
+      .then((response) => {
+        if (response.status !== 'ready' || !response.sessionId) {
+          throw new Error('The server’s certificate changed: reconnect the tab to trust it again.')
+        }
+        liveRef.current = response.sessionId
+        setLiveId(response.sessionId)
+        return response.sessionId
+      })
+      .finally(() => {
+        reopening.current = null
+      })
+    return reopening.current
+  }, [db, session.request])
+
+  const tabApi = useMemo(() => (main ? reconnectingApi(db, main.id, () => liveRef.current, reopen) : db), [db, main, reopen])
+
+  useCloseOnPageExit(liveId ? db.sessionPath(liveId) : null)
+  useKeepAlive(
+    liveId,
+    () => {
+      // Closed by the server (idle, or it restarted): stay as we are, disconnected, until something needs it.
+      liveRef.current = null
+      setLiveId(null)
+    },
+    db,
+  )
 
   useEffect(() => {
     if (!main) {
       return
     }
     let cancelled = false
-    db.databases(main.id).then(
+    tabApi.databases(main.id).then(
       (names) => !cancelled && setDatabases(names),
       () => {},
     )
     return () => {
       cancelled = true
     }
-  }, [db, main])
+  }, [tabApi, main])
 
   function decide(trust: boolean) {
     if (phase.kind !== 'hostKey') {
@@ -216,7 +256,7 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
     }
     setExplorerError(null)
     try {
-      const { sql } = await db.script(main.id, node, action)
+      const { sql } = await tabApi.script(main.id, node, action)
       addDocument({
         kind: 'query',
         sql,
@@ -234,6 +274,7 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
 
   return (
     <DbEngineContext.Provider value={engine}>
+    <DbApiContext.Provider value={tabApi}>
     <div className={sessionStyles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} ${product}`}>
       <SessionStatusBar phase={phase}>
         {connected ? (
@@ -242,6 +283,7 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
               {product} {main.server.productVersion}
               {main.server.edition ? ` · ${main.server.edition}` : ''}
             </span>
+            {liveId ? null : <span className={styles.serverInfo}>Disconnected · reconnects when used</span>}
             <Button variant="ghost" size="sm" onClick={() => addDocument({ kind: 'query', sql: '' })}>
               New Query
             </Button>
@@ -367,6 +409,7 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
         ) : null}
       </div>
     </div>
+    </DbApiContext.Provider>
     </DbEngineContext.Provider>
   )
 }
