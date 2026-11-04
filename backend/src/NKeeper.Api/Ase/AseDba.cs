@@ -94,7 +94,7 @@ internal static class AseDba
         {
             devices = await DeviceSpaceAsync(connection, cancellationToken);
         }
-        catch (DbException)
+        catch (Exception ex) when (DbErrors.Is(ex))
         {
             // Shown as the devices section's error below.
         }
@@ -117,7 +117,7 @@ internal static class AseDba
                 holds[hold.Db] = (hold.Transaction, hold.Spid, hold.Replication);
             }
         }
-        catch (DbException)
+        catch (Exception ex) when (DbErrors.Is(ex))
         {
             // Without syslogshold, the warning just doesn't say what holds the log.
         }
@@ -197,7 +197,7 @@ internal static class AseDba
                 scripts,
                 "A database whose log shares its data devices shows its log as “on data”: its data figures include the log."));
         }
-        catch (DbException ex)
+        catch (Exception ex) when (DbErrors.Is(ex))
         {
             sections.Add(new ToolSection("Databases", "master..sysusages", [], ex.Message));
         }
@@ -270,7 +270,7 @@ internal static class AseDba
                     cancellationToken);
                 roles.Add(found[0]);
             }
-            catch (DbException)
+            catch (Exception ex) when (DbErrors.Is(ex))
             {
                 // A database this login can't use: left out.
             }
@@ -328,7 +328,7 @@ internal static class AseDba
                     }
                 }
             }
-            catch (DbException ex)
+            catch (Exception ex) when (DbErrors.Is(ex))
             {
                 warnings.Add($"{role.Database}: couldn't read rs_lastcommit ({ex.Message}).");
             }

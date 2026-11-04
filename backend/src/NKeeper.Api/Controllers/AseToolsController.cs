@@ -100,7 +100,7 @@ public sealed class AseToolsController(DatabaseSessionStore sessions, AuditLog a
             await using var thereConnection = await there.OpenToolConnectionAsync(HttpContext.RequestAborted);
             return await action(hereConnection, here, thereConnection, there);
         }
-        catch (DbException ex)
+        catch (Exception ex) when (DbErrors.Is(ex))
         {
             return this.SessionFailure(new SessionException(SessionErrorCodes.SqlError, ex.Message));
         }

@@ -101,7 +101,7 @@ internal static partial class AseReplication
                 [new SqlOutput("results", Columns: columns, Rows: rows, RowCount: rows.Count)],
                 null));
         }
-        catch (DbException ex)
+        catch (Exception ex) when (DbErrors.Is(ex))
         {
             sections.Add(new ToolSection("Transaction logs", "master..sysusages, master..syslogshold", [], ex.Message));
         }

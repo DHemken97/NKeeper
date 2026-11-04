@@ -122,7 +122,7 @@ public sealed class DatabaseController(DatabaseSessionStore sessions, AuditLog a
             {
                 database = await Dialect.CurrentDatabaseAsync(session.Connection, cancellationToken);
             }
-            catch (DbException)
+            catch (Exception ex) when (DbErrors.Is(ex))
             {
                 database = string.Empty;
             }
@@ -215,7 +215,7 @@ public sealed class DatabaseController(DatabaseSessionStore sessions, AuditLog a
                 ?? throw new SessionException(SessionErrorCodes.Busy, "A query is running in this session. Change the database when it's done.");
             return new SqlDatabaseRequest { Name = await Dialect.ChangeDatabaseAsync(session.Connection, request.Name, lease.Token) };
         }
-        catch (DbException ex)
+        catch (Exception ex) when (DbErrors.Is(ex))
         {
             return this.SessionFailure(new SessionException(SessionErrorCodes.SqlError, ex.Message));
         }
@@ -276,7 +276,7 @@ public sealed class DatabaseController(DatabaseSessionStore sessions, AuditLog a
             await using var connection = await session.OpenToolConnectionAsync(controller.HttpContext.RequestAborted);
             return await action(connection);
         }
-        catch (DbException ex)
+        catch (Exception ex) when (DbErrors.Is(ex))
         {
             return controller.SessionFailure(new SessionException(SessionErrorCodes.SqlError, ex.Message));
         }
