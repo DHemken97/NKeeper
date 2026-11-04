@@ -178,6 +178,10 @@ public sealed class DatabaseSessionStore(TimeProvider timeProvider, Auditing.Aud
         return session;
     }
 
+    /// <summary>The user's open sessions of one kind of database, oldest first (to work between two servers).</summary>
+    internal IReadOnlyList<DatabaseSession> ListFor(Guid userId, DatabaseEngine engine) =>
+        [.. _sessions.Values.Where(s => s.UserId == userId && s.Engine == engine).OrderBy(s => s.CreatedAtUtc)];
+
     public async Task<bool> EndAsync(string id, string reason)
     {
         if (!_sessions.TryRemove(id, out var session))

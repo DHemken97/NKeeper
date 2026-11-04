@@ -13,7 +13,8 @@ import { BlockingManager } from './BlockingManager'
 import { ObjectExplorer } from './ObjectExplorer'
 import { OrphanedUsers } from './OrphanedUsers'
 import { QueryWindow } from './QueryWindow'
-import { ToolReportView } from './ToolReportView'
+import { CopyDatabase } from './CopyDatabase'
+import { ToolReportView, type ReportTool } from './ToolReportView'
 import { storedNumber, storeNumber } from '../storedSize'
 import { Splitter } from './Splitter'
 import styles from './SqlServer.module.css'
@@ -41,9 +42,14 @@ const TOOL_TITLES: Record<ToolKind, string> = {
   storage: 'Storage',
   backups: 'Backups',
   health: 'Health',
+  space: 'Space',
+  drift: 'Replication Drift',
+  copy: 'Copy Database',
 }
 
 let nextDocument = 1
+
+const REPORT_TOOLS = new Set<string>(['replication', 'storage', 'backups', 'health', 'space', 'drift'])
 
 const EXPLORER_WIDTH_KEY = 'nkeeper.sql.explorerWidth'
 const DEFAULT_EXPLORER_WIDTH = 280
@@ -385,10 +391,12 @@ export function SqlServerView({ session, active, onShowHost, engine = 'mssql' }:
                     runOnOpen={document.runOnOpen}
                     active={active && document.id === activeDocument}
                   />
-                ) : document.kind === 'replication' || document.kind === 'storage' || document.kind === 'backups' || document.kind === 'health' ? (
+                ) : document.kind === 'copy' ? (
+                  <CopyDatabase key={document.id} sessionId={main.id} active={active && document.id === activeDocument} />
+                ) : REPORT_TOOLS.has(document.kind) ? (
                   <ToolReportView
                     key={document.id}
-                    tool={document.kind}
+                    tool={document.kind as ReportTool}
                     sessionId={main.id}
                     active={active && document.id === activeDocument}
                     onOpenQuery={(sql) => addDocument({ kind: 'query', sql })}

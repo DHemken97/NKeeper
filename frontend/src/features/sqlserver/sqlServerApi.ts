@@ -170,6 +170,55 @@ export interface ToolReport {
   atUtc: string
 }
 
+/** One of the user's open sessions, to pick another server. */
+export interface DatabaseSessionSummary {
+  id: string
+  display: string
+  hostId: string
+  serverName: string
+  version: string
+}
+
+export interface AseCopyServer {
+  server: string
+  version: string
+  pageSize: number
+  charsetId: number | null
+  sortOrderId: number | null
+}
+
+/** What copying a database needs, and what stands in its way. */
+export interface AseCopyPlan {
+  source: AseCopyServer
+  target: AseCopyServer
+  dataMb: number
+  logMb: number
+  targetExists: boolean
+  /** Reasons it can't work as it is. */
+  blockers: string[]
+  warnings: string[]
+  /** When the target doesn't exist: a CREATE DATABASE … FOR LOAD big enough. */
+  createSql: string | null
+  /** Servers the source knows, to dump through the target's Backup Server. */
+  backupServers: string[]
+  /** The source holds a replication truncation point. */
+  replicated: boolean
+}
+
+export type AseCopyStep = 'create' | 'dump' | 'load' | 'online' | 'settrunc'
+
+export interface AseCopyStepRequest {
+  targetSessionId: string
+  database: string
+  targetDatabase: string
+  step: AseCopyStep
+  dumpPath?: string
+  loadPath?: string
+  remoteBackupServer?: string
+  compress?: boolean
+  createSql?: string
+}
+
 /** The body that opens a session: the tab's host, service and login, a certificate the user trusted, and a database to start in. */
 export function openRequestBody(request: SessionRequest, trustFingerprint?: string, database?: string) {
   return {
@@ -187,10 +236,13 @@ export function openRequestBody(request: SessionRequest, trustFingerprint?: stri
 export type DbEngine = 'mssql' | 'oracle' | 'ase' | 'rs'
 
 /** The Management tools, by the name the explorer gives them. */
-export type ToolKind = 'blocking' | 'orphans' | 'replication' | OracleReport
+export type ToolKind = 'blocking' | 'orphans' | 'replication' | 'copy' | OracleReport | AseReport
 
 /** Oracle's read-only Management reports. */
 export type OracleReport = 'storage' | 'backups' | 'health'
+
+/** SAP ASE's read-only Management reports. */
+export type AseReport = 'space' | 'drift'
 
 export interface DbEngineInfo {
   /** e.g. "SQL Server": the product, as the tab and messages name it. */
@@ -204,7 +256,7 @@ export interface DbEngineInfo {
 export const DB_ENGINES: Record<DbEngine, DbEngineInfo> = {
   mssql: { product: 'SQL Server', databaseLabel: 'Database', tools: ['blocking', 'orphans'] },
   oracle: { product: 'Oracle', databaseLabel: 'Schema', tools: ['blocking', 'storage', 'backups', 'health'] },
-  ase: { product: 'SAP ASE', databaseLabel: 'Database', tools: ['blocking', 'replication'] },
+  ase: { product: 'SAP ASE', databaseLabel: 'Database', tools: ['blocking', 'replication', 'space', 'drift', 'copy'] },
   rs: { product: 'Replication Server', databaseLabel: null, tools: ['replication'] },
 }
 
@@ -236,11 +288,20 @@ function createDbApi(engine: DbEngine) {
       ),
     fixMatchedOrphans: (sessionId: string) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix-matched`),
     replication: (sessionId: string) => api.get<ToolReport>(`${base(sessionId)}/replication`),
-    /** Oracle: Storage, Backups or Health. */
-    report: (sessionId: string, tool: OracleReport) => api.get<ToolReport>(`${base(sessionId)}/reports/${tool}`),
+    /** Oracle: Storage, Backups or Health; ASE: Space or Replication Drift. */
+    report: (sessionId: string, tool: OracleReport | AseReport) => api.get<ToolReport>(`${base(sessionId)}/reports/${tool}`),
     /** Replication Server: resume connection to server.database (optionally skipping the failed transaction). Audited. */
     resumeConnection: (sessionId: string, connection: string, skipTransaction: boolean) =>
       api.post<void>(`${base(sessionId)}/replication/resume`, { body: { connection, skipTransaction } }),
+    /** The user's open sessions of this engine, one per server and login (to compare with or copy to). */
+    sessions: () => api.get<DatabaseSessionSummary[]>(root),
+    /** ASE: row counts of replicated tables here and on another server. */
+    compare: (sessionId: string, body: { otherSessionId: string; database: string; otherDatabase?: string; exact: boolean }) =>
+      api.post<ToolReport>(`${base(sessionId)}/drift/compare`, { body }),
+    copyCheck: (sessionId: string, body: { targetSessionId: string; database: string; targetDatabase: string }) =>
+      api.post<AseCopyPlan>(`${base(sessionId)}/copy/check`, { body }),
+    /** Runs one step of a copy (for as long as it takes). Audited. */
+    copyRun: (sessionId: string, body: AseCopyStepRequest) => api.post<ToolSection>(`${base(sessionId)}/copy/run`, { body }),
     /** Ends a session; Oracle also needs its serial#. */
     kill: (sessionId: string, spid: number, serial?: number | null) =>
       api.post<void>(`${base(sessionId)}/kill`, { body: serial == null ? { sessionId: spid } : { sessionId: spid, serial } }),

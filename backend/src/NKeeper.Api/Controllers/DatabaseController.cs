@@ -17,6 +17,9 @@ namespace NKeeper.Api.Controllers;
 public sealed record DatabaseOpenResponse(
     string Status, string? SessionId, string Target, DatabaseServerInfo? Server, string? Database, WebCertificateResponse? Certificate, bool Renewed = false);
 
+/// <summary>One of the user's open sessions, to pick another server to compare with or copy to.</summary>
+public sealed record DatabaseSessionSummary(string Id, string Display, Guid HostId, string ServerName, string Version);
+
 public sealed record SqlQueryRequest
 {
     [Required(ErrorMessage = "Enter a query.")]
@@ -77,6 +80,14 @@ public sealed class DatabaseController(DatabaseSessionStore sessions, AuditLog a
     private DatabaseEngine Engine => DatabaseEngines.FromRoute(RouteData.Values["engine"] as string) ?? DatabaseEngine.SqlServer;
 
     private IDatabaseDialect Dialect => DatabaseEngines.Dialect(Engine);
+
+    /// <summary>The user's open sessions of this engine, one per server and login (the oldest: usually the tab's own).</summary>
+    [HttpGet("sessions")]
+    public IReadOnlyList<DatabaseSessionSummary> Sessions() =>
+        [.. sessions.ListFor(User.GetUserId(), Engine)
+            .GroupBy(s => s.Display, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .Select(s => new DatabaseSessionSummary(s.Id, s.Display, s.HostId, s.Server.ServerName, s.Server.ProductVersion))];
 
     [HttpPost("sessions")]
     [ProducesResponseType<DatabaseOpenResponse>(StatusCodes.Status200OK)]

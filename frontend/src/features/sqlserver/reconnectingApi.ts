@@ -43,5 +43,8 @@ export function reconnectingApi(db: DbApi, mainId: string, current: () => string
     replication: wrap(db.replication),
     report: wrap(db.report),
     resumeConnection: wrap(db.resumeConnection),
+    compare: wrap(db.compare),
+    copyCheck: wrap(db.copyCheck),
+    copyRun: wrap(db.copyRun),
   }
 }

@@ -185,7 +185,7 @@ internal static partial class AseReplication
     // ---- Helpers ----
 
     /// <summary>Runs a command and keeps everything it returned; a failure is the section's error, not the report's.</summary>
-    private static async Task<ToolSection> SectionAsync(DbConnection connection, string title, string command, CancellationToken cancellationToken)
+    internal static async Task<ToolSection> SectionAsync(DbConnection connection, string title, string command, CancellationToken cancellationToken)
     {
         var results = new List<SqlOutput>();
         var ase = connection as AseConnection;

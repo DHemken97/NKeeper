@@ -567,6 +567,38 @@
   color: var(--color-text-muted, inherit);
 }
 
+.reportForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  margin: 6px 0;
+}
+
+.reportField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.reportField textarea {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85rem;
+}
+
+.copySteps {
+  margin: 12px 0;
+  padding-left: 20px;
+}
+
+.copyStep {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 0;
+}
+
 .reportScripts {
   display: flex;
   flex-wrap: wrap;

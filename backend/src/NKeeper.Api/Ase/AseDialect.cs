@@ -309,6 +309,7 @@ internal sealed class AseDialect(bool replicationServer = false) : IDatabaseDial
             [
                 new SqlObjectNode { Kind = Kinds.Tool, Label = "Blocking Manager", Detail = "Blocking chains", Name = SqlObjectExplorer.BlockingManagerTool },
                 AseReplication.ToolNode,
+                .. AseDba.ToolNodes,
             ],
             _ => throw new SqlExplorerException($"“{node.Kind}” has no children."),
         };

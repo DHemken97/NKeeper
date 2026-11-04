@@ -5,17 +5,20 @@ import { Dialog } from '../../../components/ui/Dialog'
 import { ApiError } from '../../../lib/api'
 import { useDbApi, useDbEngine } from '../engineContext'
 import type { SuspendedConnection, ToolKind, ToolReport, ToolScript } from '../sqlServerApi'
-import { ResultGrid } from './ResultGrid'
+import { DriftCompare } from './DriftCompare'
+import { ReportSections } from './ReportSections'
 import styles from './SqlServer.module.css'
 
 /** The tools that are reports: replication (ASE, Replication Server) and Oracle's. */
-export type ReportTool = Extract<ToolKind, 'replication' | 'storage' | 'backups' | 'health'>
+export type ReportTool = Extract<ToolKind, 'replication' | 'storage' | 'backups' | 'health' | 'space' | 'drift'>
 
 const HEADINGS: Record<ReportTool, { title: string; subtitle: (repServer: boolean) => string }> = {
   replication: { title: 'Replication Health', subtitle: (repServer) => (repServer ? 'Threads, Queues and Stable Devices' : 'Transaction Logs and Rep Agents') },
   storage: { title: 'Storage', subtitle: () => 'Tablespaces and Datafiles' },
   backups: { title: 'Backups (RMAN)', subtitle: () => 'Backup History and Recovery Area' },
   health: { title: 'Health', subtitle: () => 'Limits, Alerts and Invalid Objects' },
+  space: { title: 'Space', subtitle: () => 'Databases, Logs and Devices' },
+  drift: { title: 'Replication Drift', subtitle: () => 'Last Applied, Latency and Exceptions' },
 }
 
 interface ToolReportViewProps {
@@ -141,43 +144,8 @@ export function ToolReportView({ tool, sessionId, active, onOpenQuery }: ToolRep
         </section>
       ) : null}
 
-      {report?.sections.map((section) => (
-        <section key={section.title} className={styles.replicationSection}>
-          <h3>
-            {section.title} <code>{section.command}</code>
-          </h3>
-          {section.note ? <p className={styles.hint}>{section.note}</p> : null}
-          {section.error ? <Alert variant="error">{section.error}</Alert> : null}
-          {section.results.map((result, index) =>
-            result.kind === 'results' ? (
-              <div key={index} className={styles.replicationGrid}>
-                {result.rows && result.rows.length > 0 ? <ResultGrid output={result} label={`${section.title} results`} /> : <p className={styles.hint}>No rows.</p>}
-              </div>
-            ) : (
-              <pre key={index} className={styles.replicationMessage}>
-                {result.text}
-              </pre>
-            ),
-          )}
-          {!section.error && section.results.length === 0 ? <p className={styles.hint}>Nothing returned.</p> : null}
-          {section.scripts && section.scripts.length > 0 ? (
-            <div className={styles.reportScripts} aria-label={`Scripts for ${section.title}`}>
-              {section.scripts.map((script) => (
-                <Button
-                  key={script.label}
-                  size="sm"
-                  variant="secondary"
-                  title={script.text}
-                  onClick={() => (script.kind === 'sql' ? onOpenQuery(script.text) : setShown(script))}
-                >
-                  {script.label}
-                  {script.kind === 'sql' ? '' : '…'}
-                </Button>
-              ))}
-            </div>
-          ) : null}
-        </section>
-      ))}
+      {tool === 'drift' ? <DriftCompare sessionId={sessionId} /> : null}
+      <ReportSections sections={report?.sections ?? []} onOpenQuery={onOpenQuery} onShowScript={setShown} />
 
       {shown ? (
         <Dialog
