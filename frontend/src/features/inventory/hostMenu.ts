@@ -1,6 +1,7 @@
 import type { MenuEntry } from '../../components/ui/ContextMenu'
 import {
   formatAccount,
+  hasTool,
   PROTOCOL_INFO,
   primaryAddress,
   SUPPORTED_PROTOCOLS,
@@ -290,26 +291,35 @@ function sshToolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | '
   if (ssh.length === 0) {
     return []
   }
-  const entry = (mode: 'files' | 'storage' | 'journal' | 'selinux', label: string, detail: string): MenuEntry => ({
-    kind: 'item',
-    label,
-    detail,
-    submenu:
-      ssh.length === 1
-        ? loginEntries(host, ssh[0].index, actions, mode)
-        : ssh.map(({ service, index }) => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions, mode) })),
-  })
+  // Each tool is offered on the services that have it turned on.
+  const entry = (mode: 'files' | 'storage' | 'journal' | 'selinux', label: string, detail: string): MenuEntry[] => {
+    const offering = ssh.filter(({ service }) => hasTool(service, mode))
+    if (offering.length === 0) {
+      return []
+    }
+    return [
+      {
+        kind: 'item',
+        label,
+        detail,
+        submenu:
+          offering.length === 1
+            ? loginEntries(host, offering[0].index, actions, mode)
+            : offering.map(({ service, index }) => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions, mode) })),
+      },
+    ]
+  }
   return [
-    entry('files', 'Files', 'SFTP'),
-    entry('storage', 'Storage', 'iSCSI · multipath · DRBD'),
-    entry('journal', 'Journal', 'journalctl'),
-    entry('selinux', 'SELinux', 'Policies · blocks'),
+    ...entry('files', 'Files', 'SFTP'),
+    ...entry('storage', 'Storage', 'iSCSI · multipath · DRBD'),
+    ...entry('journal', 'Journal', 'journalctl'),
+    ...entry('selinux', 'SELinux', 'Policies · blocks'),
   ]
 }
 
 /** Event Log Viewer ▸ login, or ▸ RPC service ▸ login when there are several; none without an RPC service. */
 function eventLogEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
-  const rpc = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Rpc')
+  const rpc = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Rpc' && hasTool(service, 'eventlog'))
   if (rpc.length === 0) {
     return []
   }

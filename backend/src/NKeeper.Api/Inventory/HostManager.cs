@@ -40,7 +40,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         h.Services
             .OrderBy(s => s.Position)
             .Select(s => new HostServiceResponse(
-                s.Protocol, s.Port, s.Label, s.Protocol == ServiceProtocol.Rdp ? s.RdpSecurity ?? RdpSecurityMode.Auto : null, s.Address, s.Instance, s.Id))
+                s.Protocol, s.Port, s.Label, s.Protocol == ServiceProtocol.Rdp ? s.RdpSecurity ?? RdpSecurityMode.Auto : null, s.Address, s.Instance, s.Id, s.Tools))
             .ToList(),
         h.Credentials
             .OrderBy(c => c.Position)
@@ -474,6 +474,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
                     Label = InventoryText.TrimToNull(service.Label),
                     Position = host.Services.Count == 0 ? 0 : host.Services.Max(s => s.Position) + 1,
                     RdpSecurity = service.Protocol == ServiceProtocol.Rdp && service.RdpSecurity is not RdpSecurityMode.Auto ? service.RdpSecurity : null,
+                    Tools = ServiceTools.Normalize(service.Protocol!.Value, service.Tools),
                 });
                 changed = true;
             }
@@ -838,6 +839,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             RdpSecurity = s.Protocol == ServiceProtocol.Rdp && s.RdpSecurity is not RdpSecurityMode.Auto ? s.RdpSecurity : null,
             Address = s.Protocol == ServiceProtocol.Idrac ? NormalizeAddress(s.Address) : null,
             Instance = s.Protocol == ServiceProtocol.Ssms ? SqlServerInstance.Normalize(s.Instance) : s.Protocol == ServiceProtocol.Oracle ? InventoryText.TrimToNull(s.Instance) : null,
+            Tools = ServiceTools.Normalize(s.Protocol!.Value, s.Tools),
         }));
     }
 

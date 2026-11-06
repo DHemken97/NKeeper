@@ -4,7 +4,7 @@ using NKeeper.Infrastructure.Inventory;
 
 namespace NKeeper.Api.Contracts.Inventory;
 
-public sealed record HostServiceRequest
+public sealed record HostServiceRequest : IValidatableObject
 {
     [Required(ErrorMessage = "Choose a service type.")]
     public ServiceProtocol? Protocol { get; init; }
@@ -25,6 +25,19 @@ public sealed record HostServiceRequest
     /// <summary>SQL Server services only: the named instance, or empty for the default instance. Ignored for other services.</summary>
     [StringLength(HostService.InstanceMaxLength, ErrorMessage = "Instance names are at most 16 characters.")]
     public string? Instance { get; init; }
+
+    /// <summary>Which of the service's tools the menus offer; left out for all of them. Ignored for services without tools.</summary>
+    [MaxLength(16)]
+    public IReadOnlyList<string>? Tools { get; init; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        var known = ServiceTools.For(Protocol);
+        if (known.Count > 0 && Tools?.FirstOrDefault(tool => !known.Contains(tool)) is { } unknown)
+        {
+            yield return new ValidationResult($"“{unknown}” isn't a tool of this service.", [nameof(Tools)]);
+        }
+    }
 }
 
 /// <summary>A <c>name: value</c> tag. The value is optional.</summary>
@@ -290,7 +303,8 @@ public sealed record HostTagResponse(string Name, string? Value, bool Inheritabl
 /// A connection method. <see cref="RdpSecurity"/> is set for RDP services only, <see cref="Address"/>
 /// for services with their own address (iDRAC) only, <see cref="Instance"/> for SQL Server's named instances only.
 /// </summary>
-public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity, string? Address = null, string? Instance = null, Guid? Id = null);
+/// <param name="Tools">Which of its tools the menus offer; null for all of them.</param>
+public sealed record HostServiceResponse(ServiceProtocol Protocol, int? Port, string? Label, RdpSecurityMode? RdpSecurity, string? Address = null, string? Instance = null, Guid? Id = null, IReadOnlyList<string>? Tools = null);
 
 /// <summary>A credential as seen by clients. Secret values are never included.</summary>
 public sealed record HostCredentialResponse(

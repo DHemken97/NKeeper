@@ -129,6 +129,42 @@ public sealed class HostService
     /// Without a port, the instance's port is looked up with the SQL Server Browser.
     /// </summary>
     public string? Instance { get; set; }
+
+    /// <summary>
+    /// Which of the service's tools the host's menus offer, e.g. no Journal or SELinux for SSH on a
+    /// Windows host; null for all of them. See <see cref="ServiceTools"/>. It tidies the menus: it isn't a
+    /// permission, as a login that can reach the service can do the same from a terminal.
+    /// </summary>
+    public List<string>? Tools { get; set; }
+}
+
+/// <summary>The tools that can be turned on and off for each type of service.</summary>
+public static class ServiceTools
+{
+    public const string Files = "files", Storage = "storage", Journal = "journal", Selinux = "selinux", EventLog = "eventlog";
+
+    private static readonly string[] Ssh = [Files, Storage, Journal, Selinux];
+    private static readonly string[] Rpc = [EventLog];
+
+    public static IReadOnlyList<string> For(ServiceProtocol? protocol) => protocol switch
+    {
+        ServiceProtocol.Ssh => Ssh,
+        ServiceProtocol.Rpc => Rpc,
+        _ => [],
+    };
+
+    /// <summary>What to store: null for all of them (so tools added later start on) and for services without tools.</summary>
+    public static List<string>? Normalize(ServiceProtocol protocol, IEnumerable<string>? tools)
+    {
+        var known = For(protocol);
+        if (tools is null || known.Count == 0)
+        {
+            return null;
+        }
+
+        var chosen = known.Where(tools.Contains).ToList();
+        return chosen.Count == known.Count ? null : chosen;
+    }
 }
 
 /// <summary>

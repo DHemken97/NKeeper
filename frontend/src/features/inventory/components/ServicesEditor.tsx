@@ -3,7 +3,7 @@ import { useInventoryLimits } from '../limits'
 import { Button } from '../../../components/ui/Button'
 import { errorFor } from '../../../lib/formErrors'
 import { newServiceDraft, type ServiceDraft } from '../drafts'
-import { PROTOCOL_INFO, RDP_SECURITY_INFO, SUPPORTED_PROTOCOLS, type HostService, type RdpSecurity, type ServiceProtocol } from '../types'
+import { hasTool, PROTOCOL_INFO, RDP_SECURITY_INFO, SERVICE_TOOLS, SUPPORTED_PROTOCOLS, type HostService, type RdpSecurity, type ServiceProtocol, type ServiceTool } from '../types'
 import styles from './ListEditor.module.css'
 
 interface ServicesEditorProps {
@@ -39,6 +39,14 @@ export function ServicesEditor({
   const limits = useInventoryLimits()
   function update(key: number, patch: Partial<ServiceDraft>) {
     onChange(value.map((s) => (s.key === key ? { ...s, ...patch } : s)))
+  }
+
+  /** Turns a tool on or off; with all of them on, it's stored as "all", so tools added later start on. */
+  function toggleTool(service: ServiceDraft, tool: ServiceTool) {
+    const all = (SERVICE_TOOLS[service.protocol] ?? []).map((t) => t.tool as string)
+    const current = service.tools ?? all
+    const next = current.includes(tool) ? current.filter((t) => t !== tool) : [...current, tool]
+    update(service.key, { tools: all.every((t) => next.includes(t)) ? null : next })
   }
 
   function move(index: number, offset: -1 | 1) {
@@ -81,7 +89,7 @@ export function ServicesEditor({
               <select
                 className={styles.input}
                 value={service.protocol}
-                onChange={(event) => update(service.key, { protocol: event.target.value as ServiceProtocol })}
+                onChange={(event) => update(service.key, { protocol: event.target.value as ServiceProtocol, tools: null })}
                 aria-label={`Type for ${position}`}
               >
                 {protocols.map((protocol) => (
@@ -202,6 +210,17 @@ export function ServicesEditor({
                     aria-invalid={errors[`services[${index}].instance`] ? true : undefined}
                   />
                 </label>
+              ) : null}
+              {SERVICE_TOOLS[service.protocol] ? (
+                <div className={styles.option} role="group" aria-label={`Tools for ${position}`}>
+                  <span>Tools</span>
+                  {SERVICE_TOOLS[service.protocol]!.map(({ tool, label }) => (
+                    <label key={tool} className={styles.toolOption}>
+                      <input type="checkbox" checked={hasTool(service, tool)} onChange={() => toggleTool(service, tool)} />
+                      {label}
+                    </label>
+                  ))}
+                </div>
               ) : null}
               {serviceNote ? <p className={`${styles.hint} ${styles.rowNote}`}>{serviceNote}</p> : null}
               {rowError ? <p className={styles.error}>{rowError}</p> : null}

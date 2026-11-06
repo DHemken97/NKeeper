@@ -91,6 +91,27 @@ export interface HostService {
   instance?: string | null
   /** The service's ID, from the API (credentials name the services they're used with). Not sent back. */
   id?: string | null
+  /** Which of its tools the menus offer (see SERVICE_TOOLS); null or absent for all of them. */
+  tools?: string[] | null
+}
+
+/** A tool that can be turned on and off for a service. */
+export type ServiceTool = 'files' | 'storage' | 'journal' | 'selinux' | 'eventlog'
+
+/** The tools of each type of service, as the editor offers them. */
+export const SERVICE_TOOLS: Partial<Record<ServiceProtocol, { tool: ServiceTool; label: string }[]>> = {
+  Ssh: [
+    { tool: 'files', label: 'Files' },
+    { tool: 'storage', label: 'Storage' },
+    { tool: 'journal', label: 'Journal' },
+    { tool: 'selinux', label: 'SELinux' },
+  ],
+  Rpc: [{ tool: 'eventlog', label: 'Event Log Viewer' }],
+}
+
+/** Whether the menus offer this tool on this service. */
+export function hasTool(service: Pick<HostService, 'tools'>, tool: ServiceTool): boolean {
+  return service.tools == null || service.tools.includes(tool)
 }
 
 /** A credential as returned by the API. Secrets are never included, only whether they are set. */
