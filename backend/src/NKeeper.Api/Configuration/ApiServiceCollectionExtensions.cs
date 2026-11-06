@@ -76,6 +76,7 @@ internal static class ApiServiceCollectionExtensions
         services.AddSingleton<NKeeper.Api.EventLogs.IEventLogReader>(_ => OperatingSystem.IsWindows()
             ? new NKeeper.Api.EventLogs.WindowsEventLogReader()
             : new NKeeper.Api.EventLogs.ImpacketEventLogReader());
+        services.AddScoped<NKeeper.Api.Journal.JournalFollowSession>();
         services.AddSingleton<SessionLimiter>();
         services.AddHttpContextAccessor();
         services.AddOptions<NKeeper.Api.Auditing.AuditSettings>()

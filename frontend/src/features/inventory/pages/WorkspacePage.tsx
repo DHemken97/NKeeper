@@ -87,6 +87,8 @@ const KvmVmConsole = lazy(() => import('../../terminal/components/KvmVmConsole')
 const FileBrowser = lazy(() => import('../../terminal/components/FileBrowser').then((m) => ({ default: m.FileBrowser })))
 const StorageView = lazy(() => import('../../terminal/components/StorageView').then((m) => ({ default: m.StorageView })))
 const EventLogView = lazy(() => import('../../terminal/components/EventLogView').then((m) => ({ default: m.EventLogView })))
+const JournalView = lazy(() => import('../../terminal/components/JournalView').then((m) => ({ default: m.JournalView })))
+const SelinuxView = lazy(() => import('../../terminal/components/SelinuxView').then((m) => ({ default: m.SelinuxView })))
 const IdracView = lazy(() => import('../../terminal/components/IdracView').then((m) => ({ default: m.IdracView })))
 const DatabaseView = lazy(() => import('../../databases/components/DatabaseView').then((m) => ({ default: m.DatabaseView })))
 const RpcSession = lazy(() => import('../../terminal/components/RpcSession').then((m) => ({ default: m.RpcSession })))
@@ -118,6 +120,9 @@ function sessionProtocol(protocol: ServiceProtocol, mode?: OpenMode): RemoteSess
   }
   if (mode === 'eventlog') {
     return 'eventlog'
+  }
+  if (mode === 'journal' || mode === 'selinux') {
+    return mode
   }
   if (protocol === 'Idrac') {
     // RACADM is the iDRAC's SSH command line.
@@ -454,15 +459,19 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
           ? 'Storage'
           : mode === 'eventlog'
             ? 'Event Log Viewer'
-            : service.protocol === 'Ssms'
-              ? sqlInstanceLabel(service)
-              : service.protocol === 'Oracle'
-                ? oracleServiceLabel(service)
-                : service.protocol !== 'Idrac'
-                  ? null
-                  : mode === 'web'
-                    ? 'Web interface'
-                    : IDRAC_MODES[(mode as IdracMode | undefined) ?? 'console'].label
+            : mode === 'journal'
+              ? 'Journal'
+              : mode === 'selinux'
+                ? 'SELinux'
+                : service.protocol === 'Ssms'
+                  ? sqlInstanceLabel(service)
+                  : service.protocol === 'Oracle'
+                    ? oracleServiceLabel(service)
+                    : service.protocol !== 'Idrac'
+                      ? null
+                      : mode === 'web'
+                        ? 'Web interface'
+                        : IDRAC_MODES[(mode as IdracMode | undefined) ?? 'console'].label
     setSessions((current) => [
       ...current,
       {
@@ -1097,6 +1106,10 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
               <StorageView key={session.id} session={session} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'eventlog' ? (
               <EventLogView key={session.id} session={session} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'journal' ? (
+              <JournalView key={session.id} session={session} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'selinux' ? (
+              <SelinuxView key={session.id} session={session} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'idrac' ? (
               <IdracView
                 key={session.id}

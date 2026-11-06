@@ -318,16 +318,24 @@
   gap: var(--space-1);
 }
 
-/* Event log: filters above the newest events; a row opens to the whole message. */
-.eventFilters {
+.eventFilters,
+.logFilters {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--space-2) var(--space-3);
+}
+
+.eventFilters {
   margin-bottom: var(--space-2);
 }
 
-.eventField {
+.logFilters {
+  margin-bottom: var(--space-3);
+}
+
+.eventField,
+.logField {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -335,9 +343,9 @@
   font-weight: 500;
 }
 
-.eventSelect {
+.eventSelect,
+.logSelect {
   min-height: 2.25rem;
-  max-width: 20rem;
   padding: 0 var(--space-2);
   color: var(--color-text);
   font: inherit;
@@ -345,6 +353,10 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+}
+
+.eventSelect {
+  max-width: 20rem;
 }
 
 .eventLevels {
@@ -356,25 +368,36 @@
   border: 0;
 }
 
-.eventFind {
+.eventFind,
+.logFind {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
+}
+
+.eventFind {
   margin: var(--space-3) 0 var(--space-2);
 }
 
 .eventLevel,
-.eventTime {
+.eventTime,
+.logNarrow {
   white-space: nowrap;
 }
 
-.eventMessage {
+.logFind {
+  margin-bottom: var(--space-2);
+}
+
+.eventMessage,
+.logMessage {
   width: 100%;
   max-width: 0;
 }
 
-.eventToggle {
+.eventToggle,
+.logToggle {
   display: block;
   width: 100%;
   padding: 0;
@@ -389,45 +412,66 @@
   border: 0;
 }
 
-.eventToggle:hover {
+.eventToggle:hover,
+.logToggle:hover {
   text-decoration: underline;
 }
 
-.eventDetails {
+.eventDetails,
+.logDetails {
   background: var(--color-surface);
 }
 
-.eventDetails pre {
+.eventDetails pre,
+.logDetails pre {
   margin: 0 0 var(--space-2);
   overflow-wrap: anywhere;
   font-family: inherit;
   white-space: pre-wrap;
 }
 
-.eventDetails dl {
+.eventDetails dl,
+.logDetails dl {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-4);
-  margin: 0;
   color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 
-.eventDetails dl > div {
+.eventDetails dl {
+  margin: 0;
+}
+
+.logDetails dl {
+  margin: 0 0 var(--space-2);
+}
+
+.eventDetails dl > div,
+.logDetails dl > div {
   display: flex;
   gap: var(--space-1);
 }
 
-.eventDetails dt {
+.eventDetails dt,
+.logDetails dt {
   font-weight: 600;
 }
 
-.eventDetails dd {
+.eventDetails dd,
+.logDetails dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
 
-.eventMore {
+.logDetails pre.logRaw,
+.logSource textarea {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.8125rem;
+}
+
+.eventMore,
+.logMore {
   display: flex;
   justify-content: center;
   padding: var(--space-3);

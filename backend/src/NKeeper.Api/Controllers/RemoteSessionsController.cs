@@ -29,6 +29,10 @@ public sealed class RemoteSessionsController(SessionLimiter limiter, IOptions<Co
     public Task<IActionResult> Telnet(CancellationToken cancellationToken) =>
         RunAsync((socket, user, token) => Session<NKeeper.Api.Telnet.TelnetTerminalSession>().RunAsync(socket, user, token), cancellationToken);
 
+    [HttpGet("api/journal/follow")]
+    public Task<IActionResult> JournalFollow(CancellationToken cancellationToken) =>
+        RunAsync((socket, user, token) => Session<NKeeper.Api.Journal.JournalFollowSession>().RunAsync(socket, user, token), cancellationToken);
+
     [HttpGet("api/rdp/session")]
     public Task<IActionResult> Rdp(CancellationToken cancellationToken) =>
         RunAsync((socket, user, token) => Session<DesktopSession>().RunAsync(socket, user, ServiceProtocol.Rdp, token), cancellationToken);
