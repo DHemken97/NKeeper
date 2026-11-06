@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using NKeeper.Infrastructure.Identity;
+using Npgsql;
 
 namespace NKeeper.Api.Tests.Infrastructure;
 
@@ -30,6 +31,11 @@ public sealed class NKeeperApiFactory(
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
+        using (var connection = new NpgsqlConnection(connectionString))
+        {
+            NpgsqlConnection.ClearPool(connection);
+        }
+
         try
         {
             Directory.Delete(DiagnosticsDirectory, recursive: true);

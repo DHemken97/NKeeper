@@ -71,7 +71,15 @@ public sealed class PostgresServerFixture : IAsyncLifetime
             _databases.Add(name);
         }
 
-        return new NpgsqlConnectionStringBuilder(_serverConnectionString) { Database = name, Pooling = false }.ConnectionString;
+        // Pooled, as in production: a new connection per query runs Windows out of local ports (each is held
+        // for two minutes after closing). Small and short-lived, so hundreds of databases fit the server's limit.
+        return new NpgsqlConnectionStringBuilder(_serverConnectionString)
+        {
+            Database = name,
+            MaxPoolSize = 10,
+            ConnectionIdleLifetime = 5,
+            ConnectionPruningInterval = 1,
+        }.ConnectionString;
     }
 
     public async ValueTask DisposeAsync()
