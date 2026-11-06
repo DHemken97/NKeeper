@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
 import { SettingsPage } from './pages/SettingsPage'
 
@@ -27,6 +27,122 @@ function renderPage() {
   )
   return userEvent.setup()
 }
+
+const diagnostics = {
+  enabled: true,
+  maxMegabytes: 200,
+  minMegabytes: 20,
+  ceilingMegabytes: 10240,
+  sizeBytes: 3 * 1024 * 1024,
+  oldestUtc: '2026-11-01T10:00:00Z',
+  newestUtc: '2026-11-06T10:00:00Z',
+  lastDownloadedUtc: null,
+  droppedUtc: null,
+  pausedForDiskSpace: false,
+  writeError: null,
+  directory: '/var/lib/nkeeper/diagnostics',
+  version: '1.0',
+}
+
+describe('Settings: diagnostics', () => {
+  const emailRoute = { 'GET /api/admin/email': () => jsonResponse(200, saved), 'GET /api/admin/zabbix': () => jsonResponse(200, { enabled: false, url: '', hasApiToken: false }) }
+
+  it('shows the running version at the bottom of the page', async () => {
+    mockFetch({ ...emailRoute })
+    renderPage()
+
+    const version = await screen.findByText('NKeeper version 1.0')
+    expect(version.parentElement?.lastElementChild).toBe(version)
+  })
+
+  it('shows what the file holds, and saves the switch and the size limit', async () => {
+    let body: Record<string, unknown> | undefined
+    mockFetch({
+      ...antiforgeryRoute,
+      ...emailRoute,
+      'GET /api/admin/diagnostics': () => jsonResponse(200, diagnostics),
+      'PUT /api/admin/diagnostics': (_url, init) => {
+        body = JSON.parse(String(init.body))
+        return jsonResponse(200, { ...diagnostics, enabled: false, maxMegabytes: 500 })
+      },
+    })
+    const user = renderPage()
+    const panel = within(await screen.findByRole('region', { name: 'Diagnostics' }))
+
+    expect(panel.getByText(/3\.0 MB on disk/)).toBeInTheDocument()
+    expect(panel.getByText(/Never downloaded/)).toBeInTheDocument()
+    expect(panel.getByText(/\/var\/lib\/nkeeper\/diagnostics/)).toBeInTheDocument()
+
+    await user.click(panel.getByLabelText('Keep the diagnostics file'))
+    await user.clear(panel.getByLabelText('Size limit (MB)'))
+    await user.type(panel.getByLabelText('Size limit (MB)'), '500')
+    await user.click(panel.getByRole('button', { name: 'Save' }))
+
+    expect(await panel.findByText('Saved. It applies now.')).toBeInTheDocument()
+    expect(body).toEqual({ enabled: false, maxMegabytes: 500 })
+  })
+
+  it('shows a refused size limit on its field', async () => {
+    mockFetch({
+      ...antiforgeryRoute,
+      ...emailRoute,
+      'PUT /api/admin/diagnostics': () => jsonResponse(400, { status: 400, errors: { maxMegabytes: ['Too small.'] } }),
+    })
+    const user = renderPage()
+    const panel = within(await screen.findByRole('region', { name: 'Diagnostics' }))
+
+    await user.click(panel.getByRole('button', { name: 'Save' }))
+
+    expect(await panel.findByText('Too small.')).toBeInTheDocument()
+  })
+
+  it('warns when writing paused, failed, or data went before it was downloaded', async () => {
+    mockFetch({
+      ...emailRoute,
+      'GET /api/admin/diagnostics': () =>
+        jsonResponse(200, { ...diagnostics, pausedForDiskSpace: true, writeError: 'Access denied', droppedUtc: '2026-11-05T10:00:00Z' }),
+    })
+    renderPage()
+    const panel = within(await screen.findByRole('region', { name: 'Diagnostics' }))
+
+    expect(panel.getByText(/Writing is paused/)).toBeInTheDocument()
+    expect(panel.getByText(/Access denied/)).toBeInTheDocument()
+    expect(panel.getByText(/so there’s a gap/)).toBeInTheDocument()
+  })
+
+  it('downloads the file and then shows when', async () => {
+    const createObjectURL = vi.fn(() => 'blob:diagnostics')
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }))
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    let current: typeof diagnostics | (Omit<typeof diagnostics, 'lastDownloadedUtc'> & { lastDownloadedUtc: string }) = diagnostics
+    mockFetch({
+      ...emailRoute,
+      'GET /api/admin/diagnostics': () => jsonResponse(200, current),
+      'GET /api/admin/diagnostics/download': () => {
+        current = { ...diagnostics, lastDownloadedUtc: '2026-11-06T12:00:00Z' }
+        return new Response(new Blob(['zip']), { status: 200 })
+      },
+    })
+    const user = renderPage()
+    const panel = within(await screen.findByRole('region', { name: 'Diagnostics' }))
+
+    await user.click(panel.getByRole('button', { name: 'Download diagnostics' }))
+
+    expect(await panel.findByText(/Last downloaded/)).toBeInTheDocument()
+    expect(createObjectURL).toHaveBeenCalledOnce()
+    expect(click).toHaveBeenCalledOnce()
+    click.mockRestore()
+  })
+
+  it('has nothing to download until something is recorded', async () => {
+    mockFetch({ ...emailRoute, 'GET /api/admin/diagnostics': () => jsonResponse(200, { ...diagnostics, sizeBytes: 0, oldestUtc: null, newestUtc: null }) })
+    renderPage()
+    const panel = within(await screen.findByRole('region', { name: 'Diagnostics' }))
+
+    expect(panel.getByText(/Nothing recorded yet/)).toBeInTheDocument()
+    expect(panel.getByRole('button', { name: 'Download diagnostics' })).toBeDisabled()
+  })
+})
 
 describe('Settings: email', () => {
   it('shows the saved settings without the password, and keeps it when saving', async () => {
