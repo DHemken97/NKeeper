@@ -634,6 +634,7 @@ native_config() {
     set_env "$env" ASPNETCORE_ENVIRONMENT Production
     set_env "$env" ASPNETCORE_URLS "http://127.0.0.1:$API_PORT"
     set_env "$env" Database__MigrateOnStartup true
+    set_env "$env" Diagnostics__Directory /var/lib/nkeeper/diagnostics
     set_env "$env" ForwardedHeaders__Enabled true
     set_env "$env" Guacd__Host 127.0.0.1
     set_env "$env" Guacd__Port 4822
@@ -686,6 +687,9 @@ Restart=always
 RestartSec=5
 KillSignal=SIGINT
 TimeoutStopSec=30
+# /var/lib/nkeeper: the diagnostics file, the one place the API may write (see ProtectSystem).
+StateDirectory=nkeeper
+StateDirectoryMode=0700
 # Hardening: the API needs only the network and its own files.
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -877,7 +881,7 @@ native_uninstall() {
     systemctl reload nginx >/dev/null 2>&1 || true
     if $purge; then
         postgres_psql -qc 'DROP DATABASE IF EXISTS nkeeper' -c 'DROP ROLE IF EXISTS nkeeper' >/dev/null 2>&1 || true
-        rm -rf "$NATIVE_CONFIG" "$NATIVE_TLS" "$REPO/nkeeper-ca.crt"
+        rm -rf "$NATIVE_CONFIG" "$NATIVE_TLS" /var/lib/nkeeper "$REPO/nkeeper-ca.crt"
         userdel nkeeper >/dev/null 2>&1 || true
         ok "Removed, including the database and certificates."
     else

@@ -253,7 +253,7 @@ pct push 120 nkeeper.env /var/lib/nkeeper/nkeeper.env --perms 600
 pct reboot 120
 ```
 
-**What's in `/var/lib/nkeeper`:** `nkeeper.env`, `postgres/` (the database, including the encrypted secrets and their keys), `tls/` (the CA and certificate; put your own as `custom.crt` and `custom.key`), and `initial-admin.txt` until you delete it. Back up the whole volume, or use `pg_dump` inside the container (`pct exec 120 -- runuser -u postgres -- pg_dump -h /run/postgresql nkeeper > nkeeper.sql`).
+**What's in `/var/lib/nkeeper`:** `nkeeper.env`, `postgres/` (the database, including the encrypted secrets and their keys), `tls/` (the CA and certificate; put your own as `custom.crt` and `custom.key`), `diagnostics/` (see [Diagnostics](administration.md#diagnostics)), and `initial-admin.txt` until you delete it. Back up the whole volume, or use `pg_dump` inside the container (`pct exec 120 -- runuser -u postgres -- pg_dump -h /run/postgresql nkeeper > nkeeper.sql`).
 
 ### Upgrading the single image
 

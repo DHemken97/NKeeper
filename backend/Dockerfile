@@ -25,7 +25,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-venv libldap2 \
     && python3 -m venv /opt/impacket \
     && /opt/impacket/bin/pip install --no-cache-dir impacket==0.12.0 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # The diagnostics file's volume starts with this folder's owner.
+    && install -d -m 700 -o "$APP_UID" /var/lib/nkeeper-diagnostics
 
 # The official image ships a non-root "app" user; never run the API as root.
 USER $APP_UID

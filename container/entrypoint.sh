@@ -103,6 +103,11 @@ chmod 700 "$TLS"
     "$TLS" 443 80 "$https_port" /opt/nkeeper/www "$names"
 /usr/sbin/nginx -t -q
 
+# --- Diagnostics: the file of errors and usage totals, kept with the data across upgrades ---------
+mkdir -p "$DATA/diagnostics"
+chown -R nkeeper:nkeeper "$DATA/diagnostics"
+chmod 700 "$DATA/diagnostics"
+
 # --- The API's settings, for nkeeper-api only -----------------------------------------------------
 quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 umask 077
@@ -115,6 +120,7 @@ umask 077
     echo "ASPNETCORE_URLS=http://127.0.0.1:5080"
     echo "ConnectionStrings__NKeeper='Host=/run/postgresql;Database=nkeeper;Username=nkeeper'"
     echo "Database__MigrateOnStartup=true"
+    echo "Diagnostics__Directory=$DATA/diagnostics"
     echo "ForwardedHeaders__Enabled=true"
     echo "Guacd__Host=127.0.0.1"
     echo "Guacd__Port=4822"

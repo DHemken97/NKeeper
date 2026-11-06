@@ -55,6 +55,7 @@ The API reads `appsettings.json`, `appsettings.{Environment}.json`, user secrets
 | `Auditing__MaxRecordingMegabytes` | `50` | A recording stops growing at this size (the session goes on) |
 | `Auditing__RetentionDays` | `365` | Audit events older than this are deleted (daily) |
 | `Auditing__RecordingRetentionDays` | `90` | Recordings older than this are deleted (daily) |
+| `Diagnostics__Directory` | set by the setup scripts and images; otherwise `NKeeper/diagnostics` in the account's local app data | Where the diagnostics file is kept. It must be writable by the API and survive upgrades. Everything else about it is on the Settings page; see [Administration](administration.md#diagnostics). |
 | `Health__Enabled` | `true` | Check every host's services in the background; see the [User guide](user-guide.md#health-and-wake-on-lan) |
 | `Health__Interval` | `00:05:00` | Time between checks (1 minute to 1 day) |
 | `Health__Timeout` | `00:00:05` | A service that hasn't answered by then counts as down |
@@ -94,6 +95,7 @@ Other API settings can be added to the `backend` service's `environment` in a `d
 | Settings and secrets | `/etc/nkeeper/nkeeper.env` (root only; systemd `EnvironmentFile`) | `C:\inetpub\nkeeper\web.config` (administrators and the app pool only) |
 | Key certificate | `/etc/nkeeper/data-protection.pem` (owner root, readable by `nkeeper`); encrypts the stored keys | none: the keys are stored unencrypted |
 | Setup state | the same file | `C:\ProgramData\NKeeper\state.json` (administrators only) |
+| Diagnostics file | `/var/lib/nkeeper/diagnostics` (user `nkeeper` only) | `C:\ProgramData\NKeeper\diagnostics` (administrators and the app pool only) |
 | Service | `nkeeper.service` (systemd), user `nkeeper` | IIS site **NKeeper**, app pool **NKeeper**; redirect site **NKeeper HTTP redirect** |
 | Web server config | `/etc/nginx/conf.d/nkeeper.conf`, `nkeeper-tls.conf`, `/etc/nginx/snippets/nkeeper/` | IIS bindings |
 | Certificates | `/etc/nginx/nkeeper-tls/` (`ca.crt`, `server.crt`, or your `custom.crt`) | `LocalMachine\My` (and the CA in `LocalMachine\Root`) |

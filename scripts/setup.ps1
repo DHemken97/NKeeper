@@ -734,10 +734,24 @@ function Install-Iis {
     robocopy $site $SiteDir /MIR /NFL /NDL /NJH /NJS /NP /XF web.config | Out-Null
     if ($LASTEXITCODE -ge 8) { Stop-Setup "Copying NKeeper to $SiteDir failed." }
 
+    # The diagnostics file (Settings > Diagnostics): only the app pool and administrators can reach it.
+    $diagnostics = Join-Path $DataDir 'diagnostics'
+    New-Item -ItemType Directory -Force $diagnostics | Out-Null
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    $inherit = [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+    foreach ($sid in 'S-1-5-18', 'S-1-5-32-544') {
+        $identity = (New-Object Security.Principal.SecurityIdentifier($sid)).Translate([Security.Principal.NTAccount])
+        $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($identity, 'FullControl', $inherit, 'None', 'Allow')))
+    }
+    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule("IIS AppPool\$PoolName", 'Modify', $inherit, 'None', 'Allow')))
+    Set-Acl -Path $diagnostics -AclObject $acl
+
     $environment = @{
         ASPNETCORE_ENVIRONMENT = 'Production'
         ConnectionStrings__NKeeper = $connection
         Database__MigrateOnStartup = 'true'
+        Diagnostics__Directory = $diagnostics
         Guacd__Host = '127.0.0.1'
         Guacd__Port = '4822'
         WebProxy__BaseDomain = "$WebDomain"

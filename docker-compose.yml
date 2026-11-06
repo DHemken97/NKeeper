@@ -50,6 +50,7 @@ services:
       Authentication__RequireSecureCookies: ${NKEEPER_REQUIRE_SECURE_COOKIES:-true}
       Guacd__Host: guacd
       Guacd__Port: "4822"
+      Diagnostics__Directory: /var/lib/nkeeper-diagnostics
       # The API is only reachable through the frontend's nginx, so its forwarded headers can be trusted.
       ForwardedHeaders__Enabled: "true"
       WebProxy__BaseDomain: ${NKEEPER_WEB_BASE_DOMAIN:-}
@@ -58,6 +59,8 @@ services:
       BootstrapAdmin__UserName: ${NKEEPER_BOOTSTRAP_ADMIN_USERNAME:-}
       BootstrapAdmin__Email: ${NKEEPER_BOOTSTRAP_ADMIN_EMAIL:-}
       BootstrapAdmin__Password: ${NKEEPER_BOOTSTRAP_ADMIN_PASSWORD:-}
+    volumes:
+      - diagnostics:/var/lib/nkeeper-diagnostics
 
   frontend:
     build:
@@ -83,5 +86,7 @@ services:
 
 volumes:
   postgres-data:
+  # Settings ▸ Diagnostics: the file of errors and usage totals.
+  diagnostics:
   # HTTPS certificate: NKeeper's private CA and server certificate, or your own (custom.crt/.key).
   tls:
