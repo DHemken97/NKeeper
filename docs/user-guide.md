@@ -10,6 +10,7 @@
 - [Telnet](#telnet)
 - [Files (SFTP)](#files-sftp)
 - [Storage (iSCSI, multipath, DRBD)](#storage-iscsi-multipath-drbd)
+- [Event Log Viewer (Windows)](#event-log-viewer-windows)
 - [Journal (journalctl)](#journal-journalctl)
 - [SELinux](#selinux)
 - [Microsoft SQL Server](#microsoft-sql-server)
@@ -185,7 +186,7 @@ Changing a host's hostname or IP address forgets its trusted keys too, for the s
 
 Right-click a host in the tree, or press the Menu key or Shift+F10 on it, then choose **Connect ▸ service ▸ credential**. Each session opens as a tab next to the host details and keeps running while you switch tabs, and while you're on Reports, Users or Settings: **Hosts** brings you back to them as you left them. Sessions close when you close them, sign out, or close or reload the browser tab.
 
-**Connect** lists the clients: SSH, Telnet, RDP, VNC, RPC, web interfaces, iDRAC and VM consoles. The tools that do more than open a client are under **Connect ▸ Tools**: **Files**, **Storage**, **Journal** and **SELinux** (on an SSH service), **KVM** (a hypervisor's VMs), **MS SQL**, **Oracle**, **SAP ASE** and **Replication Server**.
+**Connect** lists the clients: SSH, Telnet, RDP, VNC, RPC, web interfaces, iDRAC and VM consoles. The tools that do more than open a client are under **Connect ▸ Tools**: **Files**, **Storage**, **Journal** and **SELinux** (on an SSH service), **Event Log Viewer** (on an RPC service), **KVM** (a hypervisor's VMs), **MS SQL**, **Oracle**, **SAP ASE** and **Replication Server**.
 
 - **Double-click** a host to connect with its first connectable service and first suitable credential. If none fits, you're asked for a login.
 - The **Connect** button in the host details opens the same menu, which is the way to connect on touch screens.
@@ -238,6 +239,20 @@ Any Linux host with an SSH service has **Connect ▸ Tools ▸ Storage ▸ crede
 - **Asks first:** logging out, flushing, taking a resource down, changing its role and disconnecting it say what will happen and wait for you to confirm. The tools still refuse what would break something in use (a mounted map or a primary in use), and the tab shows their answer.
 - **Root:** the tools need root. Sign in as root, or as a user who may use `sudo` without a password.
 - **Logins and trust** are the same as SSH. Each change is recorded in the audit log (category *Storage*), with what it acted on.
+
+## Event Log Viewer (Windows)
+
+Any host with an **RPC** service has **Connect ▸ Tools ▸ Event Log Viewer ▸ credential** (or **Event Log Viewer ▸ RPC service ▸ credential** when it has several). NKeeper reads the host's event logs over WMI and shows them in a tab, newest first. It only reads; nothing on the host changes.
+
+- **Logins:** use a saved credential with its domain, or **Enter credentials…** and type a domain account as `DOMAIN\user`. A typed login is kept in memory for as long as the tab is open, so it can refresh, and isn't saved.
+- **What the login needs:** remote WMI (DCOM), as for [an internal scan](#scanning-hosts): administrators have it, and others need the *Event Log Readers* group and WMI permissions. The host's firewall must allow WMI (port 135 and DCOM's dynamic ports).
+- **The Security log** needs the *Manage auditing and security log* right. Without it, Windows doesn't list the log, and the tab says so.
+- **Which logs:** those Windows lists in `Win32_NTEventlogFile`, such as Application, System and Security, and logs that programs register alongside them. The newer logs under *Applications and Services Logs* in Event Viewer (for example `Microsoft-Windows-…/Operational`) can't be read over WMI.
+- **Filtering:** choose a log, a time range (the last 24 hours to start with) and levels (none for all), or give a **Source** and an **Event ID** and choose **Apply**. Critical events show as errors, and verbose ones as information.
+- **Reading:** click a message to see all of it, with its task category, user and computer. Each read gets up to 200 events; **Load older events** gets the next ones. **Find** only searches the events already loaded.
+- **Large logs:** a filter that few events match can make Windows search much of the log. After 50 seconds the tab says the host didn't finish, so choose a shorter time range or fewer filters.
+- **Jump hosts:** it can't go through one yet, so it's greyed out on hosts that have one.
+- **Audit:** opening or refreshing a log is in the audit log (category *Windows event logs*), with the log and the account. What the events said isn't recorded.
 
 ## Journal (journalctl)
 
@@ -356,7 +371,7 @@ A **jump host** (or bastion) is an SSH server that NKeeper signs in to first, th
 - **Setting one:** edit the host and choose a host under **Reach through**, then which of its credentials to **sign in as** (by default, its first credential with a username and a password or key).
 - **Which hosts can be jump hosts:** hosts with an SSH service that NKeeper reaches directly. There's one hop: a jump host can't have a jump host of its own, and a host that others go through can't get one.
 - **What goes through it:** SSH, Telnet, files, web sessions, iDRAC (console, status and power, and RACADM), KVM consoles and internal SSH scans. The host details show **Reached through**, with a link to the jump host.
-- **What doesn't yet:** RDP, VNC and RPC are greyed out in the Connect menu, since the RDP/VNC gateway dials hosts itself. External scans and health checks probe from the NKeeper server, so they skip these hosts.
+- **What doesn't yet:** RDP, VNC, RPC and the Event Log Viewer are greyed out in the Connect menu, since the RDP/VNC gateway and WMI dial hosts themselves. External scans and health checks probe from the NKeeper server, so they skip these hosts.
 - **Trust:** connect to the jump host with SSH once and trust its host key first; the tunnel can't stop to ask. The target's own host key or certificate is still checked against the target itself, so the jump host can't pretend to be it.
 - **Access:** you need access to the jump host as well as the host. Without it, connecting says so.
 - **Port forwarding:** the jump host's SSH server must allow TCP forwarding (`AllowTcpForwarding yes`, the OpenSSH default).
@@ -402,7 +417,7 @@ If web sessions don't load from other computers, the server needs the wildcard D
 
 ## Windows RPC
 
-An **RPC** service (port 135, the endpoint mapper) is mainly for [scanning Windows hosts](#scanning-hosts). **Connect ▸ RPC** also opens a low-level tool for administrators who know DCE/RPC. NKeeper binds the interface and signs in with NTLM using the credential and its domain. You then send calls as an operation number and a request stub in hex, and see the response stub or the fault. Calls are authenticated but not signed or encrypted.
+An **RPC** service (port 135, the endpoint mapper) is mainly for [scanning Windows hosts](#scanning-hosts) and the [Event Log Viewer](#event-log-viewer-windows). **Connect ▸ RPC** also opens a low-level tool for administrators who know DCE/RPC. NKeeper binds the interface and signs in with NTLM using the credential and its domain. You then send calls as an operation number and a request stub in hex, and see the response stub or the fault. Calls are authenticated but not signed or encrypted.
 
 ## KVM and Proxmox virtual machines (SPICE and VNC consoles)
 

@@ -86,6 +86,7 @@ const VncConsole = lazy(() => import('../../terminal/components/VncConsole').the
 const KvmVmConsole = lazy(() => import('../../terminal/components/KvmVmConsole').then((m) => ({ default: m.KvmVmConsole })))
 const FileBrowser = lazy(() => import('../../terminal/components/FileBrowser').then((m) => ({ default: m.FileBrowser })))
 const StorageView = lazy(() => import('../../terminal/components/StorageView').then((m) => ({ default: m.StorageView })))
+const EventLogView = lazy(() => import('../../terminal/components/EventLogView').then((m) => ({ default: m.EventLogView })))
 const JournalView = lazy(() => import('../../terminal/components/JournalView').then((m) => ({ default: m.JournalView })))
 const SelinuxView = lazy(() => import('../../terminal/components/SelinuxView').then((m) => ({ default: m.SelinuxView })))
 const IdracView = lazy(() => import('../../terminal/components/IdracView').then((m) => ({ default: m.IdracView })))
@@ -116,6 +117,9 @@ function sessionProtocol(protocol: ServiceProtocol, mode?: OpenMode): RemoteSess
   }
   if (mode === 'storage') {
     return 'storage'
+  }
+  if (mode === 'eventlog') {
+    return 'eventlog'
   }
   if (mode === 'journal' || mode === 'selinux') {
     return mode
@@ -453,19 +457,21 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
         ? 'Files'
         : mode === 'storage'
           ? 'Storage'
-          : mode === 'journal'
-            ? 'Journal'
-            : mode === 'selinux'
-              ? 'SELinux'
-              : service.protocol === 'Ssms'
-                ? sqlInstanceLabel(service)
-                : service.protocol === 'Oracle'
-                  ? oracleServiceLabel(service)
-                  : service.protocol !== 'Idrac'
-                    ? null
-                    : mode === 'web'
-                      ? 'Web interface'
-                      : IDRAC_MODES[(mode as IdracMode | undefined) ?? 'console'].label
+          : mode === 'eventlog'
+            ? 'Event Log Viewer'
+            : mode === 'journal'
+              ? 'Journal'
+              : mode === 'selinux'
+                ? 'SELinux'
+                : service.protocol === 'Ssms'
+                  ? sqlInstanceLabel(service)
+                  : service.protocol === 'Oracle'
+                    ? oracleServiceLabel(service)
+                    : service.protocol !== 'Idrac'
+                      ? null
+                      : mode === 'web'
+                        ? 'Web interface'
+                        : IDRAC_MODES[(mode as IdracMode | undefined) ?? 'console'].label
     setSessions((current) => [
       ...current,
       {
@@ -1098,6 +1104,8 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
               <DatabaseView key={session.id} session={session} engine={session.protocol} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'storage' ? (
               <StorageView key={session.id} session={session} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
+            ) : session.protocol === 'eventlog' ? (
+              <EventLogView key={session.id} session={session} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'journal' ? (
               <JournalView key={session.id} session={session} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'selinux' ? (
@@ -1171,6 +1179,7 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
           usernameOptional={['Vnc', 'Telnet'].includes(prompt.host.services[prompt.serviceIndex].protocol)}
           initialUsername={prompt.account?.username ?? undefined}
           submitLabel={prompt.purpose === 'scan' ? 'Scan' : undefined}
+          usernameHint={prompt.mode === 'eventlog' ? 'For a domain account: DOMAIN\\user' : undefined}
           onConnect={(username, password) => {
             const domain = prompt.account?.domain ?? undefined
             if (prompt.purpose === 'scan') {

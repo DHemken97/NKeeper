@@ -318,15 +318,23 @@
   gap: var(--space-1);
 }
 
-/* Logs (journal, SELinux denials): filters above the newest entries; a row opens to all of it. */
+.eventFilters,
 .logFilters {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--space-2) var(--space-3);
+}
+
+.eventFilters {
+  margin-bottom: var(--space-2);
+}
+
+.logFilters {
   margin-bottom: var(--space-3);
 }
 
+.eventField,
 .logField {
   display: flex;
   flex-direction: column;
@@ -335,6 +343,7 @@
   font-weight: 500;
 }
 
+.eventSelect,
 .logSelect {
   min-height: 2.25rem;
   padding: 0 var(--space-2);
@@ -346,23 +355,48 @@
   border-radius: var(--radius-md);
 }
 
+.eventSelect {
+  max-width: 20rem;
+}
+
+.eventLevels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  border: 0;
+}
+
+.eventFind,
 .logFind {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  margin-bottom: var(--space-2);
 }
 
+.eventFind {
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.eventLevel,
+.eventTime,
 .logNarrow {
   white-space: nowrap;
 }
 
+.logFind {
+  margin-bottom: var(--space-2);
+}
+
+.eventMessage,
 .logMessage {
   width: 100%;
   max-width: 0;
 }
 
+.eventToggle,
 .logToggle {
   display: block;
   width: 100%;
@@ -378,14 +412,17 @@
   border: 0;
 }
 
+.eventToggle:hover,
 .logToggle:hover {
   text-decoration: underline;
 }
 
+.eventDetails,
 .logDetails {
   background: var(--color-surface);
 }
 
+.eventDetails pre,
 .logDetails pre {
   margin: 0 0 var(--space-2);
   overflow-wrap: anywhere;
@@ -393,24 +430,35 @@
   white-space: pre-wrap;
 }
 
+.eventDetails dl,
 .logDetails dl {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-4);
-  margin: 0 0 var(--space-2);
   color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 
+.eventDetails dl {
+  margin: 0;
+}
+
+.logDetails dl {
+  margin: 0 0 var(--space-2);
+}
+
+.eventDetails dl > div,
 .logDetails dl > div {
   display: flex;
   gap: var(--space-1);
 }
 
+.eventDetails dt,
 .logDetails dt {
   font-weight: 600;
 }
 
+.eventDetails dd,
 .logDetails dd {
   margin: 0;
   overflow-wrap: anywhere;
@@ -422,6 +470,7 @@
   font-size: 0.8125rem;
 }
 
+.eventMore,
 .logMore {
   display: flex;
   justify-content: center;

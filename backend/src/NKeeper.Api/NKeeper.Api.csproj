@@ -30,6 +30,7 @@
 
   <ItemGroup>
     <Content Include="Inventory\Scanning\wmi_scan.py" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="EventLogs\wmi_event_log.py" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

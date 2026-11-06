@@ -14,6 +14,8 @@ interface CredentialPromptDialogProps {
   initialUsername?: string
   /** The submit button, e.g. "Scan"; "Connect" by default. */
   submitLabel?: string
+  /** Shown under the username, e.g. how to type a domain account. */
+  usernameHint?: string
   onConnect: (username: string, password: string) => void
   onCancel: () => void
 }
@@ -24,6 +26,7 @@ export function CredentialPromptDialog({
   usernameOptional = false,
   initialUsername = '',
   submitLabel = 'Connect',
+  usernameHint,
   onConnect,
   onCancel,
 }: CredentialPromptDialogProps) {
@@ -62,6 +65,7 @@ export function CredentialPromptDialog({
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           error={error ?? undefined}
+          hint={usernameHint}
           autoComplete="username"
           spellCheck={false}
           maxLength={256}
