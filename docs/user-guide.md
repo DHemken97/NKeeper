@@ -219,8 +219,9 @@ For switches, routers, serial-console servers and other devices that only offer 
 
 Any host with an SSH service has **Connect ▸ Tools ▸ Files ▸ credential** (or **Files ▸ SSH service ▸ credential** when it has several). The files open in a tab:
 - **Browsing:** the tab starts in the login's home folder. Open a folder by clicking it, go back with **Up** or the path above the list, and **Refresh** to see changes made elsewhere.
+- **Folder sizes** fill in on their own after the list appears, and you can keep working while they do. **≥** means part of the folder couldn't be read, so it's at least that big; **—** means the size couldn't be worked out. Symbolic links aren't followed, and `/proc`, `/sys` and `/dev` aren't counted.
 - **Upload:** choose one or more files, up to 2 GB each. They go into the folder shown. If a file with the same name exists, NKeeper asks before replacing it.
-- **Download:** files stream from the host through the NKeeper server to your browser.
+- **Download:** files stream from the host through the NKeeper server to your browser. A folder downloads as a zip: the NKeeper server builds it in its temp folder and deletes it after the download, so a big folder takes a while to start. Anything that can't be read is left out and listed in `_nkeeper-unreadable.txt` in the zip. Symbolic links aren't included.
 - **New folder**, **Rename** and **Delete**. Delete asks first, and only deletes empty folders.
 - **Logins and trust** are the same as SSH: the same credentials, host key check and trusted keys. The SSH server must have its SFTP subsystem enabled (OpenSSH does by default).
 - **Audit:** every upload, download, rename, delete and new folder is in the audit log, with its path and size.

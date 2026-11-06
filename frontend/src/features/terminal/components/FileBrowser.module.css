@@ -98,6 +98,10 @@
   overflow-wrap: anywhere;
 }
 
+.pending {
+  color: var(--color-text-muted);
+}
+
 .folder {
   padding: 0;
   background: none;

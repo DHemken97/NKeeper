@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -110,6 +111,56 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
         Assert.Equal(HttpStatusCode.NotFound, (await _admin.GetAsync(fresh, Ct)).StatusCode);
     }
 
+    [Fact]
+    public async Task FolderSize_AddsUpTheFilesBelowIt()
+    {
+        await UploadAsync("top.txt", "12345");
+        var inner = $"{_folder}/inner";
+        Assert.Equal(HttpStatusCode.OK, (await PostAsync("mkdir", new { path = inner })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await UploadAsync("nested.txt", "1234567", directory: inner)).StatusCode);
+
+        var size = await PostAsync("folder-size", new { path = _folder });
+        Assert.True(size.IsSuccessStatusCode, await size.Content.ReadAsStringAsync(Ct));
+        var body = await size.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        Assert.Equal((12L, true), (body.GetProperty("size").GetInt64(), body.GetProperty("complete").GetBoolean()));
+
+        // A folder that isn't there is an error, not an empty folder.
+        Assert.False((await PostAsync("folder-size", new { path = $"{_folder}/missing" })).IsSuccessStatusCode);
+    }
+
+    [Fact]
+    public async Task Folders_DownloadAsAZip_MadeInTemp_AuditedByTheirRealPath_ThenRemoved()
+    {
+        await UploadAsync("top.txt", "12345");
+        var inner = $"{_folder}/inner";
+        var empty = $"{_folder}/empty";
+        Assert.Equal(HttpStatusCode.OK, (await PostAsync("mkdir", new { path = inner })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await PostAsync("mkdir", new { path = empty })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await UploadAsync("nested.txt", "1234567", directory: inner)).StatusCode);
+
+        using var response = await _admin.GetAsync(await LinkAsync(_folder), Ct);
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("application/zip", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal($"{Path.GetFileName(_folder)}.zip", response.Content.Headers.ContentDisposition?.FileName?.Trim('"'));
+
+        using var zip = new ZipArchive(new MemoryStream(await response.Content.ReadAsByteArrayAsync(Ct)));
+        Assert.Equal(["empty/", "inner/nested.txt", "top.txt"], zip.Entries.Select(e => e.FullName).Order(StringComparer.Ordinal));
+        using var nested = new StreamReader(zip.GetEntry("inner/nested.txt")!.Open());
+        Assert.Equal("1234567", await nested.ReadToEndAsync(Ct));
+
+        var audit = await _admin.GetFromJsonAsync<JsonElement>("/api/audit/events?category=files&limit=50", Ct);
+        var download = audit.GetProperty("events").EnumerateArray().First(e => e.GetProperty("action").GetString() == "sftp.download");
+        Assert.Equal($"{_folder} (folder, 12 bytes)", download.GetProperty("detail").GetString());
+
+        // The zip goes once the response has ended.
+        for (var attempt = 0; attempt < 50 && Directory.EnumerateFiles(Path.GetTempPath(), "nkeeper-sftp-*.zip").Any(); attempt++)
+        {
+            await Task.Delay(100, Ct);
+        }
+
+        Assert.Empty(Directory.EnumerateFiles(Path.GetTempPath(), "nkeeper-sftp-*.zip"));
+    }
+
     private async Task<JsonElement> ListAsync(string? path, string? trust = null)
     {
         var response = await PostAsync("list", new { path, trustFingerprint = trust });
@@ -134,7 +185,7 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
 
     private async Task<string> DownloadAsync(string path) => await _admin.GetStringAsync(await LinkAsync(path), Ct);
 
-    private async Task<HttpResponseMessage> UploadAsync(string name, string content, bool overwrite = false)
+    private async Task<HttpResponseMessage> UploadAsync(string name, string content, bool overwrite = false, string? directory = null)
     {
         var token = await _admin.GetAntiforgeryTokenAsync(Ct);
         using var form = new MultipartFormDataContent
@@ -142,7 +193,7 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
             { new StringContent(_host.Id.ToString()), "hostId" },
             { new StringContent("0"), "serviceIndex" },
             { new StringContent(_host.Credentials[0].Id.ToString()), "credentialId" },
-            { new StringContent(_folder), "directory" },
+            { new StringContent(directory ?? _folder), "directory" },
             { new StringContent(overwrite ? "true" : "false"), "overwrite" },
             { new ByteArrayContent(Encoding.UTF8.GetBytes(content)) { Headers = { ContentType = new MediaTypeHeaderValue("text/plain") } }, "files", name },
         };
