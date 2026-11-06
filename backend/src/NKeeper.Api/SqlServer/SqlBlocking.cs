@@ -5,7 +5,8 @@ namespace NKeeper.Api.SqlServer;
 /// <summary>
 /// A session in a blocking chain. A lead blocker heads its chain: it blocks others but isn't itself
 /// waiting on anyone. <see cref="Blocked"/> counts the sessions it blocks directly,
-/// <see cref="BlockedVolume"/> every session waiting behind it down the chain.
+/// <see cref="BlockedVolume"/> every session waiting behind it down the chain. A session blocking only
+/// itself is listed like a lead, with nothing under it.
 /// </summary>
 /// <param name="Database">Null when the session isn't in a database (shown as N/A).</param>
 /// <param name="BlockedBy">The session it waits on; null for a lead blocker.</param>
@@ -13,6 +14,7 @@ namespace NKeeper.Api.SqlServer;
 /// <param name="Sql">The batch it is running, or last ran (a sleeping lead blocker's open transaction began somewhere in it).</param>
 /// <param name="Serial">Oracle's SERIAL# of the session: killing one takes it with the SID.</param>
 /// <param name="Placeholder">A blocker SQL Server reports but that isn't a session (e.g. -2, an orphaned distributed transaction).</param>
+/// <param name="SelfBlocking">It's waiting on itself: usually one of its own parallel threads, or its own I/O.</param>
 public sealed record BlockingSession(
     int SessionId,
     string? Login,
@@ -31,7 +33,8 @@ public sealed record BlockingSession(
     int BlockedVolume,
     IReadOnlyList<BlockingSession> BlockedSessions,
     bool Placeholder = false,
-    int? Serial = null);
+    int? Serial = null,
+    bool SelfBlocking = false);
 
 /// <param name="Leads">The lead blockers, each with the sessions it blocks under it.</param>
 /// <param name="CanSeeAllSessions">Whether the login has VIEW SERVER STATE; without it, only its own sessions are visible.</param>
@@ -44,24 +47,35 @@ internal static class SqlBlocking
     public const int MaxSqlChars = 4000;
 
     /// <summary>
-    /// Every session that is blocked or blocking: its session, its request (when running), and its
-    /// current or last batch.
+    /// Every session that is blocked or blocking, or blocking itself: its session, its request (when
+    /// running), and its current or last batch. A session's parallel threads waiting on each other only
+    /// show in sys.dm_os_waiting_tasks, which is an error without VIEW SERVER STATE, so it's only read with it.
     /// </summary>
     private const string Query =
         """
+        DECLARE @self TABLE (session_id smallint NOT NULL, wait_type nvarchar(60) NULL, wait_ms bigint NULL, wait_resource nvarchar(3072) NULL);
+        IF HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW SERVER STATE') = 1
+            INSERT @self EXEC sp_executesql N'SELECT session_id, wait_type, wait_duration_ms, resource_description FROM sys.dm_os_waiting_tasks WHERE blocking_session_id = session_id';
+
         WITH involved AS (
             SELECT session_id FROM sys.dm_exec_requests WHERE blocking_session_id <> 0
             UNION
             SELECT blocking_session_id FROM sys.dm_exec_requests WHERE blocking_session_id <> 0
+            UNION
+            SELECT session_id FROM @self
         )
         SELECT i.session_id, s.login_name, s.host_name, s.program_name,
                DB_NAME(COALESCE(r.database_id, s.database_id)), COALESCE(r.status, s.status),
                COALESCE(s.open_transaction_count, 0), NULLIF(r.blocking_session_id, 0), r.command,
-               r.wait_type, CAST(r.wait_time AS bigint), r.wait_resource,
-               CAST(LEFT(t.text, @maxSql) AS nvarchar(max))
+               COALESCE(r.wait_type, w.wait_type),
+               CASE WHEN r.wait_type IS NULL AND w.session_id IS NOT NULL THEN w.wait_ms ELSE CAST(r.wait_time AS bigint) END,
+               COALESCE(NULLIF(r.wait_resource, N''), w.wait_resource),
+               CAST(LEFT(t.text, @maxSql) AS nvarchar(max)),
+               CAST(CASE WHEN w.session_id IS NOT NULL THEN 1 ELSE 0 END AS bit)
         FROM involved i
         LEFT JOIN sys.dm_exec_sessions s ON s.session_id = i.session_id
         OUTER APPLY (SELECT TOP 1 * FROM sys.dm_exec_requests rq WHERE rq.session_id = i.session_id ORDER BY rq.request_id) r
+        OUTER APPLY (SELECT TOP 1 * FROM @self x WHERE x.session_id = i.session_id ORDER BY x.wait_ms DESC) w
         OUTER APPLY (SELECT TOP 1 most_recent_sql_handle FROM sys.dm_exec_connections c WHERE c.session_id = i.session_id) c
         OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, c.most_recent_sql_handle)) t;
 
@@ -96,7 +110,8 @@ internal static class SqlBlocking
                     0,
                     0,
                     [],
-                    Placeholder: reader.IsDBNull(1) && reader.IsDBNull(5)));
+                    Placeholder: reader.IsDBNull(1) && reader.IsDBNull(5),
+                    SelfBlocking: reader.GetBoolean(13)));
             }
 
             await reader.NextResultAsync(cancellationToken);
@@ -104,17 +119,20 @@ internal static class SqlBlocking
         }
 
         var leads = BuildChains(rows);
-        return new BlockingReport(leads, rows.Count(r => r.BlockedBy is not null), canSeeAll, now);
+        return new BlockingReport(leads, rows.Count(r => r.BlockedBy is { } by && by != r.SessionId), canSeeAll, now);
     }
 
     /// <summary>
     /// Arranges sessions into chains under their lead blockers (most blocked volume first). A session
     /// waiting on one that isn't listed, or a cycle with no head, is still shown: the missing blocker
-    /// becomes a placeholder lead, and a cycle is headed by its lowest session ID.
+    /// becomes a placeholder lead, and a cycle is headed by its lowest session ID. A session blocking
+    /// itself is listed even when it blocks no one else.
     /// </summary>
     internal static IReadOnlyList<BlockingSession> BuildChains(IReadOnlyList<BlockingSession> sessions)
     {
-        var byId = sessions.GroupBy(s => s.SessionId).ToDictionary(g => g.Key, g => g.First());
+        var byId = sessions.GroupBy(s => s.SessionId).ToDictionary(
+            g => g.Key,
+            g => g.First() is var s && s.BlockedBy == s.SessionId ? s with { BlockedBy = null, SelfBlocking = true } : g.First());
         foreach (var missing in sessions.Where(s => s.BlockedBy is { } b && !byId.ContainsKey(b)).Select(s => s.BlockedBy!.Value).Distinct().ToList())
         {
             byId[missing] = new BlockingSession(missing, null, null, null, null, missing < 0 ? Placeholder(missing) : null, 0, null, null, null, null, null, null, 0, 0, [], Placeholder: true);
@@ -141,7 +159,7 @@ internal static class SqlBlocking
         }
 
         var leads = byId.Values
-            .Where(s => s.BlockedBy is null && children[s.SessionId].Any())
+            .Where(s => s.BlockedBy is null && (s.SelfBlocking || children[s.SessionId].Any()))
             .OrderBy(s => s.SessionId)
             .Select(s => Build(s, s.SessionId))
             .ToList();

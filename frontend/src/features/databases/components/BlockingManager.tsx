@@ -57,8 +57,8 @@ function oneLine(sql: string | null): string {
 
 /**
  * The blocking manager: each blocking chain under its lead blocker (the session at its root, which
- * blocks others but waits on no one), its blocked sessions collapsed beneath it. Right-click a row
- * (or Shift+F10) to kill that session, after confirming.
+ * blocks others but waits on no one), its blocked sessions collapsed beneath it, and any session
+ * blocking only itself. Right-click a row (or Shift+F10) to kill that session, after confirming.
  */
 export function BlockingManager({ sessionId, active, onOpenQuery }: BlockingManagerProps) {
   const db = useDbApi()
@@ -173,18 +173,20 @@ export function BlockingManager({ sessionId, active, onOpenQuery }: BlockingMana
 
   const leads = report?.leads ?? []
   const rows = flatten(leads, expanded)
+  const chains = leads.filter((lead) => lead.blockedSessions.length > 0).length
+  const selfOnly = leads.length - chains
 
   return (
     <div className={styles.toolPage} hidden={!active} role="tabpanel" aria-label="Blocking Manager">
       <header className={styles.toolHeader}>
         <div>
           <h2>Lead Blockers</h2>
-          <p>Sessions at the Root of Each Blocking Chain</p>
+          <p>Sessions at the Root of Each Blocking Chain, and Sessions Blocking Themselves</p>
         </div>
         <div className={styles.toolActions}>
           <span className={styles.toolbarNote}>
             {report
-              ? `${leads.length} ${leads.length === 1 ? 'chain' : 'chains'} · ${report.blockedCount} blocked · ${new Date(report.atUtc).toLocaleTimeString()}`
+              ? `${chains} ${chains === 1 ? 'chain' : 'chains'} · ${selfOnly > 0 ? `${selfOnly} self-blocking · ` : ''}${report.blockedCount} blocked · ${new Date(report.atUtc).toLocaleTimeString()}`
               : null}
           </span>
           <label className={styles.toolbarField}>
@@ -269,7 +271,12 @@ export function BlockingManager({ sessionId, active, onOpenQuery }: BlockingMana
                           <span className={styles.chainSpacer} />
                         )}
                         <span className={styles.spid}>{session.sessionId}</span>
-                        {lead ? <span className={styles.leadBadge}>LEAD</span> : null}
+                        {lead && canExpand ? <span className={styles.leadBadge}>LEAD</span> : null}
+                        {session.selfBlocking ? (
+                          <span className={styles.selfBadge} title="This session is waiting on itself, usually one of its own parallel threads or its own I/O.">
+                            SELF
+                          </span>
+                        ) : null}
                       </td>
                       <td>{session.login ?? '—'}</td>
                       <td>{session.host ?? '—'}</td>
