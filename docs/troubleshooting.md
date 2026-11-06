@@ -15,6 +15,7 @@ Start with the logs: `docker compose logs -f backend` (Docker), `journalctl -u n
 | `password authentication failed` after changing `POSTGRES_PASSWORD` | PostgreSQL only reads it when its volume is first created. Change it inside PostgreSQL (`ALTER ROLE`), or put the old value back. |
 | API exits: `ConnectionStrings:NKeeper must be configured` | Set the connection string (user secrets in development, `.env` or the settings file when installed). |
 | API exits: `Failed to create the bootstrap administrator: Passwords must…` | The password needs 12+ characters with upper case, lower case and a digit. |
+| Settings ▸ Diagnostics: "The file can't be written" | The API's account can't write to that folder, or there's no volume for it. Run the setup script again, which creates it with the right owner. NKeeper itself keeps working. |
 | IIS: the site answers `500.19` or `500.30` | `500.19`: the ASP.NET Core Module isn't installed. Repair the Hosting Bundle, then run setup again. `500.30`: the app failed to start. Check the event log, or set `stdoutLogEnabled="true"` in `web.config`. |
 
 ## Signing in

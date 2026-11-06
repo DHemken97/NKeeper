@@ -30,6 +30,7 @@ app.UseMiddleware<NKeeper.Api.Web.WebProxyMiddleware>();
 // Stack traces are only shown by the developer exception page in Development.
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+app.UseMiddleware<NKeeper.Api.Diagnostics.DiagnosticsRequestMiddleware>();
 
 // Without nginx in front (e.g. IIS), the API serves the frontend and its security headers itself.
 if (hostsFrontend)

@@ -13,16 +13,18 @@ import own from './SettingsPage.module.css'
 import { ZabbixSettingsPanel } from '../../zabbix/components/ZabbixSettingsPanel'
 import { zabbixApi } from '../../zabbix/zabbixApi'
 import { limitsApi } from '../../inventory/limits'
+import { DiagnosticsPanel } from '../components/DiagnosticsPanel'
 import { LimitsPanel } from '../components/LimitsPanel'
-import { settingsApi, SMTP_SECURITY, type EmailSettings, type EmailSettingsInput, type SmtpSecurity } from '../settingsApi'
+import { diagnosticsApi, settingsApi, SMTP_SECURITY, type EmailSettings, type EmailSettingsInput, type SmtpSecurity } from '../settingsApi'
 
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
-/** Instance-wide settings (administrators): the SMTP server NKeeper sends email through, Zabbix, and inventory limits. */
+/** Instance-wide settings (administrators): the SMTP server NKeeper sends email through, Zabbix, inventory limits and diagnostics. */
 export function SettingsPage() {
   const email = useResource((signal) => settingsApi.getEmail(signal))
   const zabbix = useResource((signal) => zabbixApi.getSettings(signal))
   const limits = useResource((signal) => limitsApi.get(signal))
+  const diagnostics = useResource((signal) => diagnosticsApi.get(signal))
 
   return (
     <div className={styles.page}>
@@ -40,6 +42,11 @@ export function SettingsPage() {
 
       {limits.error && !limits.data ? <Alert>{toFormErrors(limits.error).message}</Alert> : null}
       {limits.data ? <LimitsPanel saved={limits.data} /> : null}
+
+      {diagnostics.error && !diagnostics.data ? <Alert>{toFormErrors(diagnostics.error).message}</Alert> : null}
+      {diagnostics.data ? <DiagnosticsPanel saved={diagnostics.data} onChanged={diagnostics.reload} /> : null}
+
+      {diagnostics.data ? <p className={own.version}>NKeeper version {diagnostics.data.version}</p> : null}
     </div>
   )
 }

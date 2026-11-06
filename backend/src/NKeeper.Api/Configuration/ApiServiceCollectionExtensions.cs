@@ -82,6 +82,11 @@ internal static class ApiServiceCollectionExtensions
         services.AddSingleton<NKeeper.Api.Auditing.AuditLog>();
         services.AddSingleton<NKeeper.Api.Migration.MigrationJobs>();
         services.AddHostedService<NKeeper.Api.Auditing.AuditRetention>();
+        services.Configure<NKeeper.Api.Diagnostics.DiagnosticsSettings>(configuration.GetSection(NKeeper.Api.Diagnostics.DiagnosticsSettings.SectionName));
+        services.AddSingleton<NKeeper.Api.Diagnostics.DiagnosticsDisk>();
+        services.AddSingleton<NKeeper.Api.Diagnostics.DiagnosticsLog>();
+        services.AddSingleton<ILoggerProvider, NKeeper.Api.Diagnostics.DiagnosticsLoggerProvider>();
+        services.AddHostedService<NKeeper.Api.Diagnostics.DiagnosticsMonitor>();
         services.AddOptions<NKeeper.Api.Health.HealthSettings>()
             .Bind(configuration.GetSection(NKeeper.Api.Health.HealthSettings.SectionName))
             .ValidateDataAnnotations()
@@ -189,6 +194,10 @@ internal static class ApiServiceCollectionExtensions
                 RateLimitPartition.GetFixedWindowLimiter(
                     context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
                     _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(10), QueueLimit = 0 }));
+            options.AddPolicy(Controllers.DiagnosticsController.RateLimitPolicy, context =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new FixedWindowRateLimiterOptions { PermitLimit = 30, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
             options.OnRejected = async (context, cancellationToken) =>
             {
                 if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))

@@ -619,6 +619,56 @@ public sealed class SqlServerTests(PostgresServerFixture postgres, SqlServerFixt
         Assert.Contains($"KILL {leadId}", audit.GetRawText(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task BlockingManager_ListsAParallelQueryBlockingItself()
+    {
+        sql.SkipIfUnavailable();
+        var database = $"nk_{Guid.NewGuid():N}"[..20];
+        await sql.ExecuteAsync($"CREATE DATABASE [{database}]", cancellationToken: Ct);
+        await sql.ExecuteAsync("SELECT TOP (200000) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Id INTO dbo.Numbers FROM sys.all_columns a CROSS JOIN sys.all_columns b;", database, Ct);
+        var session = await OpenAsync(await CreateHostAsync());
+
+        await using var worker = await sql.OpenAsync(database, Ct);
+        await using (var cpus = new Microsoft.Data.SqlClient.SqlCommand("SELECT cpu_count FROM sys.dm_os_sys_info", worker))
+        {
+            Assert.SkipWhen((int)(await cpus.ExecuteScalarAsync(Ct))! < 2, "A parallel query needs at least two CPUs.");
+        }
+
+        int workerId;
+        await using (var spid = new Microsoft.Data.SqlClient.SqlCommand("SELECT @@SPID", worker))
+        {
+            workerId = (short)(await spid.ExecuteScalarAsync(Ct))!;
+        }
+
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        await using var query = new Microsoft.Data.SqlClient.SqlCommand(
+            "SELECT COUNT_BIG(*) FROM dbo.Numbers a CROSS JOIN dbo.Numbers b WHERE a.Id + b.Id = 7 OPTION (MAXDOP 4, QUERYTRACEON 8649);", worker) { CommandTimeout = 120 };
+        var running = query.ExecuteScalarAsync(stop.Token);
+
+        JsonElement? lead = null;
+        for (var attempt = 0; attempt < 40 && lead is null; attempt++)
+        {
+            await Task.Delay(250, Ct);
+            var report = await _admin.GetFromJsonAsync<JsonElement>($"/api/mssql/sessions/{session}/blocking", Ct);
+            foreach (var candidate in report.GetProperty("leads").EnumerateArray())
+            {
+                if (candidate.GetProperty("sessionId").GetInt32() == workerId)
+                {
+                    lead = candidate;
+                }
+            }
+        }
+
+        await stop.CancelAsync();
+        await Assert.ThrowsAnyAsync<Exception>(() => running);
+
+        Assert.NotNull(lead);
+        Assert.True(lead.Value.GetProperty("selfBlocking").GetBoolean());
+        Assert.Equal(0, lead.Value.GetProperty("blockedVolume").GetInt32());
+        Assert.False(string.IsNullOrEmpty(lead.Value.GetProperty("waitType").GetString()));
+        Assert.Contains("dbo.Numbers", lead.Value.GetProperty("sql").GetString(), StringComparison.Ordinal);
+    }
+
     private static async Task<JsonElement> OpenSessionAsync(HttpClient client, HostResponse host)
     {
         async Task<JsonElement> Post(object body)

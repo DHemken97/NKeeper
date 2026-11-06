@@ -61,9 +61,12 @@ public sealed class AuditLog(
     IHttpContextAccessor httpContext,
     IOptions<AuditSettings> settings,
     TimeProvider timeProvider,
-    ILogger<AuditLog> logger)
+    ILogger<AuditLog> logger,
+    NKeeper.Api.Diagnostics.DiagnosticsLog diagnostics)
 {
     public AuditSettings Settings => settings.Value;
+
+    internal NKeeper.Api.Diagnostics.DiagnosticsUsage Usage => diagnostics.Usage;
 
     public async Task RecordAsync(AuditEntry entry)
     {
@@ -186,6 +189,7 @@ public sealed class AuditedSession
             Recorder = new TerminalRecorder(cols, rows, _connectedAt, $"{_protocol} {target}", _log.Settings.MaxRecordingMegabytes * 1024L * 1024L, _time);
         }
 
+        _log.Usage.SessionConnected(_protocol);
         return _log.RecordAsync(new AuditEntry(AuditActions.SessionStart, _hostId, $"{_protocol} · {target}", Id, UserId: _user.Id));
     }
 
@@ -203,6 +207,7 @@ public sealed class AuditedSession
         }
 
         _ended = true;
+        _log.Usage.SessionFailed(_protocol, reason);
         return _log.RecordAsync(new AuditEntry(AuditActions.SessionFailed, _hostId, $"{_protocol} · {target ?? _target ?? "?"} · {reason}", Id, UserId: _user.Id));
     }
 
@@ -226,6 +231,7 @@ public sealed class AuditedSession
         }
 
         var duration = ended - _connectedAt;
+        _log.Usage.SessionEnded(_protocol, duration, reason);
         await _log.RecordAsync(new AuditEntry(
             AuditActions.SessionEnd,
             _hostId,

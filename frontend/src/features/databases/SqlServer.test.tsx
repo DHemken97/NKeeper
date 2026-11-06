@@ -511,6 +511,55 @@ describe('SQL Server', () => {
     expect(within(tool).getByRole('checkbox', { name: 'Select all users' })).not.toBeChecked()
   })
 
+  it('lists a session blocking itself, with no chain', async () => {
+    const sessions = sessionRoutes()
+    const report: BlockingReport = {
+      leads: [
+        {
+          sessionId: 77,
+          login: 'etl',
+          host: 'batch01',
+          program: 'loader',
+          database: 'Sales',
+          status: 'running',
+          openTransactions: 0,
+          blockedBy: null,
+          command: 'SELECT',
+          waitType: 'CXCONSUMER',
+          waitTimeMs: 2_000,
+          waitResource: null,
+          sql: 'SELECT COUNT(*) FROM dbo.Orders',
+          blocked: 0,
+          blockedVolume: 0,
+          blockedSessions: [],
+          selfBlocking: true,
+        },
+      ],
+      blockedCount: 0,
+      canSeeAllSessions: true,
+      atUtc: '2026-11-03T12:00:00Z',
+    }
+    const { user } = renderWorkspace({
+      ...sessions.routes,
+      'GET /api/mssql/sessions/main/blocking': () => jsonResponse(200, report),
+    })
+    await openSql(user)
+
+    const tree = await screen.findByRole('tree', { name: 'Objects' })
+    await user.dblClick(await within(tree).findByText('Management'))
+    await user.dblClick(await within(tree).findByText('Blocking Manager'))
+
+    const manager = await screen.findByRole('tabpanel', { name: 'Blocking Manager' })
+    const table = await within(manager).findByRole('table', { name: 'Blocking chains' })
+    const row = within(table).getAllByRole('row')[1]
+
+    // It's neither a lead of anything nor expandable, and doesn't count as a chain or as blocked.
+    expect(within(row).getAllByRole('cell')[0]).toHaveTextContent(/^77SELF$/)
+    expect(within(row).getByText('CXCONSUMER · 2.0 s')).toBeInTheDocument()
+    expect(within(row).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(manager).getByText(/^0 chains · 1 self-blocking · 0 blocked · /)).toBeInTheDocument()
+  })
+
   it('shows blocking chains under their lead blocker, collapsed, and kills a session after confirming', async () => {
     const sessions = sessionRoutes()
     const killed: Record<string, unknown>[] = []
@@ -577,7 +626,7 @@ describe('SQL Server', () => {
 
     const manager = await screen.findByRole('tabpanel', { name: 'Blocking Manager' })
     expect(within(manager).getByRole('heading', { name: 'Lead Blockers' })).toBeInTheDocument()
-    expect(within(manager).getByText('Sessions at the Root of Each Blocking Chain')).toBeInTheDocument()
+    expect(within(manager).getByText('Sessions at the Root of Each Blocking Chain, and Sessions Blocking Themselves')).toBeInTheDocument()
     const table = await within(manager).findByRole('table', { name: 'Blocking chains' })
     expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
       'Session',

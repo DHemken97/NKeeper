@@ -34,6 +34,30 @@ export const SMTP_SECURITY: Record<SmtpSecurity, { label: string; port: number }
   None: { label: 'None: unencrypted (local relays only)', port: 25 },
 }
 
+/** Mirrors the API's DiagnosticsStatusResponse. */
+export interface DiagnosticsStatus {
+  enabled: boolean
+  maxMegabytes: number
+  minMegabytes: number
+  ceilingMegabytes: number
+  sizeBytes: number
+  oldestUtc: string | null
+  newestUtc: string | null
+  lastDownloadedUtc: string | null
+  droppedUtc: string | null
+  pausedForDiskSpace: boolean
+  writeError: string | null
+  directory: string
+  /** The version of NKeeper that's running. */
+  version: string
+}
+
+export const diagnosticsApi = {
+  get: (signal?: AbortSignal) => api.get<DiagnosticsStatus>('/api/admin/diagnostics', { signal }),
+  save: (input: { enabled: boolean; maxMegabytes: number }) => api.put<DiagnosticsStatus>('/api/admin/diagnostics', { body: input }),
+  download: () => api.get<Blob>('/api/admin/diagnostics/download', { responseType: 'blob' }),
+}
+
 export const settingsApi = {
   getEmail: (signal?: AbortSignal) => api.get<EmailSettings>('/api/admin/email', { signal }),
   saveEmail: (input: EmailSettingsInput) => api.put<EmailSettings>('/api/admin/email', { body: input }),

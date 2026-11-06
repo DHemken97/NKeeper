@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using NKeeper.Infrastructure.Identity;
+using Npgsql;
 
 namespace NKeeper.Api.Tests.Infrastructure;
 
@@ -24,10 +25,32 @@ public sealed class NKeeperApiFactory(
     public const string AdminPassword = "Test-Admin-Passw0rd";
     public const string SessionCookieName = "NKeeper.Session";
 
+    /// <summary>Each API keeps its own diagnostics file.</summary>
+    public string DiagnosticsDirectory { get; } = Path.Combine(Path.GetTempPath(), "nkeeper-tests", Guid.NewGuid().ToString("N"));
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        using (var connection = new NpgsqlConnection(connectionString))
+        {
+            NpgsqlConnection.ClearPool(connection);
+        }
+
+        try
+        {
+            Directory.Delete(DiagnosticsDirectory, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Never created, or still open: it's only a temporary folder.
+        }
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // UseSetting applies before Program.cs reads configuration, unlike ConfigureAppConfiguration.
         builder.UseEnvironment("Testing");
+        builder.UseSetting("Diagnostics:Directory", DiagnosticsDirectory);
         builder.UseSetting("ConnectionStrings:NKeeper", connectionString);
         builder.UseSetting("Database:MigrateOnStartup", "true");
         builder.UseSetting("Authentication:RequireSecureCookies", requireSecureCookies ? "true" : "false");

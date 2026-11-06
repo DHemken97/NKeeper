@@ -1,8 +1,11 @@
 using System.Collections.Concurrent;
 using System.ComponentModel.DataAnnotations;
 using System.IO.Compression;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Threading.Channels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NKeeper.Api.Access;
@@ -34,6 +37,14 @@ public sealed record SftpRenameRequest : SftpRequest
     [Required(ErrorMessage = "Enter the new name.")]
     [StringLength(4096)]
     public string NewPath { get; init; } = string.Empty;
+}
+
+public sealed record SftpFolderSizesRequest : SftpRequest
+{
+    [Required]
+    [MinLength(1)]
+    [MaxLength(100_000)]
+    public List<string> Paths { get; init; } = [];
 }
 
 /// <summary>An upload: the same login fields as a form, the folder to put the files in, and the files.</summary>
@@ -71,9 +82,10 @@ public sealed record SftpEntryResponse(string Name, string Path, string Kind, lo
 /// <param name="Parent">The folder above, or null at the root.</param>
 public sealed record SftpListResponse(string Status, string? Path, string? Parent, IReadOnlyList<SftpEntryResponse>? Entries, HostKeyPromptResponse? HostKey);
 
+/// <param name="Path">The folder, as it was asked for.</param>
 /// <param name="Size">The bytes in the files in the folder and the folders below it.</param>
 /// <param name="Complete">False when part of the folder couldn't be read, so it's at least this big.</param>
-public sealed record SftpFolderSizeResponse(long Size, bool Complete);
+public sealed record SftpFolderSizeResponse(string Path, long Size, bool Complete);
 
 public sealed record SftpDownloadLinkResponse(string Url);
 
@@ -89,6 +101,9 @@ public sealed record SftpDownloadLinkResponse(string Url);
 public sealed class SftpController(SftpDownloadLinks links, SftpTempSpace tempSpace, NKeeperDbContext db, AuditLog audit) : ControllerBase
 {
     private const long MaxUploadBytes = 2L * 1024 * 1024 * 1024;
+
+    /// <summary>Folders listed at once when adding up sizes, over one connection: each takes several round trips to the host.</summary>
+    private const int WalkConcurrency = 16;
 
     /// <summary>Not real files: /proc/kcore alone reports over 100 TB.</summary>
     private static readonly HashSet<string> PseudoFileSystems = new(StringComparer.Ordinal) { "/proc", "/sys", "/dev" };
@@ -126,27 +141,46 @@ public sealed class SftpController(SftpDownloadLinks links, SftpTempSpace tempSp
     }
 
     /// <summary>
-    /// Adds up everything below a folder, which can take a while on a big one; it stops if the browser
-    /// stops waiting. Symbolic links aren't followed. Folders that can't be read are left out and reported.
+    /// Adds up everything below some folders over one connection, sending a line of JSON as each one finishes
+    /// so small folders don't wait for big ones. It can take a while, and stops if the browser stops waiting.
+    /// Symbolic links aren't followed. Folders that can't be read are left out and reported. A folder with no
+    /// line when the response ends couldn't be measured, because the connection was lost.
     /// </summary>
-    [HttpPost("folder-size")]
-    [ProducesResponseType<SftpFolderSizeResponse>(StatusCodes.Status200OK)]
-    public async Task<ActionResult<SftpFolderSizeResponse>> FolderSize(SftpRequest request, CancellationToken cancellationToken)
+    [HttpPost("folder-sizes")]
+    [Produces("application/x-ndjson")]
+    public async Task<IActionResult> FolderSizes(SftpFolderSizesRequest request, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.Path))
-        {
-            return Problem(statusCode: StatusCodes.Status400BadRequest, detail: "Choose a folder.");
-        }
-
+        SftpClient client;
         try
         {
-            using var client = await ConnectAsync(request, cancellationToken);
-            return await MeasureFolderAsync(client, Resolve(client, request.Path), cancellationToken);
+            client = await ConnectAsync(request, cancellationToken);
         }
         catch (Exception ex) when (ex is SessionException or HostKeyTrustRequiredException)
         {
             return this.SessionFailure(ex as SessionException ?? TrustFirst());
         }
+
+        using (client)
+        {
+            Response.ContentType = "application/x-ndjson";
+            Response.Headers.CacheControl = "no-store";
+            await Response.StartAsync(cancellationToken);
+            try
+            {
+                await foreach (var size in MeasureFoldersAsync(client, request.Paths, cancellationToken))
+                {
+                    await Response.Body.WriteAsync(JsonSerializer.SerializeToUtf8Bytes(size, JsonSerializerOptions.Web), cancellationToken);
+                    await Response.Body.WriteAsync("\n"u8.ToArray(), cancellationToken);
+                    await Response.Body.FlushAsync(cancellationToken);
+                }
+            }
+            catch (SshException)
+            {
+                // The sizes already sent stand; the rest have no line.
+            }
+        }
+
+        return new EmptyResult();
     }
 
     /// <summary>
@@ -168,14 +202,19 @@ public sealed class SftpController(SftpDownloadLinks links, SftpTempSpace tempSp
             var path = Resolve(client, request.Path);
             if (client.GetAttributes(path).IsDirectory)
             {
-                var folder = await MeasureFolderAsync(client, path, cancellationToken);
+                var size = 0L;
+                await foreach (var folder in MeasureFoldersAsync(client, [path], cancellationToken))
+                {
+                    size = folder.Size;
+                }
+
                 var reserve = (await InventoryLimits.ReadAsync(db, cancellationToken)).ZipReserveGigabytes;
                 var free = tempSpace.AvailableBytes;
-                if (folder.Size > free - (reserve * 1024L * 1024 * 1024))
+                if (size > free - (reserve * 1024L * 1024 * 1024))
                 {
                     throw new SessionException(
                         SessionErrorCodes.FileOperationFailed,
-                        $"{path} is too big to zip: it holds {Megabytes(folder.Size)}, and the NKeeper server has {Megabytes(free)} free and must keep {reserve} GB of that. Download smaller folders.");
+                        $"{path} is too big to zip: it holds {Megabytes(size)}, and the NKeeper server has {Megabytes(free)} free and must keep {reserve} GB of that. Download smaller folders.");
                 }
             }
         }
@@ -456,41 +495,84 @@ public sealed class SftpController(SftpDownloadLinks links, SftpTempSpace tempSp
         return await SshCommandConnection.ConnectSftpAsync(target, request.TrustFingerprint, User.GetUserId(), services.GetRequiredService<TrustedKeyStore>(), cancellationToken);
     }
 
-    /// <summary>The bytes in the files below a folder that can be read.</summary>
-    private static async Task<SftpFolderSizeResponse> MeasureFolderAsync(SftpClient client, string path, CancellationToken cancellationToken)
+    /// <summary>
+    /// The bytes in the files below some folders that can be read, each as soon as it's finished. All the folders
+    /// share one queue, oldest first, so a huge one can't hold up the rest. A lost connection throws.
+    /// </summary>
+    private static async IAsyncEnumerable<SftpFolderSizeResponse> MeasureFoldersAsync(
+        SftpClient client, List<string> paths, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var size = 0L;
-        var complete = true;
-        var folders = new Stack<string>([path]);
-        try
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var work = Channel.CreateUnbounded<(FolderTotal Total, string Folder)>();
+        var results = Channel.CreateUnbounded<SftpFolderSizeResponse>();
+        var outstanding = paths.Count;
+        foreach (var path in paths)
         {
-            while (folders.TryPop(out var folder))
-            {
-                if (await ReadFolderAsync(client, folder, cancellationToken) is not { } files)
-                {
-                    complete = false;
-                    continue;
-                }
+            work.Writer.TryWrite((new FolderTotal(path), Resolve(client, path, mustExist: false)));
+        }
 
-                foreach (var file in files)
+        var options = new ParallelOptions { MaxDegreeOfParallelism = WalkConcurrency, CancellationToken = stop.Token };
+        var walking = Parallel.ForEachAsync(work.Reader.ReadAllAsync(stop.Token), options, async (item, token) =>
+        {
+            var total = item.Total;
+            var files = await ReadFolderAsync(client, item.Folder, token);
+            if (files is null)
+            {
+                total.Complete = false;
+            }
+
+            var size = 0L;
+            foreach (var file in files ?? [])
+            {
+                if (file.IsDirectory)
                 {
-                    if (file.IsDirectory)
-                    {
-                        folders.Push(file.FullName);
-                    }
-                    else if (file.IsRegularFile)
-                    {
-                        size += file.Length;
-                    }
+                    Interlocked.Increment(ref total.Pending);
+                    Interlocked.Increment(ref outstanding);
+                    work.Writer.TryWrite((total, file.FullName));
+                }
+                else if (file.IsRegularFile)
+                {
+                    size += file.Length;
                 }
             }
-        }
-        catch (SshException ex)
-        {
-            throw Translate(ex, path);
-        }
 
-        return new SftpFolderSizeResponse(size, complete);
+            Interlocked.Add(ref total.Size, size);
+            if (Interlocked.Decrement(ref total.Pending) == 0)
+            {
+                results.Writer.TryWrite(new SftpFolderSizeResponse(total.Path, Volatile.Read(ref total.Size), total.Complete));
+            }
+
+            if (Interlocked.Decrement(ref outstanding) == 0)
+            {
+                work.Writer.TryComplete();
+            }
+        });
+        _ = walking.ContinueWith(done => results.Writer.TryComplete(done.Exception?.GetBaseException()), TaskScheduler.Default);
+
+        try
+        {
+            await foreach (var result in results.Reader.ReadAllAsync(cancellationToken))
+            {
+                yield return result;
+            }
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            await walking.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+    }
+
+    private sealed class FolderTotal(string path)
+    {
+        public string Path { get; } = path;
+
+        public long Size;
+
+        /// <summary>Folders still to read; starts with the folder itself.</summary>
+        public int Pending = 1;
+
+        public volatile bool Complete = true;
     }
 
     /// <summary>What's in a folder, or null if it can't be read or isn't real files. A lost connection still throws.</summary>

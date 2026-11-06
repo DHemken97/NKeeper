@@ -26,6 +26,22 @@ const defaultRoutes: Record<string, Handler> = {
       ceilingScanUsers: 1000,
       ceilingZipReserveGigabytes: 1000,
     }),
+  'GET /api/admin/diagnostics': () =>
+    jsonResponse(200, {
+      enabled: true,
+      maxMegabytes: 200,
+      minMegabytes: 20,
+      ceilingMegabytes: 10240,
+      sizeBytes: 2048,
+      oldestUtc: '2026-11-01T10:00:00Z',
+      newestUtc: '2026-11-06T10:00:00Z',
+      lastDownloadedUtc: null,
+      droppedUtc: null,
+      pausedForDiskSpace: false,
+      writeError: null,
+      directory: '/var/lib/nkeeper/diagnostics',
+      version: '1.0',
+    }),
 }
 
 /** Replaces global fetch with a route table keyed by "METHOD /path". Unmatched calls fail the test. */

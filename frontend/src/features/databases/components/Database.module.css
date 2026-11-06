@@ -798,7 +798,8 @@
   font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
 }
 
-.leadBadge {
+.leadBadge,
+.selfBadge {
   padding: 0 6px;
   background: var(--color-danger-bg);
   color: var(--color-danger);
@@ -807,6 +808,12 @@
   font-size: 0.6875rem;
   font-weight: 700;
   letter-spacing: 0.04em;
+}
+
+.selfBadge {
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  border-color: var(--color-border-strong);
 }
 
 .waitInfo {

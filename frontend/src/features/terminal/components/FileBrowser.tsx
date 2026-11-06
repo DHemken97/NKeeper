@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
-import { api, ApiError } from '../../../lib/api'
+import { api, ApiError, readJsonLines } from '../../../lib/api'
 import { hostKeyPrompt, type HostKeyPrompt } from '../kvm'
 import type { RemoteSession, SessionPhase } from '../types'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
@@ -32,12 +32,15 @@ interface ListResponse {
 }
 
 interface FolderSize {
+  path: string
   size: number
   complete: boolean
 }
 
-/** Folders whose sizes are worked out at once; each one is its own connection to the host. */
-const FOLDER_SIZE_WORKERS = 3
+interface Sort {
+  key: 'name' | 'size' | 'modified'
+  descending: boolean
+}
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
@@ -50,6 +53,47 @@ function formatSize(bytes: number): string {
     unit++
   }
   return `${unit === 0 ? value : value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`
+}
+
+/**
+ * Folders stay above files by name and by date. By size they mix, to show what's taking the space,
+ * and whatever has no size yet goes last either way.
+ */
+function sortEntries(entries: Entry[], sort: Sort, folderSizes: Record<string, FolderSize | null>): Entry[] {
+  const byName = (a: Entry, b: Entry) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
+  const sizeOf = (entry: Entry) => {
+    if (entry.kind !== 'directory') {
+      return entry.size
+    }
+    const found = folderSizes[entry.path]
+    return found && (found.complete || found.size > 0) ? found.size : undefined
+  }
+  const direction = sort.descending ? -1 : 1
+  return [...entries].sort((a, b) => {
+    if (sort.key === 'size') {
+      const [sizeA, sizeB] = [sizeOf(a), sizeOf(b)]
+      if (sizeA === undefined || sizeB === undefined) {
+        return sizeA === sizeB ? byName(a, b) : sizeA === undefined ? 1 : -1
+      }
+      return direction * (sizeA - sizeB) || byName(a, b)
+    }
+    if ((a.kind === 'directory') !== (b.kind === 'directory')) {
+      return a.kind === 'directory' ? -1 : 1
+    }
+    return sort.key === 'name' ? direction * byName(a, b) : direction * (Date.parse(a.modifiedUtc) - Date.parse(b.modifiedUtc)) || byName(a, b)
+  })
+}
+
+function SortHeader({ label, column, sort, onSort }: { label: string; column: Sort['key']; sort: Sort; onSort: (column: Sort['key']) => void }) {
+  const active = sort.key === column
+  return (
+    <th scope="col" aria-sort={active ? (sort.descending ? 'descending' : 'ascending') : 'none'}>
+      <button type="button" className={styles.sort} onClick={() => onSort(column)}>
+        {label}
+        {active ? <span aria-hidden="true"> {sort.descending ? '▼' : '▲'}</span> : null}
+      </button>
+    </th>
+  )
 }
 
 /** undefined while it's being worked out, null when it couldn't be. */
@@ -83,6 +127,7 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
   const [newFolder, setNewFolder] = useState<string | null>(null)
   const [conflict, setConflict] = useState<File[] | null>(null)
   const [folderSizes, setFolderSizes] = useState<Record<string, FolderSize | null>>({})
+  const [sort, setSort] = useState<Sort>({ key: 'name', descending: false })
   const trustRef = useRef<string | undefined>(undefined)
   const uploadRef = useRef<HTMLInputElement>(null)
   const target = session.title
@@ -145,20 +190,28 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
   // Folder sizes fill in behind the listing, which never waits for them. A size already known stays
   // shown until its new one arrives; moving on stops whatever is left.
   useEffect(() => {
-    const queue = listing?.entries.filter((entry) => entry.kind === 'directory').map((entry) => entry.path) ?? []
+    const paths = listing?.entries.filter((entry) => entry.kind === 'directory').map((entry) => entry.path) ?? []
+    if (paths.length === 0) {
+      return
+    }
     const controller = new AbortController()
     const { signal } = controller
-    async function work() {
-      for (let folder = queue.shift(); folder !== undefined && !signal.aborted; folder = queue.shift()) {
-        const found = await api.post<FolderSize>('/api/sftp/folder-size', { body: { ...login, path: folder }, signal }).catch(() => null)
-        if (!signal.aborted) {
-          setFolderSizes((sizes) => ({ ...sizes, [folder]: found }))
-        }
+    async function measure() {
+      const measured = new Set<string>()
+      try {
+        const response = await api.post<Response>('/api/sftp/folder-sizes', { body: { ...login, paths }, responseType: 'stream', signal })
+        await readJsonLines<FolderSize>(response, (found) => {
+          measured.add(found.path)
+          setFolderSizes((sizes) => ({ ...sizes, [found.path]: found }))
+        })
+      } catch {
+        // Whatever wasn't measured shows as unknown below.
+      }
+      if (!signal.aborted) {
+        setFolderSizes((sizes) => ({ ...sizes, ...Object.fromEntries(paths.filter((path) => !measured.has(path)).map((path) => [path, null])) }))
       }
     }
-    for (let worker = 0; worker < FOLDER_SIZE_WORKERS; worker++) {
-      void work()
-    }
+    void measure()
     return () => controller.abort()
     // `login` comes from the same session as the listing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -272,6 +325,12 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
   }
 
   const segments = listing ? listing.path.split('/').filter(Boolean) : []
+  const entries = useMemo(() => sortEntries(listing?.entries ?? [], sort, folderSizes), [listing, sort, folderSizes])
+
+  // A new column starts with what's usually wanted first: A to Z, the biggest, the newest.
+  function sortBy(key: Sort['key']) {
+    setSort((current) => (current.key === key ? { key, descending: !current.descending } : { key, descending: key !== 'name' }))
+  }
 
   return (
     <div className={sessionStyles.session} hidden={!active} role="tabpanel" aria-label={`${session.title} files`}>
@@ -370,9 +429,9 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th scope="col">Name</th>
-                    <th scope="col">Size</th>
-                    <th scope="col">Modified</th>
+                    <SortHeader label="Name" column="name" sort={sort} onSort={sortBy} />
+                    <SortHeader label="Size" column="size" sort={sort} onSort={sortBy} />
+                    <SortHeader label="Modified" column="modified" sort={sort} onSort={sortBy} />
                     <th scope="col">Permissions</th>
                     <th scope="col">
                       <span className="visually-hidden">Actions</span>
@@ -380,7 +439,7 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {listing.entries.map((entry) => (
+                  {entries.map((entry) => (
                     <tr key={entry.path}>
                       <td className={styles.name}>
                         {renaming?.entry === entry ? (

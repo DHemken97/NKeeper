@@ -107,6 +107,7 @@ Proxying a device's web interface means running someone else's web app, so each 
 - **Containers** run as non-root. PostgreSQL, the API and guacd publish no ports, and secrets are passed at run time, never baked into images.
 - **Native Linux** runs the API as an unprivileged `nkeeper` user with systemd sandboxing (read-only system, no new privileges, no capabilities), listening only on loopback behind nginx. PostgreSQL accepts NKeeper's login on loopback only.
 - **IIS** runs NKeeper in its own app pool identity.
+- **Diagnostics.** NKeeper keeps a file of errors and usage totals on its own disk, on by default, readable only by its account and administrators. It never sends it anywhere. Names and addresses in it are replaced with keyed tokens and secrets are removed, but free text can slip past redaction, so treat a download as internal until you've checked it. See [Administration](administration.md#diagnostics).
 
 ## Known gaps
 

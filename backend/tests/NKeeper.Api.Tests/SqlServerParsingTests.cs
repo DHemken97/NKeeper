@@ -81,6 +81,30 @@ public sealed class SqlServerParsingTests
     }
 
     [Fact]
+    public void Chains_ListASessionBlockingItself_EvenWithNoChain()
+    {
+        var onlyItself = SqlBlocking.BuildChains([Session(70, blockedBy: 70), Session(71, blockedBy: null) with { SelfBlocking = true }, Session(72, blockedBy: null)]);
+
+        // A session that blocks no one, and isn't blocking itself, still isn't listed.
+        Assert.Equal([70, 71], onlyItself.Select(l => l.SessionId));
+        Assert.All(onlyItself, lead =>
+        {
+            Assert.True(lead.SelfBlocking);
+            Assert.Null(lead.BlockedBy);
+            Assert.Equal((0, 0), (lead.Blocked, lead.BlockedVolume));
+            Assert.Empty(lead.BlockedSessions);
+        });
+
+        // It keeps its place in a chain, whichever end it's at.
+        var chain = Assert.Single(SqlBlocking.BuildChains([Session(80, blockedBy: 80), Session(81, blockedBy: 80), Session(82, blockedBy: 81) with { SelfBlocking = true }]));
+        Assert.Equal(80, chain.SessionId);
+        Assert.True(chain.SelfBlocking);
+        Assert.Equal(2, chain.BlockedVolume);
+        var inner = Assert.Single(Assert.Single(chain.BlockedSessions).BlockedSessions);
+        Assert.Equal((82, 81, true), (inner.SessionId, inner.BlockedBy, inner.SelfBlocking));
+    }
+
+    [Fact]
     public void Browser_ReadsTheInstancesTcpPort()
     {
         static byte[] Answer(string text)

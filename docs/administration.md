@@ -10,6 +10,7 @@
 - [Backups and restores](#backups-and-restores)
 - [Audit log](#audit-log)
 - [Logs](#logs)
+- [Diagnostics](#diagnostics)
 - [Database migrations](#database-migrations)
 
 ## The first administrator
@@ -299,6 +300,35 @@ Each entry has the time, the user, the host (named as it was then, so the trail 
 - **Sessions:** every session start and end, with the user, host, credential ID and duration.
 
 Secrets are never logged. These are application logs; for who did what, use the [audit log](#audit-log).
+
+## Diagnostics
+
+**Settings ▸ Diagnostics** keeps a file of errors and usage totals on the NKeeper server, for finding bugs and seeing what gets used. It's on by default. It's only written to that server's disk, and nothing sends it anywhere: an administrator chooses **Download diagnostics** to get it as a zip, which is audited.
+
+**What it holds** (one JSON object per line):
+- **Start and stop:** the version, kind of install, OS and which features are on. A start with no stop before it means NKeeper crashed.
+- **Errors:** the API's warnings and errors, and errors the browser didn't handle, with stack traces. The same error is written once a day, then counted.
+- **Usage, daily and at shutdown:** for each API route, how many uses and users, errors and response times. For each session protocol, how many connected and failed, why, and for how long.
+- **Hourly:** memory, the file's size, and the database's size, largest tables and numbers of hosts and users.
+
+**What it leaves out:** stored passwords and keys, recordings, terminal commands and output, SQL text and results, file names and contents, and which user did what. Log messages keep only their template and numbers, not their text values. Requests are counted by route, without the values in the URL.
+
+**Redaction:** an exception's message, a browser error and a session's failure reason are free text, so names, addresses, accounts and paths are replaced with tokens such as `host-1a2b3c4d`, and anything that looks like a secret is removed. The same value always gets the same token, using a key in `state.json` that's never in the download, so you can see that one host keeps failing without seeing which. Redaction can miss something, so **check the file before sharing it** with anyone outside your organization.
+
+**Size limit:** 200 MB by default (20 MB to 10 GB), split between a current and an older file. When the current one fills up it replaces the older one, so the oldest data goes first, and the page warns if that happened before a download. Lowering the limit can remove data straight away.
+
+**Low disk space:** writing pauses below **Disk space to keep free** under [Limits](#limits), and the file records the gap when it resumes. At 0 it never pauses.
+
+**Where it is:**
+
+| Install | Folder |
+| --- | --- |
+| Docker Compose | `/var/lib/nkeeper-diagnostics` in the volume `nkeeper_diagnostics` |
+| Single image | `/var/lib/nkeeper/diagnostics` |
+| Native Linux | `/var/lib/nkeeper/diagnostics` |
+| IIS | `C:\ProgramData\NKeeper\diagnostics` |
+
+Only the API's account and administrators can read it. Turning it off stops writing and keeps what's there: delete `diagnostics*.ndjson` from that folder to remove it. A [move to a new server](#moving-to-a-new-server) doesn't carry it over: the new server starts its own.
 
 ## Database migrations
 

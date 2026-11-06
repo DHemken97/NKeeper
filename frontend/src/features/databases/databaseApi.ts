@@ -99,6 +99,8 @@ export interface BlockingSession {
   placeholder?: boolean
   /** Oracle's serial#: with the SID, it names the session to kill. */
   serial?: number | null
+  /** It's waiting on itself: usually one of its own parallel threads, or its own I/O. */
+  selfBlocking?: boolean
 }
 
 export interface BlockingReport {
