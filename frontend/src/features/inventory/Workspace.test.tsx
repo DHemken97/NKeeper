@@ -183,7 +183,8 @@ describe('workspace', () => {
     expect(router.state.location.search).toBe('')
     expect(hostNamesInTree()).toHaveLength(4)
     await waitFor(() => expect(router.state.location.search).toBe('?q=site%3Adc'), { timeout: 5000 })
-    expect(hostNamesInTree()).toEqual(['sql01', 'web01'])
+    // The router's state changes before React draws it.
+    await waitFor(() => expect(hostNamesInTree()).toEqual(['sql01', 'web01']))
     expect(search).toHaveValue('site:dc')
   })
 
