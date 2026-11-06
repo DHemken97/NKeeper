@@ -7,7 +7,7 @@ import { BulkScanDialog } from './BulkScanDialog'
 import { BulkCredentialChanges } from './BulkCredentialChanges'
 import { isReady, toCredentialInputs, type CredentialChange } from '../bulkCredentials'
 import { ServicesEditor } from './ServicesEditor'
-import type { ServiceDraft } from '../drafts'
+import { serviceToolsInput, type ServiceDraft } from '../drafts'
 import { hypervisorChoices } from '../hypervisors'
 import { PROTOCOL_INFO, SUPPORTED_PROTOCOLS, type Host, type HostService, type HostTag, type ServiceProtocol } from '../types'
 import listStyles from './ListEditor.module.css'
@@ -50,6 +50,7 @@ const toService = (draft: ServiceDraft): HostService => ({
   port: draft.port === '' ? null : Number(draft.port),
   label: draft.label.trim() || null,
   ...(draft.protocol === 'Rdp' ? { rdpSecurity: draft.rdpSecurity } : {}),
+  ...serviceToolsInput(draft),
 })
 
 /** How many hosts a new service would be added to, in words: hosts with the same type and port keep theirs. */

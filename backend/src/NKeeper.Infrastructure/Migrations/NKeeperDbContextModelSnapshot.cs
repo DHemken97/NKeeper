@@ -751,6 +751,9 @@ namespace NKeeper.Infrastructure.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
 
+                    b.PrimitiveCollection<List<string>>("Tools")
+                        .HasColumnType("text[]");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Protocol");

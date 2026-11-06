@@ -101,7 +101,7 @@ public sealed record BundleHost(
     Guid? JumpCredentialId = null,
     string? ZabbixHostId = null);
 
-public sealed record BundleService(Guid Id, ServiceProtocol Protocol, int? Port, string? Label, int Position, RdpSecurityMode? RdpSecurity, string? Address, string? Instance = null);
+public sealed record BundleService(Guid Id, ServiceProtocol Protocol, int? Port, string? Label, int Position, RdpSecurityMode? RdpSecurity, string? Address, string? Instance = null, IReadOnlyList<string>? Tools = null);
 
 /// <param name="Inheritable">Missing from bundles made before tags were inherited: true.</param>
 public sealed record BundleTag(Guid Id, string Name, string Value, bool Inheritable = true);

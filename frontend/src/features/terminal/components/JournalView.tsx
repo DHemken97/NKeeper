@@ -10,7 +10,6 @@ import {
   journalFilterBody,
   PRIORITIES,
   rangeProblem,
-  toLocalInput,
   type JournalEntry,
   type JournalFilters,
   type JournalPage,
@@ -41,7 +40,9 @@ function priorityDot(priority: number | null): string {
 }
 
 function initialFilters(): JournalFilters {
-  return { start: toLocalInput(new Date(Date.now() - 3_600_000)), stop: '', maxPriority: '', unit: '', identifier: '', search: '' }
+  // No time limit to begin with: it reads the newest entries anyway, and a limit nobody asked for looks
+  // like a broken filter when what's filtered for happened earlier.
+  return { start: '', stop: '', maxPriority: '', unit: '', identifier: '', search: '' }
 }
 
 /**
@@ -197,6 +198,18 @@ export function JournalView({ session, active, onShowHost }: JournalViewProps) {
     }
   }
 
+  /** A choice from a list applies at once; what's typed waits for Apply. */
+  function choosePriority(maxPriority: string) {
+    setDraft((current) => ({ ...current, maxPriority }))
+    setFilters((current) => ({ ...current, maxPriority }))
+  }
+
+  function clearTimes() {
+    setFollowing(false)
+    setDraft((current) => ({ ...current, start: '', stop: '' }))
+    setFilters((current) => ({ ...current, start: '', stop: '' }))
+  }
+
   function loadOlder() {
     const last = entries.at(-1)
     if (!last) {
@@ -269,7 +282,7 @@ export function JournalView({ session, active, onShowHost }: JournalViewProps) {
               <TextField label="Stop" type="datetime-local" step={60} value={draft.stop} onChange={(event) => set({ stop: event.target.value })} error={range ?? undefined} />
               <label className={styles.logField}>
                 Priority
-                <select className={styles.logSelect} value={draft.maxPriority} onChange={(event) => set({ maxPriority: event.target.value })}>
+                <select className={styles.logSelect} value={draft.maxPriority} onChange={(event) => choosePriority(event.target.value)}>
                   <option value="">Any</option>
                   {PRIORITIES.slice(0, 7).map((name, value) => (
                     <option key={name} value={value}>
@@ -288,7 +301,18 @@ export function JournalView({ session, active, onShowHost }: JournalViewProps) {
 
             {limited ? <p className={styles.hint}>This login can only read part of the journal. Use root, a user who may use sudo without a password, or one in the systemd-journal group.</p> : null}
             {problem ? <Alert variant="error">{problem}</Alert> : null}
-            {!problem && !loading && entries.length === 0 ? <p className={styles.vmEmpty}>No entries match.{following ? ' Waiting for new ones…' : ''}</p> : null}
+            {!problem && !loading && entries.length === 0 ? (
+              filters.start || filters.stop ? (
+                <p className={styles.vmEmpty}>
+                  No entries match between the start and stop. Others may.{following ? ' Waiting for new ones…' : ''}{' '}
+                  <Button size="sm" variant="secondary" onClick={clearTimes}>
+                    Search all time
+                  </Button>
+                </p>
+              ) : (
+                <p className={styles.vmEmpty}>No entries match.{following ? ' Waiting for new ones…' : ''}</p>
+              )
+            ) : null}
             {loading && entries.length === 0 ? <p className={styles.vmEmpty}>Reading the journal…</p> : null}
 
             {entries.length > 0 ? (

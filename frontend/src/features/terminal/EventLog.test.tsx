@@ -108,9 +108,9 @@ describe('event log viewer', () => {
     expect(await panel.findByRole('button', { name: 'Event 12 failed.' })).toBeInTheDocument()
     expect(panel.getByLabelText('Log')).toHaveValue('System')
     expect(bodies[0]).toMatchObject({ hostId: 'h-win01', serviceIndex: 0, credentialId: 'c-admin', log: 'System', levels: [] })
-    // The last 24 hours by default.
-    const since = new Date(String(bodies[0].since)).getTime()
-    expect(Math.abs(Date.now() - 24 * 3_600_000 - since)).toBeLessThan(60_000)
+    // No time limit by default, which would look like a broken filter.
+    expect(panel.getByLabelText('Time')).toHaveDisplayValue('All time')
+    expect(bodies[0].since).toBeUndefined()
     // Passwords stay on the server for saved logins.
     expect(bodies[0].password).toBeUndefined()
 
@@ -130,9 +130,9 @@ describe('event log viewer', () => {
     await user.selectOptions(panel.getByLabelText('Log'), 'Application')
     await waitFor(() => expect(bodies.at(-1)).toMatchObject({ log: 'Application' }))
 
-    await user.selectOptions(panel.getByLabelText('Time'), 'All time')
+    await user.selectOptions(panel.getByLabelText('Time'), 'Last 24 hours')
     await waitFor(() => expect(bodies).toHaveLength(3))
-    expect(bodies.at(-1)?.since).toBeUndefined()
+    expect(Math.abs(Date.now() - 24 * 3_600_000 - new Date(String(bodies.at(-1)?.since)).getTime())).toBeLessThan(60_000)
 
     await user.click(panel.getByRole('checkbox', { name: 'Warning' }))
     await waitFor(() => expect(bodies.at(-1)).toMatchObject({ levels: ['Warning'] }))
@@ -189,7 +189,33 @@ describe('event log viewer', () => {
     const panel = within(await openEventLog(user))
 
     expect(await panel.findByText(/The Security log isn’t listed/)).toBeInTheDocument()
-    expect(await panel.findByText('No events match in this time range.')).toBeInTheDocument()
+    expect(await panel.findByText('No events match.')).toBeInTheDocument()
+  })
+
+  it('says when a time limit is what leaves a filter empty, and clears it in one click', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const { user } = renderWorkspace({
+      'POST /api/eventlog/logs': () => jsonResponse(200, logs),
+      'POST /api/eventlog/events': (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        bodies.push(body)
+        // Errors exist, but not recently.
+        return jsonResponse(200, { events: body.since && (body.levels as string[]).includes('Error') ? [] : [event(12)], hasMore: false })
+      },
+    })
+    const panel = within(await openEventLog(user))
+    await panel.findByRole('button', { name: 'Event 12 failed.' })
+
+    await user.selectOptions(panel.getByLabelText('Time'), 'Last hour')
+    await user.click(panel.getByRole('checkbox', { name: 'Error' }))
+
+    expect(await panel.findByText(/No events match in this time range/)).toBeInTheDocument()
+    await user.click(panel.getByRole('button', { name: 'Search all time' }))
+
+    expect(await panel.findByRole('button', { name: 'Event 12 failed.' })).toBeInTheDocument()
+    expect(bodies.at(-1)).toMatchObject({ levels: ['Error'] })
+    expect(bodies.at(-1)?.since).toBeUndefined()
+    expect(panel.getByLabelText('Time')).toHaveDisplayValue('All time')
   })
 
   it('shows a refused login with a way to try again', async () => {
@@ -220,7 +246,7 @@ describe('event log viewer', () => {
 
     expect(await panel.findByText('The host didn’t finish reading in time.')).toBeInTheDocument()
     expect(panel.getByLabelText('Log')).toBeInTheDocument()
-    expect(panel.queryByText('No events match in this time range.')).not.toBeInTheDocument()
+    expect(panel.queryByText('No events match.')).not.toBeInTheDocument()
   })
 
   it('asks for a login, with the domain form, and sends it', async () => {

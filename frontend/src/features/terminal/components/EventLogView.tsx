@@ -47,7 +47,7 @@ export function EventLogView({ session, active, onShowHost }: EventLogViewProps)
   const [phase, setPhase] = useState<SessionPhase>({ kind: 'connecting' })
   const [attempt, setAttempt] = useState(0)
   const [logs, setLogs] = useState<EventLogInfo[]>([])
-  const [filters, setFilters] = useState<EventLogFilters>({ log: '', hours: 24, levels: [], source: '', eventId: '' })
+  const [filters, setFilters] = useState<EventLogFilters>({ log: '', hours: 0, levels: [], source: '', eventId: '' })
   const [source, setSource] = useState('')
   const [eventId, setEventId] = useState('')
   const [reload, setReload] = useState(0)
@@ -244,7 +244,18 @@ export function EventLogView({ session, active, onShowHost }: EventLogViewProps)
             ) : null}
             {problem && !loading ? <Alert variant="error">{problem}</Alert> : null}
 
-            {filters.log && !problem && !loading && events.length === 0 ? <p className={styles.vmEmpty}>No events match in this time range.</p> : null}
+            {filters.log && !problem && !loading && events.length === 0 ? (
+              filters.hours > 0 ? (
+                <p className={styles.vmEmpty}>
+                  No events match in this time range. Older ones may.{' '}
+                  <Button size="sm" variant="secondary" onClick={() => setFilters({ ...filters, hours: 0 })}>
+                    Search all time
+                  </Button>
+                </p>
+              ) : (
+                <p className={styles.vmEmpty}>No events match.</p>
+              )
+            ) : null}
             {loading && events.length === 0 ? <p className={styles.vmEmpty}>Reading {filters.log}…</p> : null}
 
             {events.length > 0 ? (

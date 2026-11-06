@@ -131,6 +131,17 @@ select.input {
   font-size: 0.8125rem;
 }
 
+.toolOption {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text);
+}
+
+.option:has(.toolOption) {
+  flex-wrap: wrap;
+}
+
 .option .input {
   flex: 1;
   min-height: 2.25rem;

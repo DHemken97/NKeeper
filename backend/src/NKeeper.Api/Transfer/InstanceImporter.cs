@@ -203,7 +203,7 @@ internal sealed class InstanceImporter(
                 UpdatedByUserId = host.UpdatedByUserId,
                 Services = [.. host.Services.Select(s => new HostService
                 {
-                    Id = s.Id, Protocol = s.Protocol, Port = s.Port, Label = s.Label, Position = s.Position, RdpSecurity = s.RdpSecurity, Address = s.Address, Instance = s.Instance,
+                    Id = s.Id, Protocol = s.Protocol, Port = s.Port, Label = s.Label, Position = s.Position, RdpSecurity = s.RdpSecurity, Address = s.Address, Instance = s.Instance, Tools = s.Tools is null ? null : [.. s.Tools],
                 })],
                 Tags = [.. host.Tags.Select(t => new HostTag { Id = t.Id, Name = t.Name, Value = t.Value, Inheritable = t.Inheritable })],
                 Credentials = [.. host.Credentials.Select(c => new HostCredential

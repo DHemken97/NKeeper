@@ -130,7 +130,7 @@ function journalRoutes(...answers: Response[]) {
 }
 
 describe('journal', () => {
-  it('asks to trust the host key, then reads the last hour, newest first, and opens an entry', async () => {
+  it('asks to trust the host key, then reads the newest entries with no time limit, and opens one', async () => {
     const { bodies, routes: fake } = journalRoutes(
       jsonResponse(200, { status: 'trustRequired', page: null, hostKey: { algorithm: 'ssh-ed25519', fingerprint: 'SHA256:abc' } }),
       page([entry(2, { priority: 3 }), entry(1)]),
@@ -143,8 +143,9 @@ describe('journal', () => {
     expect(await panel.findByRole('button', { name: 'Entry 2' })).toBeInTheDocument()
     expect(panel.getByText('Error')).toBeInTheDocument()
     expect(bodies[1]).toMatchObject({ hostId: 'h-app01', credentialId: 'c-root', trustFingerprint: 'SHA256:abc' })
-    expect(Math.abs(Date.now() - 3_600_000 - new Date(String(bodies[1].since)).getTime())).toBeLessThan(120_000)
+    expect(bodies[1].since).toBeUndefined()
     expect(bodies[1].until).toBeUndefined()
+    expect(panel.getByLabelText('Start')).toHaveValue('')
 
     expect(panel.queryByText(/Second line 2/)).not.toBeInTheDocument()
     await user.click(panel.getByRole('button', { name: 'Entry 2' }))
@@ -160,7 +161,6 @@ describe('journal', () => {
 
     fireEvent.change(panel.getByLabelText('Start'), { target: { value: '2026-11-06T10:00' } })
     fireEvent.change(panel.getByLabelText('Stop'), { target: { value: '2026-11-06T11:30' } })
-    await user.selectOptions(panel.getByLabelText('Priority'), 'Error and worse')
     await user.type(panel.getByLabelText('Unit'), 'nginx.service')
     await user.type(panel.getByLabelText('Program'), 'nginx')
     await user.type(panel.getByLabelText('Search'), 'failed')
@@ -172,11 +172,61 @@ describe('journal', () => {
     expect(bodies[1]).toMatchObject({
       since: new Date('2026-11-06T10:00').toISOString(),
       until: new Date('2026-11-06T11:30').toISOString(),
-      maxPriority: 3,
       unit: 'nginx.service',
       identifier: 'nginx',
       search: 'failed',
     })
+  })
+
+  it('applies a priority as soon as it’s chosen, leaving what’s typed for Apply', async () => {
+    const { bodies, routes: fake } = journalRoutes(page([entry(1)]))
+    const user = renderWorkspace(fake)
+    const panel = await openTool(user, /^Journal/, 'app01 journal')
+    await panel.findByRole('button', { name: 'Entry 1' })
+    await user.type(panel.getByLabelText('Unit'), 'not-applied-yet')
+
+    await user.selectOptions(panel.getByLabelText('Priority'), 'Error and worse')
+
+    await waitFor(() => expect(bodies).toHaveLength(2))
+    expect(bodies[1]).toMatchObject({ maxPriority: 3 })
+    expect(bodies[1].unit).toBeUndefined()
+    expect(panel.getByLabelText('Unit')).toHaveValue('not-applied-yet')
+  })
+
+  it('says when its times are what leave a filter empty, and clears them in one click', async () => {
+    const bodies: Body[] = []
+    const user = renderWorkspace({
+      'POST /api/journal/entries': (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as Body
+        bodies.push(body)
+        // Errors exist, but not in the time asked for.
+        return body.maxPriority === 3 && body.since ? page([]) : page([entry(1)])
+      },
+    })
+    const panel = await openTool(user, /^Journal/, 'app01 journal')
+    await panel.findByRole('button', { name: 'Entry 1' })
+
+    fireEvent.change(panel.getByLabelText('Start'), { target: { value: '2026-11-06T10:00' } })
+    await user.selectOptions(panel.getByLabelText('Priority'), 'Error and worse')
+    await user.click(panel.getByRole('button', { name: 'Apply' }))
+
+    expect(await panel.findByText(/No entries match between the start and stop/)).toBeInTheDocument()
+    await user.click(panel.getByRole('button', { name: 'Search all time' }))
+
+    expect(await panel.findByRole('button', { name: 'Entry 1' })).toBeInTheDocument()
+    expect(bodies.at(-1)).toMatchObject({ maxPriority: 3 })
+    expect(bodies.at(-1)?.since).toBeUndefined()
+    expect(panel.getByLabelText('Start')).toHaveValue('')
+  })
+
+  it('without times, just says nothing matches', async () => {
+    const { routes: fake } = journalRoutes(page([]))
+    const user = renderWorkspace(fake)
+
+    const panel = await openTool(user, /^Journal/, 'app01 journal')
+
+    expect(await panel.findByText('No entries match.')).toBeInTheDocument()
+    expect(panel.queryByRole('button', { name: 'Search all time' })).not.toBeInTheDocument()
   })
 
   it('refuses a start after the stop', async () => {

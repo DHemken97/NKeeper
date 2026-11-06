@@ -1,4 +1,4 @@
-import { isSupportedProtocol, type Host, type HostCredential, type HostInput, type RdpSecurity, type ServiceProtocol } from './types'
+import { isSupportedProtocol, SERVICE_TOOLS, type Host, type HostCredential, type HostInput, type RdpSecurity, type ServiceProtocol } from './types'
 
 /** Editor state for a host. Each list item has a `key` so React can track rows while editing. */
 
@@ -14,6 +14,8 @@ export interface ServiceDraft {
   address: string
   /** SQL Server: the named instance, empty for the default one. Oracle: the service name (or SID). */
   instance: string
+  /** Which of the service's tools the menus offer; null for all of them. */
+  tools: string[] | null
 }
 
 export interface TagDraft {
@@ -81,6 +83,7 @@ export function newServiceDraft(
   rdpSecurity: RdpSecurity | null = null,
   address: string | null = null,
   instance: string | null = null,
+  tools: string[] | null = null,
 ): ServiceDraft {
   return {
     key: key(),
@@ -90,7 +93,13 @@ export function newServiceDraft(
     rdpSecurity: rdpSecurity ?? 'Auto',
     address: address ?? '',
     instance: instance ?? '',
+    tools,
   }
+}
+
+/** A service's tools as the API takes them: only when some are off, and only for services with tools. */
+export function serviceToolsInput(service: Pick<ServiceDraft, 'protocol' | 'tools'>) {
+  return SERVICE_TOOLS[service.protocol] && service.tools !== null ? { tools: service.tools } : {}
 }
 
 export function newTagDraft(name = '', value: string | null = '', inheritable = true): TagDraft {
@@ -117,7 +126,7 @@ export function newCredentialDraft(existing?: HostCredential, serviceKeys: numbe
 
 export function toHostDraft(host: Host | null): HostDraft {
   // Services of types NKeeper can't connect with can't be saved; the editor says they'll go.
-  const services = host?.services.filter((s) => isSupportedProtocol(s.protocol)).map((s) => ({ id: s.id, draft: newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity, s.address, s.instance) })) ?? []
+  const services = host?.services.filter((s) => isSupportedProtocol(s.protocol)).map((s) => ({ id: s.id, draft: newServiceDraft(s.protocol, s.port, s.label, s.rdpSecurity, s.address, s.instance, s.tools ?? null) })) ?? []
   // A credential's services, by their drafts (services that are gone are dropped).
   const keysOf = (credential: HostCredential) =>
     credential.serviceIds == null ? null : services.filter((s) => s.id && credential.serviceIds!.includes(s.id)).map((s) => s.draft.key)
@@ -189,6 +198,7 @@ export function toHostInput(draft: HostDraft, version?: number): HostInput {
       ...(s.protocol === 'Rdp' ? { rdpSecurity: s.rdpSecurity } : {}),
       ...(s.protocol === 'Idrac' ? { address: blankToNull(s.address) } : {}),
       ...(s.protocol === 'Ssms' || s.protocol === 'Oracle' ? { instance: blankToNull(s.instance) } : {}),
+      ...serviceToolsInput(s),
     })),
     credentials: draft.credentials.map((c) => ({
       ...(c.id ? { id: c.id } : {}),

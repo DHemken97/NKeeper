@@ -15,6 +15,7 @@ import {
   isSupportedProtocol,
   PROTOCOL_INFO,
   RDP_SECURITY_INFO,
+  SERVICE_TOOLS,
   type Host,
   type HostTag,
   type ServiceCheck,
@@ -347,6 +348,12 @@ export function HostDetails({
                       {service.protocol === 'Oracle' && service.instance ? <span className={styles.muted}> · {service.instance}</span> : null}
                       {service.protocol === 'Rdp' && service.rdpSecurity ? (
                         <span className={styles.muted}> · {RDP_SECURITY_INFO[service.rdpSecurity].label}</span>
+                      ) : null}
+                      {service.tools != null && SERVICE_TOOLS[service.protocol] ? (
+                        <span className={styles.muted}>
+                          {' '}
+                          · Tools: {SERVICE_TOOLS[service.protocol]!.filter((t) => service.tools!.includes(t.tool)).map((t) => t.label).join(', ') || 'none'}
+                        </span>
                       ) : null}
                       {!isSupportedProtocol(service.protocol) ? (
                         <span className={styles.muted}> · Not supported: removed when the host is next edited</span>
