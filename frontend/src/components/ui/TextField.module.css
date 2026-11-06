@@ -31,7 +31,7 @@
 }
 
 .input:hover:not(:disabled) {
-  border-color: #46598a;
+  border-color: var(--color-border-hover);
 }
 
 .input:focus-visible {

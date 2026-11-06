@@ -86,7 +86,7 @@
 }
 
 .dotAvailable {
-  background: #86efac;
+  background: var(--color-success);
 }
 
 .dotUnavailable {

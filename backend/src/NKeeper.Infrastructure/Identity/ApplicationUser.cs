@@ -35,4 +35,13 @@ public sealed class ApplicationUser : IdentityUser<Guid>
 
     /// <summary>Last host-tree sort selected by this user.</summary>
     public string WorkspaceSort { get; set; } = "name";
+
+    /// <summary>
+    /// The color scheme this user chose: a built-in preset's id or the id of one of their custom schemes.
+    /// The web app defines the presets, and falls back to its default for an id it doesn't know.
+    /// </summary>
+    public string ColorScheme { get; set; } = "navy";
+
+    /// <summary>The color schemes this user built, as a JSON array. Only the API's contract reads its contents.</summary>
+    public string CustomColorSchemes { get; set; } = "[]";
 }

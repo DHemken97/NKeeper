@@ -33,11 +33,11 @@
 }
 
 .healthOK {
-  color: #86efac;
+  color: var(--color-success);
 }
 
 .healthWarning {
-  color: #fcd34d;
+  color: var(--color-warning);
 }
 
 .healthCritical {

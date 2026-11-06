@@ -22,7 +22,7 @@
 
 .accent {
   background: var(--color-info-bg);
-  border-color: #2a4a8a;
+  border-color: var(--color-info-border);
   color: var(--color-accent-text);
 }
 

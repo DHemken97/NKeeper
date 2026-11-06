@@ -3,7 +3,7 @@
   flex: 1;
   flex-direction: column;
   min-height: 0;
-  background: #0b1220;
+  background: var(--color-console-bg);
 }
 
 .session[hidden] {
@@ -31,7 +31,7 @@
 
 .connecting,
 .hostKey {
-  background: #f5b84b;
+  background: var(--color-warning);
 }
 
 .connected {
@@ -120,8 +120,8 @@
 
 .notice {
   padding: 0 var(--space-2);
-  color: #f5b84b;
-  border: 1px solid rgb(245 184 75 / 0.4);
+  color: var(--color-warning);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
   border-radius: var(--radius-sm);
   font-size: 0.75rem;
   white-space: nowrap;
@@ -140,7 +140,7 @@
   min-height: 2.25rem;
   padding: 0 var(--space-3);
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   border-radius: var(--radius-md);
   font-size: 0.875rem;
   font-weight: 600;
@@ -149,7 +149,7 @@
 
 .linkButton:hover {
   background: var(--color-accent-hover);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 .overlay {

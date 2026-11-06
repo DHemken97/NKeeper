@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ApiError, onUnauthorized } from '../../../lib/api'
+import { applyColorScheme, DEFAULT_COLOR_SCHEME, tokensFor, type ColorSchemePreferences } from '../../appearance/colorSchemes'
 import { authApi } from '../api/authApi'
 import { AuthContext, type AuthContextValue } from '../context'
 import type { AuthStatus, LoginCredentials, TwoFactorChallenge, User } from '../types'
@@ -77,9 +78,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const passwordChanged = useCallback(() => setUser((current) => (current ? { ...current, mustChangePassword: false } : current)), [])
 
+  const colorSchemesChanged = useCallback(
+    ({ active, custom }: ColorSchemePreferences) => setUser((current) => (current ? { ...current, colorScheme: active, customColorSchemes: custom } : current)),
+    [],
+  )
+
+  // Signed out, the last scheme stays: the sign-in page keeps the colors this browser last showed.
+  useEffect(() => {
+    if (user) {
+      applyColorScheme(tokensFor({ active: user.colorScheme ?? DEFAULT_COLOR_SCHEME, custom: user.customColorSchemes ?? [] }))
+    }
+  }, [user])
+
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, verifyTwoFactor, logout, refresh, passwordChanged }),
-    [status, user, login, verifyTwoFactor, logout, refresh, passwordChanged],
+    () => ({ status, user, login, verifyTwoFactor, logout, refresh, passwordChanged, colorSchemesChanged }),
+    [status, user, login, verifyTwoFactor, logout, refresh, passwordChanged, colorSchemesChanged],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

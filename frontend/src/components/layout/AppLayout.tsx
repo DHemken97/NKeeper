@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { ChangePasswordDialog } from '../../features/account/components/ChangePasswordDialog'
+import { ColorSchemeDialog } from '../../features/appearance/components/ColorSchemeDialog'
 import { useAuth } from '../../features/auth/context'
 import { isAdministrator } from '../../features/auth/types'
 import { useHotkeys } from '../../lib/hotkeys'
@@ -15,6 +16,7 @@ export function AppLayout() {
   const { user, logout } = useAuth()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [changingPassword, setChangingPassword] = useState(false)
+  const [choosingColors, setChoosingColors] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
   const admin = isAdministrator(user)
   const navigate = useNavigate()
@@ -101,12 +103,14 @@ export function AppLayout() {
             // A domain account's password is changed in Windows; single sign-on accounts have none.
             ...(user?.isDirectoryAccount || user?.isSingleSignOnAccount ? [] : [{ kind: 'item', label: 'Change password', onSelect: () => setChangingPassword(true) } as const]),
             ...(admin ? [{ kind: 'item', label: 'Move to a new server…', onSelect: () => navigate('/transfer') } as const] : []),
+            { kind: 'item', label: 'Color scheme', onSelect: () => setChoosingColors(true) },
             { kind: 'item', label: 'Keyboard shortcuts', shortcut: '?', onSelect: () => setShowingShortcuts(true) },
             { kind: 'separator' },
             { kind: 'item', label: 'Sign out', onSelect: () => void handleSignOut() },
           ]}
         />
       ) : null}
+      {choosingColors ? <ColorSchemeDialog onClose={() => setChoosingColors(false)} /> : null}
       {showingShortcuts ? <ShortcutsDialog onClose={() => setShowingShortcuts(false)} /> : null}
       {changingPassword ? (
         <ChangePasswordDialog

@@ -1,3 +1,5 @@
+import type { CustomColorScheme } from '../../appearance/colorSchemes'
+
 /** Mirrors the API's CurrentUserResponse. `id` is the stable user identifier. */
 export interface User {
   id: string
@@ -16,6 +18,10 @@ export interface User {
   workspaceGroupBy?: string[]
   /** The signed-in user's saved host-tree sort. */
   workspaceSort?: 'name' | 'address' | 'updated'
+  /** The id of the color scheme this user chose: a preset or one of theirs. */
+  colorScheme?: string
+  /** The color schemes this user built. */
+  customColorSchemes?: CustomColorScheme[]
 }
 
 export const ADMINISTRATOR_ROLE = 'Administrator'

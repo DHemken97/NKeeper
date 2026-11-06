@@ -39,6 +39,8 @@ public sealed record BundleEmail(
 /// <param name="WorkspaceSort">The user's saved host-tree sort; absent from older files, which means by name.</param>
 /// <param name="SingleSignOnSubject">The identity provider's id for a single sign-on account (no local password); absent from older files.</param>
 /// <param name="EmailTwoFactor">Also signs in with a code sent by email; absent from older files.</param>
+/// <param name="ColorScheme">The user's chosen color scheme; absent from older files, which means the default.</param>
+/// <param name="CustomColorSchemes">The color schemes the user built, as stored (a JSON array); absent from older files, which means none.</param>
 public sealed record BundleUser(
     Guid Id,
     string UserName,
@@ -57,7 +59,9 @@ public sealed record BundleUser(
     IReadOnlyList<string>? WorkspaceGroupBy = null,
     string? WorkspaceSort = null,
     string? SingleSignOnSubject = null,
-    bool EmailTwoFactor = false);
+    bool EmailTwoFactor = false,
+    string? ColorScheme = null,
+    string? CustomColorSchemes = null);
 
 public sealed record BundleGrant(
     Guid Id,

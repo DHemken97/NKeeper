@@ -101,6 +101,24 @@ public sealed class AccountController(
         return new WorkspacePreferencesResponse(user.WorkspaceGroupBy, user.WorkspaceSort);
     }
 
+    /// <summary>Save the signed-in user's color scheme and the schemes they built.</summary>
+    [HttpPut("color-schemes")]
+    [ProducesResponseType<ColorSchemesResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ColorSchemesResponse>> UpdateColorSchemes(ColorSchemesRequest request)
+    {
+        var user = await userManager.GetUserAsync(User);
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        user.ColorScheme = request.Active;
+        user.CustomColorSchemes = CustomColorScheme.Serialize(request.Custom);
+        UserAdministration.ThrowOnFailure(await userManager.UpdateAsync(user), defaultField: "colorScheme");
+        return new ColorSchemesResponse(user.ColorScheme, request.Custom);
+    }
+
     /// <summary>
     /// Changes the caller's password. Other sessions of the account are signed out; this one stays.
     /// Rate limited like sign-in, since it verifies the current password.

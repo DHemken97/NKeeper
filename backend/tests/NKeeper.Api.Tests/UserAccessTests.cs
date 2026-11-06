@@ -55,6 +55,57 @@ public sealed class UserAccessTests(PostgresServerFixture postgres) : IAsyncLife
     }
 
     [Fact]
+    public async Task ColorSchemes_AreSavedPerUser_AndReturnedWithCurrentUser()
+    {
+        var initial = await _admin.GetFromJsonAsync<JsonElement>("/api/auth/me", Ct);
+        Assert.Equal("navy", initial.GetProperty("colorScheme").GetString());
+        Assert.Equal(0, initial.GetProperty("customColorSchemes").GetArrayLength());
+
+        var ocean = new { id = "custom-ocean", name = "Ocean", background = "#001122", surface = "#112233", text = "#EEFFFF", accent = "#0088cc" };
+        var saved = await _admin.SendJsonAsync(HttpMethod.Put, "/api/account/color-schemes", new { active = ocean.id, custom = new[] { ocean } }, Ct);
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+
+        var current = await _admin.GetFromJsonAsync<JsonElement>("/api/auth/me", Ct);
+        Assert.Equal("custom-ocean", current.GetProperty("colorScheme").GetString());
+        var stored = Assert.Single(current.GetProperty("customColorSchemes").EnumerateArray());
+        Assert.Equal("Ocean", stored.GetProperty("name").GetString());
+        Assert.Equal("#EEFFFF", stored.GetProperty("text").GetString());
+
+        var bob = await CreateUserAsync("bob", mustChangePassword: false);
+        var (client, _) = await SignInAsync(bob.UserName, BobPassword);
+        var bobCurrent = await client.GetFromJsonAsync<JsonElement>("/api/auth/me", Ct);
+        Assert.Equal("navy", bobCurrent.GetProperty("colorScheme").GetString());
+        Assert.Equal(0, bobCurrent.GetProperty("customColorSchemes").GetArrayLength());
+    }
+
+    [Theory]
+    [InlineData("custom-a", "Ocean", "red")]
+    [InlineData("custom-a", "Ocean", "#001122; background:url(//x)")]
+    [InlineData("custom-a", "Ocean", "#001122\n")]
+    [InlineData("custom-a", "   ", "#001122")]
+    [InlineData("custom-a", "This name is much too long for the dialog to show", "#001122")]
+    [InlineData("NOT VALID", "Ocean", "#001122")]
+    public async Task ColorSchemes_RejectInvalidSchemes(string id, string name, string background)
+    {
+        var response = await _admin.SendJsonAsync(HttpMethod.Put, "/api/account/color-schemes",
+            new { active = "navy", custom = new[] { new { id, name, background, surface = "#112233", text = "#eeffff", accent = "#0088cc" } } }, Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ColorSchemes_RejectDuplicateIds_AndTooManySchemes()
+    {
+        object Scheme(string id) => new { id, name = "Ocean", background = "#001122", surface = "#112233", text = "#eeffff", accent = "#0088cc" };
+
+        var duplicates = await _admin.SendJsonAsync(HttpMethod.Put, "/api/account/color-schemes", new { active = "navy", custom = new[] { Scheme("a"), Scheme("a") } }, Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, duplicates.StatusCode);
+
+        var tooMany = await _admin.SendJsonAsync(HttpMethod.Put, "/api/account/color-schemes",
+            new { active = "navy", custom = Enumerable.Range(0, 21).Select(i => Scheme($"s{i}")).ToArray() }, Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, tooMany.StatusCode);
+    }
+
+    [Fact]
     public async Task User_SeesOnlyGrantedHosts_WithTheGrantedLevel()
     {
         var dc1 = await CreateHostAsync("dc1-web", ("site", "DC1"));
