@@ -85,9 +85,12 @@ public sealed record SftpDownloadLinkResponse(string Url);
 [ApiController]
 [Authorize]
 [Route("api/sftp")]
-public sealed class SftpController(SftpDownloadLinks links, AuditLog audit) : ControllerBase
+public sealed class SftpController(SftpDownloadLinks links, SftpTempSpace tempSpace, AuditLog audit) : ControllerBase
 {
     private const long MaxUploadBytes = 2L * 1024 * 1024 * 1024;
+
+    /// <summary>Kept free beyond a folder's size when zipping it: a zip adds a little per file, and the server needs room to carry on.</summary>
+    private const long ZipHeadroomBytes = 100L * 1024 * 1024;
 
     /// <summary>Not real files: /proc/kcore alone reports over 100 TB.</summary>
     private static readonly HashSet<string> PseudoFileSystems = new(StringComparer.Ordinal) { "/proc", "/sys", "/dev" };
@@ -140,31 +143,7 @@ public sealed class SftpController(SftpDownloadLinks links, AuditLog audit) : Co
         try
         {
             using var client = await ConnectAsync(request, cancellationToken);
-            var size = 0L;
-            var complete = true;
-            var folders = new Stack<string>([Resolve(client, request.Path)]);
-            while (folders.TryPop(out var folder))
-            {
-                if (await ReadFolderAsync(client, folder, cancellationToken) is not { } files)
-                {
-                    complete = false;
-                    continue;
-                }
-
-                foreach (var file in files)
-                {
-                    if (file.IsDirectory)
-                    {
-                        folders.Push(file.FullName);
-                    }
-                    else if (file.IsRegularFile)
-                    {
-                        size += file.Length;
-                    }
-                }
-            }
-
-            return new SftpFolderSizeResponse(size, complete);
+            return await MeasureFolderAsync(client, Resolve(client, request.Path), cancellationToken);
         }
         catch (Exception ex) when (ex is SessionException or HostKeyTrustRequiredException)
         {
@@ -172,18 +151,48 @@ public sealed class SftpController(SftpDownloadLinks links, AuditLog audit) : Co
         }
     }
 
-    /// <summary>A one-time link to download a file or folder (valid for a minute, for this user only).</summary>
+    /// <summary>
+    /// A one-time link to download a file or folder (valid for a minute, for this user only). A folder is
+    /// checked against the server's free space here, where the browser can show why it was refused.
+    /// </summary>
     [HttpPost("download-link")]
     [ProducesResponseType<SftpDownloadLinkResponse>(StatusCodes.Status200OK)]
-    public ActionResult<SftpDownloadLinkResponse> DownloadLink(SftpRequest request)
+    public async Task<ActionResult<SftpDownloadLinkResponse>> DownloadLink(SftpRequest request, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Path))
         {
             return Problem(statusCode: StatusCodes.Status400BadRequest, detail: "Choose a file or folder to download.");
         }
 
+        try
+        {
+            using var client = await ConnectAsync(request, cancellationToken);
+            var path = Resolve(client, request.Path);
+            if (client.GetAttributes(path).IsDirectory)
+            {
+                var folder = await MeasureFolderAsync(client, path, cancellationToken);
+                var free = tempSpace.AvailableBytes;
+                if (folder.Size + ZipHeadroomBytes > free)
+                {
+                    throw new SessionException(
+                        SessionErrorCodes.FileOperationFailed,
+                        $"{path} is too big to zip: it holds {Megabytes(folder.Size)} and the NKeeper server has {Megabytes(free)} free. Download smaller folders.");
+                }
+            }
+        }
+        catch (Exception ex) when (ex is SessionException or HostKeyTrustRequiredException)
+        {
+            return this.SessionFailure(ex as SessionException ?? TrustFirst());
+        }
+        catch (SshException ex)
+        {
+            return this.SessionFailure(Translate(ex, request.Path));
+        }
+
         return new SftpDownloadLinkResponse($"/api/sftp/download/{links.Create(User.GetUserId(), request)}");
     }
+
+    private static string Megabytes(long bytes) => $"{bytes / (1024 * 1024):N0} MB";
 
     [HttpGet("download/{token}")]
     public async Task<IActionResult> Download(string token, CancellationToken cancellationToken)
@@ -448,6 +457,43 @@ public sealed class SftpController(SftpDownloadLinks links, AuditLog audit) : Co
         return await SshCommandConnection.ConnectSftpAsync(target, request.TrustFingerprint, User.GetUserId(), services.GetRequiredService<TrustedKeyStore>(), cancellationToken);
     }
 
+    /// <summary>The bytes in the files below a folder that can be read.</summary>
+    private static async Task<SftpFolderSizeResponse> MeasureFolderAsync(SftpClient client, string path, CancellationToken cancellationToken)
+    {
+        var size = 0L;
+        var complete = true;
+        var folders = new Stack<string>([path]);
+        try
+        {
+            while (folders.TryPop(out var folder))
+            {
+                if (await ReadFolderAsync(client, folder, cancellationToken) is not { } files)
+                {
+                    complete = false;
+                    continue;
+                }
+
+                foreach (var file in files)
+                {
+                    if (file.IsDirectory)
+                    {
+                        folders.Push(file.FullName);
+                    }
+                    else if (file.IsRegularFile)
+                    {
+                        size += file.Length;
+                    }
+                }
+            }
+        }
+        catch (SshException ex)
+        {
+            throw Translate(ex, path);
+        }
+
+        return new SftpFolderSizeResponse(size, complete);
+    }
+
     /// <summary>What's in a folder, or null if it can't be read or isn't real files. A lost connection still throws.</summary>
     private static async Task<List<ISftpFile>?> ReadFolderAsync(SftpClient client, string folder, CancellationToken cancellationToken)
     {
@@ -542,6 +588,12 @@ public sealed class SftpController(SftpDownloadLinks links, AuditLog audit) : Co
         a.OwnerCanRead ? 'r' : '-', a.OwnerCanWrite ? 'w' : '-', a.OwnerCanExecute ? 'x' : '-',
         a.GroupCanRead ? 'r' : '-', a.GroupCanWrite ? 'w' : '-', a.GroupCanExecute ? 'x' : '-',
         a.OthersCanRead ? 'r' : '-', a.OthersCanWrite ? 'w' : '-', a.OthersCanExecute ? 'x' : '-');
+}
+
+/// <summary>The free space where folder downloads are zipped.</summary>
+public class SftpTempSpace
+{
+    public virtual long AvailableBytes => new DriveInfo(System.IO.Path.GetTempPath()).AvailableFreeSpace;
 }
 
 /// <summary>

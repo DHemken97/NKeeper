@@ -5,7 +5,9 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Api.Controllers;
 using NKeeper.Api.Tests.Infrastructure;
 
 namespace NKeeper.Api.Tests;
@@ -15,6 +17,7 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
 
+    private readonly FakeTempSpace _tempSpace = new();
     private NKeeperApiFactory _factory = null!;
     private HttpClient _admin = null!;
     private HostResponse _host = null!;
@@ -25,7 +28,9 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
     public async ValueTask InitializeAsync()
     {
         ssh.SkipIfUnavailable();
-        _factory = new NKeeperApiFactory(await postgres.CreateDatabaseAsync(Ct));
+        _factory = new NKeeperApiFactory(
+            await postgres.CreateDatabaseAsync(Ct),
+            configureServices: services => services.AddSingleton<SftpTempSpace>(_tempSpace));
         _admin = await _factory.CreateSignedInClientAsync(Ct);
         var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
         {
@@ -159,6 +164,30 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
         }
 
         Assert.Empty(Directory.EnumerateFiles(Path.GetTempPath(), "nkeeper-sftp-*.zip"));
+    }
+
+    [Fact]
+    public async Task Folders_TooBigForTheServersFreeSpace_AreRefusedBeforeZipping()
+    {
+        await UploadAsync("top.txt", "12345");
+        _tempSpace.Bytes = 50L * 1024 * 1024;
+
+        var refused = await PostAsync("download-link", new { path = _folder });
+        Assert.False(refused.IsSuccessStatusCode);
+        Assert.Contains("too big to zip", await refused.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+
+        // A single file isn't zipped, so it doesn't depend on the space.
+        Assert.Equal("12345", await DownloadAsync($"{_folder}/top.txt"));
+
+        _tempSpace.Bytes = 200L * 1024 * 1024;
+        Assert.True((await _admin.GetAsync(await LinkAsync(_folder), Ct)).IsSuccessStatusCode);
+    }
+
+    private sealed class FakeTempSpace : SftpTempSpace
+    {
+        public long Bytes { get; set; } = long.MaxValue;
+
+        public override long AvailableBytes => Bytes;
     }
 
     private async Task<JsonElement> ListAsync(string? path, string? trust = null)

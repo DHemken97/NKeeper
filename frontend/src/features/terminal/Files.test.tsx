@@ -193,6 +193,23 @@ describe('files (SFTP)', () => {
     click.mockRestore()
   })
 
+  it('says why a folder is too big to zip, and starts no download', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const { user } = renderWorkspace({
+      'POST /api/sftp/list': () => jsonResponse(200, home),
+      'POST /api/sftp/folder-size': () => jsonResponse(200, { size: 0, complete: true }),
+      'POST /api/sftp/download-link': () => jsonResponse(400, { title: 'Bad Request', status: 400, detail: '/root/logs is too big to zip.' }),
+    })
+
+    const panel = await openFiles(user)
+    const row = (await within(panel).findByRole('button', { name: /logs/ })).closest('tr')!
+    await user.click(within(row).getByRole('button', { name: 'Download' }))
+
+    expect(await within(panel).findByText('/root/logs is too big to zip.')).toBeInTheDocument()
+    expect(click).not.toHaveBeenCalled()
+    click.mockRestore()
+  })
+
   it('offers to replace a file that already exists, and re-uploads with overwrite', async () => {
     const overwrites: (string | null)[] = []
     const { user } = renderWorkspace({

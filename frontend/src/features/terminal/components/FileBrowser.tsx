@@ -245,13 +245,18 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
   }
 
   async function download(entry: Entry) {
-    setBusy('Downloading')
+    // Checking that a big folder fits on the server can take a while, so it doesn't hold up the buttons.
+    const folder = entry.kind === 'directory'
+    if (folder) {
+      setNotice({ text: `Checking there’s room to zip ${entry.name}…`, error: false })
+    } else {
+      setBusy('Downloading')
+    }
     try {
       const { url } = await api.post<{ url: string }>('/api/sftp/download-link', { body: { ...login, path: entry.path } })
       // The browser streams the file to disk from a one-time link.
       const link = document.createElement('a')
       link.href = `${import.meta.env.VITE_API_BASE_URL ?? ''}${url}`
-      const folder = entry.kind === 'directory'
       link.download = folder ? `${entry.name}.zip` : entry.name
       link.click()
       if (folder) {
@@ -260,7 +265,9 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
     } catch (error) {
       setNotice({ text: error instanceof ApiError ? error.message : 'The download failed.', error: true })
     } finally {
-      setBusy(null)
+      if (!folder) {
+        setBusy(null)
+      }
     }
   }
 
