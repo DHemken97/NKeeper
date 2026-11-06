@@ -58,7 +58,7 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
         await using (var seed = _source.Services.CreateAsyncScope())
         {
             var users = seed.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<NKeeper.Infrastructure.Identity.ApplicationUser>>();
-            Assert.True((await users.CreateAsync(new NKeeper.Infrastructure.Identity.ApplicationUser { UserName = "carol", Email = "carol@corp.example.com", IsDirectoryAccount = true, WorkspaceGroupBy = ["site", "role"], WorkspaceSort = "address" })).Succeeded);
+            Assert.True((await users.CreateAsync(new NKeeper.Infrastructure.Identity.ApplicationUser { UserName = "carol", Email = "carol@corp.example.com", IsDirectoryAccount = true, WorkspaceGroupBy = ["site", "role"], WorkspaceSort = "address", ColorScheme = "custom-a", CustomColorSchemes = """[{"id":"custom-a","name":"Ocean","background":"#001122","surface":"#112233","text":"#eeffff","accent":"#0088cc"}]""" })).Succeeded);
         }
 
         var bundle = await ExportAsync();
@@ -111,6 +111,8 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
         // Her saved workspace comes along too.
         Assert.Equal(["site", "role"], carol.WorkspaceGroupBy);
         Assert.Equal("address", carol.WorkspaceSort);
+        Assert.Equal("custom-a", carol.ColorScheme);
+        Assert.Contains("Ocean", carol.CustomColorSchemes, StringComparison.Ordinal);
         Assert.Null(carol.PasswordHash);
 
         // The old key ring stayed behind: the new instance has only its own keys.

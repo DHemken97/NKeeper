@@ -289,6 +289,8 @@ public sealed class AuthController(
             user.IsSingleSignOnAccount,
             signInAccount,
             user.WorkspaceGroupBy,
-            user.WorkspaceSort);
+            user.WorkspaceSort,
+            user.ColorScheme,
+            CustomColorScheme.Parse(user.CustomColorSchemes));
     }
 }

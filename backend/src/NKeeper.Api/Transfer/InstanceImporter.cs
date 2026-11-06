@@ -158,6 +158,8 @@ internal sealed class InstanceImporter(
                 TwoFactorEnabled = user.EmailTwoFactor,
                 WorkspaceGroupBy = [.. user.WorkspaceGroupBy ?? []],
                 WorkspaceSort = user.WorkspaceSort ?? "name",
+                ColorScheme = user.ColorScheme ?? "navy",
+                CustomColorSchemes = user.CustomColorSchemes ?? "[]",
                 CreatedAtUtc = user.CreatedAtUtc,
             });
 
