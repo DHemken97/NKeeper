@@ -37,7 +37,7 @@ public sealed record AuditQuery
     [StringLength(200)]
     public string? Q { get; init; }
 
-    /// <summary>"signin", "session", "host", "user", "transfer", "idrac", "storage", "migration", "files", "mssql", "oracle", "ase" or "rs".</summary>
+    /// <summary>"signin", "session", "host", "user", "transfer", "idrac", "storage", "eventlog", "migration", "files", "mssql", "oracle", "ase" or "rs".</summary>
     [StringLength(32)]
     public string? Category { get; init; }
 
@@ -153,6 +153,7 @@ public sealed class AuditController(NKeeperDbContext db) : ControllerBase
             "transfer" => "transfer.",
             "idrac" => "idrac.",
             "storage" => "storage.",
+            "eventlog" => "eventlog.",
             "migration" => "migration.",
             "files" => "sftp.",
             "mssql" => "mssql.",

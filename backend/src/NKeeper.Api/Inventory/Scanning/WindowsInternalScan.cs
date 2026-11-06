@@ -43,7 +43,8 @@ internal static class WindowsInternalScan
         }
     }
 
-    private static ScanFindings Query(SessionTarget target)
+    /// <summary>How to sign in to WMI on the target with its login.</summary>
+    internal static ConnectionOptions Options(SessionTarget target)
     {
         var options = new ConnectionOptions
         {
@@ -58,6 +59,12 @@ internal static class WindowsInternalScan
             options.Authority = $"ntlmdomain:{domain}";
         }
 
+        return options;
+    }
+
+    private static ScanFindings Query(SessionTarget target)
+    {
+        var options = Options(target);
         var notes = new List<string>();
         var cimv2 = Connect(target.Address, @"root\cimv2", options);
 
@@ -174,7 +181,7 @@ internal static class WindowsInternalScan
         return instances;
     }
 
-    private static ManagementScope Connect(string address, string path, ConnectionOptions options)
+    internal static ManagementScope Connect(string address, string path, ConnectionOptions options)
     {
         var host = address.Contains(':', StringComparison.Ordinal) ? $"[{address}]" : address;
         var scope = new ManagementScope($@"\\{host}\{path}", options);

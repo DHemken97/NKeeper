@@ -73,6 +73,9 @@ internal static class ApiServiceCollectionExtensions
         services.AddScoped<NKeeper.Api.Telnet.TelnetTerminalSession>();
         services.AddScoped<DesktopSession>();
         services.AddScoped<NKeeper.Api.Rpc.RpcSession>();
+        services.AddSingleton<NKeeper.Api.EventLogs.IEventLogReader>(_ => OperatingSystem.IsWindows()
+            ? new NKeeper.Api.EventLogs.WindowsEventLogReader()
+            : new NKeeper.Api.EventLogs.ImpacketEventLogReader());
         services.AddSingleton<SessionLimiter>();
         services.AddHttpContextAccessor();
         services.AddOptions<NKeeper.Api.Auditing.AuditSettings>()

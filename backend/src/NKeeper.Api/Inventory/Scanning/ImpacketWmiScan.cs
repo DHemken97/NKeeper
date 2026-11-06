@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using NKeeper.Api.Contracts.Inventory;
 using NKeeper.Api.RemoteSessions;
@@ -13,69 +12,17 @@ internal static class ImpacketWmiScan
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
-    public static async Task<ScanFindings> RunAsync(SessionTarget target, CancellationToken cancellationToken)
+    public static async Task<ScanFindings> RunAsync(SessionTarget target, CancellationToken cancellationToken) =>
+        Parse(target, await ImpacketHelper.RunAsync(
+            Path.Combine("Inventory", "Scanning", "wmi_scan.py"),
+            new { host = target.Address, username = target.Username, password = target.Password, domain = target.Domain },
+            Timeout,
+            "Scanning Windows hosts needs Python with Impacket (set NKEEPER_WMI_PYTHON), or the API running on Windows.",
+            "The host didn't finish the scan in time.",
+            cancellationToken));
+
+    private static ScanFindings Parse(SessionTarget target, JsonElement root)
     {
-        var python = Environment.GetEnvironmentVariable("NKEEPER_WMI_PYTHON") is { Length: > 0 } configured ? configured : "/opt/impacket/bin/python3";
-        var start = new ProcessStartInfo(python)
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "Inventory", "Scanning", "wmi_scan.py"));
-
-        using var process = new Process { StartInfo = start };
-        try
-        {
-            process.Start();
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or FileNotFoundException)
-        {
-            throw new SessionException(SessionErrorCodes.ConnectionFailed, "Scanning Windows hosts needs Python with Impacket (set NKEEPER_WMI_PYTHON), or the API running on Windows.");
-        }
-
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(Timeout);
-        try
-        {
-            await JsonSerializer.SerializeAsync(
-                process.StandardInput.BaseStream,
-                new { host = target.Address, username = target.Username, password = target.Password, domain = target.Domain },
-                cancellationToken: timeout.Token);
-            process.StandardInput.Close();
-
-            var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
-            var errors = process.StandardError.ReadToEndAsync(timeout.Token);
-            await process.WaitForExitAsync(timeout.Token);
-            return Parse(target, await output, process.ExitCode, await errors);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            process.Kill(entireProcessTree: true);
-            throw new SessionException(SessionErrorCodes.Timeout, "The host didn't finish the scan in time.");
-        }
-    }
-
-    private static ScanFindings Parse(SessionTarget target, string output, int exitCode, string errors)
-    {
-        JsonElement root;
-        try
-        {
-            root = JsonDocument.Parse(output).RootElement;
-        }
-        catch (JsonException)
-        {
-            throw new SessionException(SessionErrorCodes.ConnectionFailed, $"The WMI helper failed: {errors.Trim()}");
-        }
-
-        if (exitCode != 0 || root.TryGetProperty("error", out _))
-        {
-            var message = root.TryGetProperty("error", out var error) ? error.GetString() ?? "" : errors;
-            var code = root.TryGetProperty("kind", out var kind) && kind.GetString() == "auth" ? SessionErrorCodes.AuthenticationFailed : SessionErrorCodes.ConnectionFailed;
-            throw new SessionException(code, message);
-        }
-
         var notes = root.GetProperty("notes").EnumerateArray().Select(n => n.GetString()!).ToList();
         var system = Rows(root, "system").FirstOrDefault();
         var os = Rows(root, "os").FirstOrDefault();
@@ -121,7 +68,7 @@ internal static class ImpacketWmiScan
                 Number(i, "enabled") is not 0))];
 
     /// <summary>A WMI number: Impacket gives 64-bit values (uint64 in WMI) as strings, smaller ones as numbers.</summary>
-    private static ulong? Number(JsonElement item, string property) =>
+    internal static ulong? Number(JsonElement item, string property) =>
         item.ValueKind == JsonValueKind.Object && item.TryGetProperty(property, out var value)
             ? value.ValueKind == JsonValueKind.Number && value.TryGetUInt64(out var number) ? number
             : value.ValueKind == JsonValueKind.String && ulong.TryParse(value.GetString(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? parsed
@@ -134,6 +81,6 @@ internal static class ImpacketWmiScan
 
     private static readonly JsonElement EmptyArray = JsonDocument.Parse("[]").RootElement;
 
-    private static string? Text(JsonElement item, string property) =>
+    internal static string? Text(JsonElement item, string property) =>
         item.ValueKind == JsonValueKind.Object && item.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text ? text.Trim() : null;
 }
