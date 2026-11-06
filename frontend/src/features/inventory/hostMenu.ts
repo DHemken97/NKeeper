@@ -22,8 +22,8 @@ export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https', 'Proxmox
 /** What an iDRAC service opens: its HTML5 virtual console, the server's status and power, or RACADM (its SSH command line). */
 export type IdracMode = 'console' | 'overview' | 'racadm'
 
-/** What a connection opens: an iDRAC's console, status or RACADM, or an SSH service's files (SFTP) or storage (iSCSI, multipath, DRBD). */
-export type ConnectMode = IdracMode | 'files' | 'storage'
+/** What a connection opens: an iDRAC's console, status or RACADM, an SSH service's files (SFTP) or storage (iSCSI, multipath, DRBD), or an RPC service's event logs. */
+export type ConnectMode = IdracMode | 'files' | 'storage' | 'eventlog'
 
 /**
  * Services that open a tool rather than a plain client session: a KVM host's VM list, and SQL Server.
@@ -180,8 +180,9 @@ function guestConsoleEntries(host: Host, actions: Pick<HostMenuActions, 'guests'
 }
 
 /**
- * Connect ▸ Tools: Files (SFTP) and Storage (iSCSI, multipath, DRBD) on an SSH service, a KVM host's
- * VMs, MS SQL ▸ instance, Oracle ▸ service name, SAP ASE and Replication Server; each then ▸ login (or ▸ service ▸ login when there are several).
+ * Connect ▸ Tools: Files (SFTP) and Storage (iSCSI, multipath, DRBD) on an SSH service, the Event Log
+ * Viewer on an RPC service, a KVM host's VMs, MS SQL ▸ instance, Oracle ▸ service name, SAP ASE and
+ * Replication Server; each then ▸ login (or ▸ service ▸ login when there are several).
  */
 function toolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
   const of = (protocol: ServiceProtocol) => host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === protocol)
@@ -192,6 +193,7 @@ function toolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'con
   const rs = of('RepServer')
   return [
     ...sshToolEntries(host, actions),
+    ...eventLogEntries(host, actions),
     ...(kvm.length === 0
       ? []
       : [
@@ -298,6 +300,28 @@ function sshToolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | '
         : ssh.map(({ service, index }) => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions, mode) })),
   })
   return [entry('files', 'Files', 'SFTP'), entry('storage', 'Storage', 'iSCSI · multipath · DRBD')]
+}
+
+/** Event Log Viewer ▸ login, or ▸ RPC service ▸ login when there are several; none without an RPC service. */
+function eventLogEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
+  const rpc = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Rpc')
+  if (rpc.length === 0) {
+    return []
+  }
+  if (host.jumpHostId) {
+    return [{ kind: 'item', label: 'Event Log Viewer', detail: 'Not through a jump host yet', disabled: true }]
+  }
+  return [
+    {
+      kind: 'item',
+      label: 'Event Log Viewer',
+      detail: 'Windows',
+      submenu:
+        rpc.length === 1
+          ? loginEntries(host, rpc[0].index, actions, 'eventlog')
+          : rpc.map(({ service, index }) => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions, 'eventlog') })),
+    },
+  ]
 }
 
 export function serviceLabel(service: HostService): string {
