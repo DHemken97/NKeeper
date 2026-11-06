@@ -41,7 +41,7 @@ public sealed class StorageServerFixture : IAsyncLifetime
                 .Build();
             await _container.StartAsync();
 
-            foreach (var tool in new[] { "iscsiadm", "multipath", "drbdadm", "drbdsetup" })
+            foreach (var tool in new[] { "iscsiadm", "multipath", "multipathd", "drbdadm", "drbdsetup" })
             {
                 await _container.CopyAsync(
                     await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Storage", $"fake-{tool}.sh")), $"/usr/local/bin/{tool}", fileMode: Executable);

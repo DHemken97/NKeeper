@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NKeeper.Api.Access;
 using NKeeper.Api.Auditing;
+using NKeeper.Api.Diagnostics;
 using NKeeper.Api.RemoteSessions;
 using NKeeper.Api.Security;
 using NKeeper.Api.Ssh;
@@ -61,7 +62,7 @@ public sealed record StorageResponse(string Status, StorageStatus? Storage, Host
 [ApiController]
 [Authorize]
 [Route("api/storage")]
-public sealed class StorageController(AuditLog audit) : ControllerBase
+public sealed class StorageController(AuditLog audit, DiagnosticsLog diagnostics) : ControllerBase
 {
     private const int DefaultSshPort = 22;
 
@@ -133,7 +134,29 @@ public sealed class StorageController(AuditLog audit) : ControllerBase
         }
         catch (SessionException ex)
         {
+            if (request is StorageActionRequest failed && ex.Code is SessionErrorCodes.ConnectionFailed or SessionErrorCodes.Timeout)
+            {
+                RecordFailure(failed, ex);
+            }
+
             return this.SessionFailure(ex);
         }
+    }
+
+    /// <summary>Why the host refused an action, for the diagnostics file; what it acted on becomes tokens, as they can name servers.</summary>
+    private void RecordFailure(StorageActionRequest request, SessionException ex)
+    {
+        if (!diagnostics.Enabled)
+        {
+            return;
+        }
+
+        var message = ex.Message;
+        foreach (var value in new[] { request.Name, request.NewName?.Trim(), request.Target?.Trim(), request.Portal }.Where(v => !string.IsNullOrEmpty(v)))
+        {
+            message = message.Replace(value!, diagnostics.Redactor.Token("name", value!), StringComparison.Ordinal);
+        }
+
+        diagnostics.RecordError("storage", "Warning", diagnostics.Redactor.Redact(message), null, null, new { action = request.Action });
     }
 }

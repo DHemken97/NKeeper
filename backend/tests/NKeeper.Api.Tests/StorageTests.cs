@@ -2,7 +2,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Api.Diagnostics;
 using NKeeper.Api.Storage;
 using NKeeper.Api.Tests.Infrastructure;
 
@@ -272,13 +274,48 @@ public sealed class StorageTests(PostgresServerFixture postgres, StorageServerFi
     }
 
     [Theory]
-    [InlineData("refuse-reload", "device or resource busy")]
+    [InlineData("daemon-only")]
+    [InlineData("reload-errors")]
+    public async Task Multipath_RenameIsJudgedByTheMapsName_NotByWhichToolAppliedIt(string behaviour)
+    {
+        var host = await CreateTrustedHostAsync();
+        Assert.Equal(0, await san.ExecAsync($"touch /var/lib/fake-multipath/{behaviour}"));
+
+        var renamed = await RenameAsync(host, "mpatha", "db01");
+
+        Assert.Contains(Storage(renamed).Multipath!, m => m.Name == "db01");
+        Assert.Equal(0, await san.ExecAsync("grep -q 'alias db01' /etc/multipath/conf.d/nkeeper-alias-36001405aaaaaaaaaaaaaaaaaaaaaaaaa.conf"));
+    }
+
+    [Fact]
+    public async Task AFailedAction_IsInTheDiagnosticsFile_WithoutWhatItActedOn()
+    {
+        var diagnostics = _factory.Services.GetRequiredService<DiagnosticsLog>();
+        diagnostics.Update(enabled: true, DiagnosticsLog.MinMegabytes);
+        var host = await CreateTrustedHostAsync();
+        Assert.Equal(0, await san.ExecAsync("cd /var/lib/fake-multipath && touch refuse-reload daemon-down"));
+
+        Assert.Equal(HttpStatusCode.BadGateway, (await RenameResponseAsync(host, "mpatha", "db01")).StatusCode);
+
+        diagnostics.Status();
+        using var file = new FileStream(
+            Path.Combine(_factory.DiagnosticsDirectory, DiagnosticsLog.CurrentFileName), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(file);
+        var error = (await reader.ReadToEndAsync(Ct)).Split('\n').Single(line => line.Contains("\"area\":\"storage\"", StringComparison.Ordinal));
+        Assert.Contains("device or resource busy", error, StringComparison.Ordinal);
+        Assert.Contains(StorageActions.MultipathRename, error, StringComparison.Ordinal);
+        Assert.DoesNotContain("mpatha", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("db01", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("refuse-reload daemon-down", "device or resource busy")]
     [InlineData("ignore-aliases", "didn't take the new name")]
-    public async Task Multipath_PutsTheConfigurationBack_WhenARenameDoesntTakeEffect(string fault, string message)
+    public async Task Multipath_PutsTheConfigurationBack_WhenARenameDoesntTakeEffect(string faults, string message)
     {
         var host = await CreateTrustedHostAsync();
         const string Before = "printf 'multipaths {\\n\\tmultipath {\\n\\t\\twwid 36001405aaaaaaaaaaaaaaaaaaaaaaaaa\\n\\t\\talias mpatha\\n\\t}\\n}\\n'";
-        Assert.Equal(0, await san.ExecAsync($"{Before} > /etc/multipath.conf && touch /var/lib/fake-multipath/{fault}"));
+        Assert.Equal(0, await san.ExecAsync($"{Before} > /etc/multipath.conf && cd /var/lib/fake-multipath && touch {faults}"));
 
         var edited = await RenameResponseAsync(host, "mpatha", "db01");
         Assert.Equal(HttpStatusCode.BadGateway, edited.StatusCode);

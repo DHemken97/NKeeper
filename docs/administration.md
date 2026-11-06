@@ -307,13 +307,13 @@ Secrets are never logged. These are application logs; for who did what, use the 
 
 **What it holds** (one JSON object per line):
 - **Start and stop:** the version, kind of install, OS and which features are on. A start with no stop before it means NKeeper crashed.
-- **Errors:** the API's warnings and errors, and errors the browser didn't handle, with stack traces. The same error is written once a day, then counted.
+- **Errors:** the API's warnings and errors, errors the browser didn't handle, with stack traces, and why a host refused a storage action. The same error is written once a day, then counted.
 - **Usage, daily and at shutdown:** for each API route, how many uses and users, errors and response times. For each session protocol, how many connected and failed, why, and for how long.
 - **Hourly:** memory, the file's size, and the database's size, largest tables and numbers of hosts and users.
 
 **What it leaves out:** stored passwords and keys, recordings, terminal commands and output, SQL text and results, file names and contents, and which user did what. Log messages keep only their template and numbers, not their text values. Requests are counted by route, without the values in the URL.
 
-**Redaction:** an exception's message, a browser error and a session's failure reason are free text, so names, addresses, accounts and paths are replaced with tokens such as `host-1a2b3c4d`, and anything that looks like a secret is removed. The same value always gets the same token, using a key in `state.json` that's never in the download, so you can see that one host keeps failing without seeing which. Redaction can miss something, so **check the file before sharing it** with anyone outside your organization.
+**Redaction:** an exception's message, a browser error and the failure reason of a session or storage action are free text, so names, addresses, accounts and paths are replaced with tokens such as `host-1a2b3c4d`, and anything that looks like a secret is removed. The same value always gets the same token, using a key in `state.json` that's never in the download, so you can see that one host keeps failing without seeing which. Redaction can miss something, so **check the file before sharing it** with anyone outside your organization.
 
 **Size limit:** 200 MB by default (20 MB to 10 GB), split between a current and an older file. When the current one fills up it replaces the older one, so the oldest data goes first, and the page warns if that happened before a download. Lowering the limit can remove data straight away.
 
