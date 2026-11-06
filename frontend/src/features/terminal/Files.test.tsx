@@ -166,6 +166,56 @@ describe('files (SFTP)', () => {
     expect(signals[0].aborted).toBe(true)
   })
 
+  it('sorts by name, size and modified', async () => {
+    const at = (item: ReturnType<typeof entry>, size: number, modifiedUtc: string) => ({ ...item, size, modifiedUtc })
+    const { user } = renderWorkspace({
+      'POST /api/sftp/list': () =>
+        jsonResponse(200, {
+          ...home,
+          entries: [
+            at(entry('alpha', 'directory'), 0, '2026-10-01T00:00:00Z'),
+            at(entry('pending', 'directory'), 0, '2026-10-03T00:00:00Z'),
+            at(entry('zeta', 'directory'), 0, '2026-10-02T00:00:00Z'),
+            at(entry('big.bin', 'file'), 5000, '2026-10-05T00:00:00Z'),
+            at(entry('small.txt', 'file'), 10, '2026-10-04T00:00:00Z'),
+          ],
+        }),
+      'POST /api/sftp/folder-size': (_url, init) => {
+        const { path } = JSON.parse(String(init.body))
+        return path === '/root/pending' ? new Promise<Response>(() => {}) : jsonResponse(200, { size: path === '/root/alpha' ? 100 : 9000, complete: true })
+      },
+    })
+
+    const panel = await openFiles(user)
+    await within(panel).findByRole('button', { name: /alpha/ })
+    await within(panel).findByText('8.8 KB')
+    const order = () =>
+      within(panel)
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => within(row).getAllByRole('cell')[0].textContent!.replace(/^\S+\s/, ''))
+    const header = (name: string) => within(panel).getByRole('columnheader', { name: new RegExp(name) })
+    const sortBy = (name: string) => user.click(within(header(name)).getByRole('button'))
+
+    // Folders first, A to Z.
+    expect(order()).toEqual(['alpha', 'pending', 'zeta', 'big.bin', 'small.txt'])
+    expect(header('Name')).toHaveAttribute('aria-sort', 'ascending')
+    await sortBy('Name')
+    expect(order()).toEqual(['zeta', 'pending', 'alpha', 'small.txt', 'big.bin'])
+
+    // By size folders and files mix, biggest first, and a size still being worked out stays last.
+    await sortBy('Size')
+    expect(header('Size')).toHaveAttribute('aria-sort', 'descending')
+    expect(header('Name')).toHaveAttribute('aria-sort', 'none')
+    expect(order()).toEqual(['zeta', 'big.bin', 'alpha', 'small.txt', 'pending'])
+    await sortBy('Size')
+    expect(order()).toEqual(['small.txt', 'alpha', 'big.bin', 'zeta', 'pending'])
+
+    // Newest first, folders still on top.
+    await sortBy('Modified')
+    expect(order()).toEqual(['pending', 'zeta', 'alpha', 'big.bin', 'small.txt'])
+  })
+
   it('downloads a folder as a zip through a one-time link', async () => {
     const clicked: { href: string; download: string }[] = []
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
