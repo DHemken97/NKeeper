@@ -1,10 +1,13 @@
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
 using NKeeper.Api.Contracts.Inventory;
+using NKeeper.Api.Controllers;
 using NKeeper.Api.Tests.Infrastructure;
 
 namespace NKeeper.Api.Tests;
@@ -14,6 +17,7 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
 
+    private readonly FakeTempSpace _tempSpace = new();
     private NKeeperApiFactory _factory = null!;
     private HttpClient _admin = null!;
     private HostResponse _host = null!;
@@ -24,7 +28,9 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
     public async ValueTask InitializeAsync()
     {
         ssh.SkipIfUnavailable();
-        _factory = new NKeeperApiFactory(await postgres.CreateDatabaseAsync(Ct));
+        _factory = new NKeeperApiFactory(
+            await postgres.CreateDatabaseAsync(Ct),
+            configureServices: services => services.AddSingleton<SftpTempSpace>(_tempSpace));
         _admin = await _factory.CreateSignedInClientAsync(Ct);
         var response = await _admin.SendJsonAsync(HttpMethod.Post, "/api/hosts", new
         {
@@ -110,6 +116,89 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
         Assert.Equal(HttpStatusCode.NotFound, (await _admin.GetAsync(fresh, Ct)).StatusCode);
     }
 
+    [Fact]
+    public async Task FolderSize_AddsUpTheFilesBelowIt()
+    {
+        await UploadAsync("top.txt", "12345");
+        var inner = $"{_folder}/inner";
+        Assert.Equal(HttpStatusCode.OK, (await PostAsync("mkdir", new { path = inner })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await UploadAsync("nested.txt", "1234567", directory: inner)).StatusCode);
+
+        var size = await PostAsync("folder-size", new { path = _folder });
+        Assert.True(size.IsSuccessStatusCode, await size.Content.ReadAsStringAsync(Ct));
+        var body = await size.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        Assert.Equal((12L, true), (body.GetProperty("size").GetInt64(), body.GetProperty("complete").GetBoolean()));
+
+        // A folder that isn't there is an error, not an empty folder.
+        Assert.False((await PostAsync("folder-size", new { path = $"{_folder}/missing" })).IsSuccessStatusCode);
+    }
+
+    [Fact]
+    public async Task Folders_DownloadAsAZip_MadeInTemp_AuditedByTheirRealPath_ThenRemoved()
+    {
+        await UploadAsync("top.txt", "12345");
+        var inner = $"{_folder}/inner";
+        var empty = $"{_folder}/empty";
+        Assert.Equal(HttpStatusCode.OK, (await PostAsync("mkdir", new { path = inner })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await PostAsync("mkdir", new { path = empty })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await UploadAsync("nested.txt", "1234567", directory: inner)).StatusCode);
+
+        using var response = await _admin.GetAsync(await LinkAsync(_folder), Ct);
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("application/zip", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal($"{Path.GetFileName(_folder)}.zip", response.Content.Headers.ContentDisposition?.FileName?.Trim('"'));
+
+        using var zip = new ZipArchive(new MemoryStream(await response.Content.ReadAsByteArrayAsync(Ct)));
+        Assert.Equal(["empty/", "inner/nested.txt", "top.txt"], zip.Entries.Select(e => e.FullName).Order(StringComparer.Ordinal));
+        using var nested = new StreamReader(zip.GetEntry("inner/nested.txt")!.Open());
+        Assert.Equal("1234567", await nested.ReadToEndAsync(Ct));
+
+        var audit = await _admin.GetFromJsonAsync<JsonElement>("/api/audit/events?category=files&limit=50", Ct);
+        var download = audit.GetProperty("events").EnumerateArray().First(e => e.GetProperty("action").GetString() == "sftp.download");
+        Assert.Equal($"{_folder} (folder, 12 bytes)", download.GetProperty("detail").GetString());
+
+        // The zip goes once the response has ended.
+        for (var attempt = 0; attempt < 50 && Directory.EnumerateFiles(Path.GetTempPath(), "nkeeper-sftp-*.zip").Any(); attempt++)
+        {
+            await Task.Delay(100, Ct);
+        }
+
+        Assert.Empty(Directory.EnumerateFiles(Path.GetTempPath(), "nkeeper-sftp-*.zip"));
+    }
+
+    [Fact]
+    public async Task Folders_TooBigForTheServersFreeSpace_AreRefusedBeforeZipping()
+    {
+        const long gigabyte = 1024L * 1024 * 1024;
+        await UploadAsync("top.txt", "12345");
+
+        // 5 GB is kept free by default.
+        _tempSpace.Bytes = 5 * gigabyte;
+        var refused = await PostAsync("download-link", new { path = _folder });
+        Assert.False(refused.IsSuccessStatusCode);
+        Assert.Contains("too big to zip", await refused.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+
+        // A single file isn't zipped, so it doesn't depend on the space.
+        Assert.Equal("12345", await DownloadAsync($"{_folder}/top.txt"));
+
+        _tempSpace.Bytes = 6 * gigabyte;
+        Assert.True((await _admin.GetAsync(await LinkAsync(_folder), Ct)).IsSuccessStatusCode);
+
+        // The amount kept free comes from Settings.
+        (await _admin.SendJsonAsync(HttpMethod.Put, "/api/admin/limits", new { zipReserveGigabytes = 7 }, Ct)).EnsureSuccessStatusCode();
+        Assert.False((await PostAsync("download-link", new { path = _folder })).IsSuccessStatusCode);
+        (await _admin.SendJsonAsync(HttpMethod.Put, "/api/admin/limits", new { zipReserveGigabytes = 1 }, Ct)).EnsureSuccessStatusCode();
+        _tempSpace.Bytes = 2 * gigabyte;
+        Assert.True((await PostAsync("download-link", new { path = _folder })).IsSuccessStatusCode);
+    }
+
+    private sealed class FakeTempSpace : SftpTempSpace
+    {
+        public long Bytes { get; set; } = long.MaxValue;
+
+        public override long AvailableBytes => Bytes;
+    }
+
     private async Task<JsonElement> ListAsync(string? path, string? trust = null)
     {
         var response = await PostAsync("list", new { path, trustFingerprint = trust });
@@ -134,7 +223,7 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
 
     private async Task<string> DownloadAsync(string path) => await _admin.GetStringAsync(await LinkAsync(path), Ct);
 
-    private async Task<HttpResponseMessage> UploadAsync(string name, string content, bool overwrite = false)
+    private async Task<HttpResponseMessage> UploadAsync(string name, string content, bool overwrite = false, string? directory = null)
     {
         var token = await _admin.GetAntiforgeryTokenAsync(Ct);
         using var form = new MultipartFormDataContent
@@ -142,7 +231,7 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
             { new StringContent(_host.Id.ToString()), "hostId" },
             { new StringContent("0"), "serviceIndex" },
             { new StringContent(_host.Credentials[0].Id.ToString()), "credentialId" },
-            { new StringContent(_folder), "directory" },
+            { new StringContent(directory ?? _folder), "directory" },
             { new StringContent(overwrite ? "true" : "false"), "overwrite" },
             { new ByteArrayContent(Encoding.UTF8.GetBytes(content)) { Headers = { ContentType = new MediaTypeHeaderValue("text/plain") } }, "files", name },
         };

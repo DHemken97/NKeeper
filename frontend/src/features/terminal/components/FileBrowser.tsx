@@ -31,6 +31,14 @@ interface ListResponse {
   hostKey: HostKeyPrompt | null
 }
 
+interface FolderSize {
+  size: number
+  complete: boolean
+}
+
+/** Folders whose sizes are worked out at once; each one is its own connection to the host. */
+const FOLDER_SIZE_WORKERS = 3
+
 const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 function formatSize(bytes: number): string {
@@ -42,6 +50,21 @@ function formatSize(bytes: number): string {
     unit++
   }
   return `${unit === 0 ? value : value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`
+}
+
+/** undefined while it's being worked out, null when it couldn't be. */
+function FolderSizeText({ size }: { size: FolderSize | null | undefined }) {
+  if (size === undefined) {
+    return <span className={styles.pending}>Calculating…</span>
+  }
+  if (size === null || (!size.complete && size.size === 0)) {
+    return (
+      <span className={styles.pending} title="This folder’s size couldn’t be worked out.">
+        —
+      </span>
+    )
+  }
+  return size.complete ? <>{formatSize(size.size)}</> : <span title="Part of this folder couldn’t be read, so it’s at least this big.">≥ {formatSize(size.size)}</span>
 }
 
 /**
@@ -59,6 +82,7 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
   const [deleting, setDeleting] = useState<Entry | null>(null)
   const [newFolder, setNewFolder] = useState<string | null>(null)
   const [conflict, setConflict] = useState<File[] | null>(null)
+  const [folderSizes, setFolderSizes] = useState<Record<string, FolderSize | null>>({})
   const trustRef = useRef<string | undefined>(undefined)
   const uploadRef = useRef<HTMLInputElement>(null)
   const target = session.title
@@ -117,6 +141,28 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
     // `listing` is read only to decide how to show an error.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.request, path, attempt, target])
+
+  // Folder sizes fill in behind the listing, which never waits for them. A size already known stays
+  // shown until its new one arrives; moving on stops whatever is left.
+  useEffect(() => {
+    const queue = listing?.entries.filter((entry) => entry.kind === 'directory').map((entry) => entry.path) ?? []
+    const controller = new AbortController()
+    const { signal } = controller
+    async function work() {
+      for (let folder = queue.shift(); folder !== undefined && !signal.aborted; folder = queue.shift()) {
+        const found = await api.post<FolderSize>('/api/sftp/folder-size', { body: { ...login, path: folder }, signal }).catch(() => null)
+        if (!signal.aborted) {
+          setFolderSizes((sizes) => ({ ...sizes, [folder]: found }))
+        }
+      }
+    }
+    for (let worker = 0; worker < FOLDER_SIZE_WORKERS; worker++) {
+      void work()
+    }
+    return () => controller.abort()
+    // `login` comes from the same session as the listing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listing])
 
   function open(next: string | null) {
     setNotice(null)
@@ -199,18 +245,29 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
   }
 
   async function download(entry: Entry) {
-    setBusy('Downloading')
+    // Checking that a big folder fits on the server can take a while, so it doesn't hold up the buttons.
+    const folder = entry.kind === 'directory'
+    if (folder) {
+      setNotice({ text: `Checking there’s room to zip ${entry.name}…`, error: false })
+    } else {
+      setBusy('Downloading')
+    }
     try {
       const { url } = await api.post<{ url: string }>('/api/sftp/download-link', { body: { ...login, path: entry.path } })
       // The browser streams the file to disk from a one-time link.
       const link = document.createElement('a')
       link.href = `${import.meta.env.VITE_API_BASE_URL ?? ''}${url}`
-      link.download = entry.name
+      link.download = folder ? `${entry.name}.zip` : entry.name
       link.click()
+      if (folder) {
+        setNotice({ text: `Zipping ${entry.name}. The download starts when it’s ready; you can keep working.`, error: false })
+      }
     } catch (error) {
       setNotice({ text: error instanceof ApiError ? error.message : 'The download failed.', error: true })
     } finally {
-      setBusy(null)
+      if (!folder) {
+        setBusy(null)
+      }
     }
   }
 
@@ -357,7 +414,7 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
                           <span>📄 {entry.name}</span>
                         )}
                       </td>
-                      <td>{entry.kind === 'directory' ? '' : formatSize(entry.size)}</td>
+                      <td>{entry.kind === 'directory' ? <FolderSizeText size={folderSizes[entry.path]} /> : formatSize(entry.size)}</td>
                       <td>{timeFormat.format(new Date(entry.modifiedUtc))}</td>
                       <td className={styles.mono}>{entry.permissions}</td>
                       <td className={styles.rowActions}>
@@ -379,7 +436,7 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
                           </>
                         ) : (
                           <>
-                            {entry.kind === 'file' ? (
+                            {entry.kind === 'file' || entry.kind === 'directory' ? (
                               <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void download(entry)}>
                                 Download
                               </Button>

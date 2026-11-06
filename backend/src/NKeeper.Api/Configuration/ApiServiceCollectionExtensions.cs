@@ -88,6 +88,7 @@ internal static class ApiServiceCollectionExtensions
             .ValidateOnStart();
         services.AddSingleton<NKeeper.Api.Health.HostHealthChecker>();
         services.AddSingleton<Controllers.SftpDownloadLinks>();
+        services.AddSingleton<Controllers.SftpTempSpace>();
         services.AddHostedService<NKeeper.Api.Health.HealthMonitor>();
         services.AddOptions<WebProxySettings>()
             .Bind(configuration.GetSection(WebProxySettings.SectionName))

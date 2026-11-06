@@ -6,7 +6,7 @@ using NKeeper.Infrastructure.Persistence;
 namespace NKeeper.Infrastructure.Inventory;
 
 /// <summary>
-/// How much a host may hold, and how scans pre-select what they find, set by administrators on the Settings page.
+/// How much a host may hold, how scans pre-select what they find, and the disk space folder downloads leave free, set by administrators on the Settings page.
 /// A single row (<see cref="SingletonId"/>); until it's first saved, the defaults apply.
 /// </summary>
 public sealed class InventoryLimits
@@ -17,12 +17,14 @@ public sealed class InventoryLimits
     public const int DefaultMaxCredentialsPerHost = 100;
     public const int DefaultMaxTagsPerHost = 50;
     public const int DefaultScanUsersPreselectedUpTo = 10;
+    public const int DefaultZipReserveGigabytes = 5;
 
     /// <summary>The most a setting may be raised to: past these, the host editor and its requests get unwieldy.</summary>
     public const int CeilingServices = 1000;
     public const int CeilingCredentials = 1000;
     public const int CeilingTags = 500;
     public const int CeilingScanUsers = 1000;
+    public const int CeilingZipReserveGigabytes = 1000;
 
     public int Id { get; set; } = SingletonId;
 
@@ -37,6 +39,9 @@ public sealed class InventoryLimits
     /// (a server with many accounts rarely needs every one as a credential).
     /// </summary>
     public int ScanUsersPreselectedUpTo { get; set; } = DefaultScanUsersPreselectedUpTo;
+
+    /// <summary>A folder is only zipped for download if the server would still have this much free beyond the folder's size.</summary>
+    public int ZipReserveGigabytes { get; set; } = DefaultZipReserveGigabytes;
 
     public DateTimeOffset? UpdatedAtUtc { get; set; }
 

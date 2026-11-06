@@ -11,8 +11,8 @@ using NKeeper.Infrastructure.Persistence;
 namespace NKeeper.Api.Controllers;
 
 /// <summary>
-/// How much a host may hold and how scans pre-select what they find. Everyone signed in reads them (the host editor
-/// and scans follow them); administrators change them on the Settings page.
+/// How much a host may hold, how scans pre-select what they find, and the disk space folder downloads leave free.
+/// Everyone signed in reads them (the host editor and scans follow them); administrators change them on the Settings page.
 /// </summary>
 [ApiController]
 [Authorize]
@@ -38,6 +38,7 @@ public sealed class InventoryLimitsController(NKeeperDbContext db, TimeProvider 
         limits.MaxCredentialsPerHost = request.MaxCredentialsPerHost;
         limits.MaxTagsPerHost = request.MaxTagsPerHost;
         limits.ScanUsersPreselectedUpTo = request.ScanUsersPreselectedUpTo;
+        limits.ZipReserveGigabytes = request.ZipReserveGigabytes;
         limits.UpdatedAtUtc = timeProvider.GetUtcNow();
         limits.UpdatedByUserId = User.GetUserId();
         await db.SaveChangesAsync(cancellationToken);

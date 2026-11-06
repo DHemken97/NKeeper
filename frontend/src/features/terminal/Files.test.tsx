@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { routes } from '../../app/router'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
 import { AuthProvider } from '../auth/components/AuthProvider'
@@ -108,6 +108,106 @@ describe('files (SFTP)', () => {
     expect(await within(panel).findByText(/app\.log/)).toBeInTheDocument()
     expect(bodies[2]).toMatchObject({ path: '/root/logs', trustFingerprint: 'SHA256:abc' })
     expect(within(panel).getByRole('navigation', { name: 'Folder' })).toHaveTextContent('/root/logs')
+  })
+
+  it('shows the listing straight away and fills in folder sizes as they arrive', async () => {
+    let finish: (response: Response) => void = () => {}
+    const bodies: Record<string, unknown>[] = []
+    const { user } = renderWorkspace({
+      'POST /api/sftp/list': () =>
+        jsonResponse(200, { ...home, entries: [entry('logs', 'directory'), entry('secret', 'directory'), entry('huge', 'directory'), entry('gone', 'directory')] }),
+      'POST /api/sftp/folder-size': (_url, init) => {
+        const body = JSON.parse(String(init.body))
+        bodies.push(body)
+        switch (body.path) {
+          case '/root/logs':
+            return new Promise<Response>((resolve) => (finish = resolve))
+          case '/root/secret':
+            return jsonResponse(200, { size: 1024, complete: false })
+          case '/root/huge':
+            return jsonResponse(200, { size: 3 * 1024 * 1024, complete: true })
+          default:
+            return jsonResponse(400, { title: 'Bad Request', status: 400, detail: 'No.' })
+        }
+      },
+    })
+
+    const panel = await openFiles(user)
+    const row = async (name: string) => (await within(panel).findByRole('button', { name: new RegExp(name) })).closest('tr')!
+
+    // One slow folder holds up neither the others nor the buttons.
+    expect(within(await row('logs')).getByText('Calculating…')).toBeInTheDocument()
+    expect(await within(await row('huge')).findByText('3.0 MB')).toBeInTheDocument()
+    expect(await within(await row('secret')).findByText('≥ 1.0 KB')).toBeInTheDocument()
+    expect(await within(await row('gone')).findByText('—')).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: 'Upload' })).toBeEnabled()
+    expect(bodies[0]).toMatchObject({ hostId: 'h-app01', credentialId: 'c-root', path: '/root/logs' })
+
+    finish(jsonResponse(200, { size: 0, complete: true }))
+    expect(await within(await row('logs')).findByText('0 B')).toBeInTheDocument()
+  })
+
+  it('stops working out folder sizes when another folder is opened', async () => {
+    const signals: AbortSignal[] = []
+    const { user } = renderWorkspace({
+      'POST /api/sftp/list': (_url, init) =>
+        jsonResponse(200, JSON.parse(String(init.body)).path === '/root/logs' ? { ...home, path: '/root/logs', parent: '/root', entries: [] } : home),
+      'POST /api/sftp/folder-size': (_url, init) => {
+        signals.push(init.signal!)
+        return new Promise<Response>(() => {})
+      },
+    })
+
+    const panel = await openFiles(user)
+    await user.click(await within(panel).findByRole('button', { name: /logs/ }))
+
+    await within(panel).findByText('This folder is empty.')
+    expect(signals).toHaveLength(1)
+    expect(signals[0].aborted).toBe(true)
+  })
+
+  it('downloads a folder as a zip through a one-time link', async () => {
+    const clicked: { href: string; download: string }[] = []
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push({ href: this.href, download: this.download })
+    })
+    let body: Record<string, unknown> | undefined
+    const { user } = renderWorkspace({
+      'POST /api/sftp/list': () => jsonResponse(200, home),
+      'POST /api/sftp/folder-size': () => jsonResponse(200, { size: 0, complete: true }),
+      'POST /api/sftp/download-link': (_url, init) => {
+        body = JSON.parse(String(init.body))
+        return jsonResponse(200, { url: '/api/sftp/download/abc' })
+      },
+    })
+
+    const panel = await openFiles(user)
+    const row = (await within(panel).findByRole('button', { name: /logs/ })).closest('tr')!
+    await user.click(within(row).getByRole('button', { name: 'Download' }))
+
+    expect(await within(panel).findByText(/^Zipping logs\./)).toBeInTheDocument()
+    expect(body).toMatchObject({ credentialId: 'c-root', path: '/root/logs' })
+    expect(clicked).toEqual([expect.objectContaining({ download: 'logs.zip' })])
+    expect(clicked[0].href).toContain('/api/sftp/download/abc')
+    expect(within(row).getByRole('button', { name: 'Download' })).toBeEnabled()
+    click.mockRestore()
+  })
+
+  it('says why a folder is too big to zip, and starts no download', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const { user } = renderWorkspace({
+      'POST /api/sftp/list': () => jsonResponse(200, home),
+      'POST /api/sftp/folder-size': () => jsonResponse(200, { size: 0, complete: true }),
+      'POST /api/sftp/download-link': () => jsonResponse(400, { title: 'Bad Request', status: 400, detail: '/root/logs is too big to zip.' }),
+    })
+
+    const panel = await openFiles(user)
+    const row = (await within(panel).findByRole('button', { name: /logs/ })).closest('tr')!
+    await user.click(within(row).getByRole('button', { name: 'Download' }))
+
+    expect(await within(panel).findByText('/root/logs is too big to zip.')).toBeInTheDocument()
+    expect(click).not.toHaveBeenCalled()
+    click.mockRestore()
   })
 
   it('offers to replace a file that already exists, and re-uploads with overwrite', async () => {
