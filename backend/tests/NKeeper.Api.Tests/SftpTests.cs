@@ -117,20 +117,52 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
     }
 
     [Fact]
-    public async Task FolderSize_AddsUpTheFilesBelowIt()
+    public async Task FolderSizes_AddUpTheFilesBelowEachFolder_OneLineEach()
     {
         await UploadAsync("top.txt", "12345");
         var inner = $"{_folder}/inner";
-        Assert.Equal(HttpStatusCode.OK, (await PostAsync("mkdir", new { path = inner })).StatusCode);
+        var deepest = $"{inner}/deepest";
+        var empty = $"{_folder}/empty";
+        foreach (var path in new[] { inner, deepest, empty })
+        {
+            Assert.Equal(HttpStatusCode.OK, (await PostAsync("mkdir", new { path })).StatusCode);
+        }
+
         Assert.Equal(HttpStatusCode.OK, (await UploadAsync("nested.txt", "1234567", directory: inner)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await UploadAsync("deep.txt", "123", directory: deepest)).StatusCode);
 
-        var size = await PostAsync("folder-size", new { path = _folder });
-        Assert.True(size.IsSuccessStatusCode, await size.Content.ReadAsStringAsync(Ct));
-        var body = await size.Content.ReadFromJsonAsync<JsonElement>(Ct);
-        Assert.Equal((12L, true), (body.GetProperty("size").GetInt64(), body.GetProperty("complete").GetBoolean()));
+        var missing = $"{_folder}/missing";
+        var response = await PostAsync("folder-sizes", new { paths = new[] { _folder, inner, empty, missing } });
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("application/x-ndjson", response.Content.Headers.ContentType?.MediaType);
 
-        // A folder that isn't there is an error, not an empty folder.
-        Assert.False((await PostAsync("folder-size", new { path = $"{_folder}/missing" })).IsSuccessStatusCode);
+        var lines = (await response.Content.ReadAsStringAsync(Ct)).Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => JsonSerializer.Deserialize<JsonElement>(line))
+            .ToDictionary(line => line.GetProperty("path").GetString()!, line => (line.GetProperty("size").GetInt64(), line.GetProperty("complete").GetBoolean()));
+        Assert.Equal(4, lines.Count);
+        Assert.Equal((15L, true), lines[_folder]);
+        Assert.Equal((10L, true), lines[inner]);
+        Assert.Equal((0L, true), lines[empty]);
+
+        // A folder that isn't there is reported, not taken for an empty one.
+        Assert.Equal((0L, false), lines[missing]);
+
+        Assert.False((await PostAsync("folder-sizes", new { paths = Array.Empty<string>() })).IsSuccessStatusCode);
+    }
+
+    [Fact]
+    public async Task FolderSizes_WalkAWideTreeWithoutLosingAnything()
+    {
+        for (var a = 0; a < 25; a++)
+        {
+            var branch = $"{_folder}/a{a}";
+            Assert.Equal(HttpStatusCode.OK, (await PostAsync("mkdir", new { path = branch })).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await UploadAsync("file.txt", "12345", directory: branch)).StatusCode);
+        }
+
+        var response = await PostAsync("folder-sizes", new { paths = new[] { _folder } });
+        var line = JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal((125L, true), (line.GetProperty("size").GetInt64(), line.GetProperty("complete").GetBoolean()));
     }
 
     [Fact]

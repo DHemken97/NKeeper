@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { Alert } from '../../../components/ui/Alert'
 import { Button } from '../../../components/ui/Button'
-import { api, ApiError } from '../../../lib/api'
+import { api, ApiError, readJsonLines } from '../../../lib/api'
 import { hostKeyPrompt, type HostKeyPrompt } from '../kvm'
 import type { RemoteSession, SessionPhase } from '../types'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
@@ -32,6 +32,7 @@ interface ListResponse {
 }
 
 interface FolderSize {
+  path: string
   size: number
   complete: boolean
 }
@@ -40,9 +41,6 @@ interface Sort {
   key: 'name' | 'size' | 'modified'
   descending: boolean
 }
-
-/** Folders whose sizes are worked out at once; each one is its own connection to the host. */
-const FOLDER_SIZE_WORKERS = 3
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
@@ -192,20 +190,28 @@ export function FileBrowser({ session, active, onShowHost }: FileBrowserProps) {
   // Folder sizes fill in behind the listing, which never waits for them. A size already known stays
   // shown until its new one arrives; moving on stops whatever is left.
   useEffect(() => {
-    const queue = listing?.entries.filter((entry) => entry.kind === 'directory').map((entry) => entry.path) ?? []
+    const paths = listing?.entries.filter((entry) => entry.kind === 'directory').map((entry) => entry.path) ?? []
+    if (paths.length === 0) {
+      return
+    }
     const controller = new AbortController()
     const { signal } = controller
-    async function work() {
-      for (let folder = queue.shift(); folder !== undefined && !signal.aborted; folder = queue.shift()) {
-        const found = await api.post<FolderSize>('/api/sftp/folder-size', { body: { ...login, path: folder }, signal }).catch(() => null)
-        if (!signal.aborted) {
-          setFolderSizes((sizes) => ({ ...sizes, [folder]: found }))
-        }
+    async function measure() {
+      const measured = new Set<string>()
+      try {
+        const response = await api.post<Response>('/api/sftp/folder-sizes', { body: { ...login, paths }, responseType: 'stream', signal })
+        await readJsonLines<FolderSize>(response, (found) => {
+          measured.add(found.path)
+          setFolderSizes((sizes) => ({ ...sizes, [found.path]: found }))
+        })
+      } catch {
+        // Whatever wasn't measured shows as unknown below.
+      }
+      if (!signal.aborted) {
+        setFolderSizes((sizes) => ({ ...sizes, ...Object.fromEntries(paths.filter((path) => !measured.has(path)).map((path) => [path, null])) }))
       }
     }
-    for (let worker = 0; worker < FOLDER_SIZE_WORKERS; worker++) {
-      void work()
-    }
+    void measure()
     return () => controller.abort()
     // `login` comes from the same session as the listing.
     // eslint-disable-next-line react-hooks/exhaustive-deps

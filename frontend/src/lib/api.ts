@@ -47,8 +47,8 @@ type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export interface RequestOptions {
   /** JSON-serialized, except FormData (sent as multipart, e.g. file uploads). */
   body?: unknown
-  /** 'blob' returns the response body as a Blob (file downloads) instead of parsing JSON. */
-  responseType?: 'json' | 'blob'
+  /** 'blob' returns the response body as a Blob (file downloads), and 'stream' the Response itself to read as it arrives, instead of parsing JSON. */
+  responseType?: 'json' | 'blob' | 'stream'
   signal?: AbortSignal
   /** Do not notify unauthorized listeners on 401 (e.g. a failed login is not an expired session). */
   suppressUnauthorizedEvent?: boolean
@@ -119,6 +119,9 @@ async function send<T>(method: HttpMethod, path: string, options: RequestOptions
   }
 
   if (response.ok) {
+    if (options.responseType === 'stream') {
+      return response as T
+    }
     if (options.responseType === 'blob') {
       return (await response.blob()) as T
     }
@@ -161,6 +164,17 @@ async function request<T>(method: HttpMethod, path: string, options: RequestOpti
       return send<T>(method, path, options)
     }
     throw error
+  }
+}
+
+/** Hands over each line of JSON in a response as it arrives. */
+export async function readJsonLines<T>(response: Response, onLine: (line: T) => void): Promise<void> {
+  const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader()
+  let text = ''
+  for (let next = await reader.read(); !next.done; next = await reader.read()) {
+    const lines = (text + next.value).split('\n')
+    text = lines.pop()!
+    lines.filter(Boolean).forEach((line) => onLine(JSON.parse(line) as T))
   }
 }
 

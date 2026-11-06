@@ -53,6 +53,23 @@ const home = {
   hostKey: null,
 }
 
+/** A folder-sizes response: a line per size now, and the returned functions for what comes later. */
+function sizeLines(...sizes: { path: string; size: number; complete: boolean }[]) {
+  const encoder = new TextEncoder()
+  let stream!: ReadableStreamDefaultController<Uint8Array>
+  const send = (size: { path: string; size: number; complete: boolean }) => stream.enqueue(encoder.encode(`${JSON.stringify(size)}\n`))
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        stream = controller
+        sizes.forEach(send)
+      },
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/x-ndjson' } },
+  )
+  return { response, send, end: () => stream.close() }
+}
+
 function renderWorkspace(routesOverride: Parameters<typeof mockFetch>[0]) {
   const fetchMock = mockFetch({
     ...antiforgeryRoute,
@@ -111,40 +128,45 @@ describe('files (SFTP)', () => {
   })
 
   it('shows the listing straight away and fills in folder sizes as they arrive', async () => {
-    let finish: (response: Response) => void = () => {}
+    const lines = sizeLines({ path: '/root/huge', size: 3 * 1024 * 1024, complete: true }, { path: '/root/secret', size: 1024, complete: false })
     const bodies: Record<string, unknown>[] = []
     const { user } = renderWorkspace({
       'POST /api/sftp/list': () =>
-        jsonResponse(200, { ...home, entries: [entry('logs', 'directory'), entry('secret', 'directory'), entry('huge', 'directory'), entry('gone', 'directory')] }),
-      'POST /api/sftp/folder-size': (_url, init) => {
-        const body = JSON.parse(String(init.body))
-        bodies.push(body)
-        switch (body.path) {
-          case '/root/logs':
-            return new Promise<Response>((resolve) => (finish = resolve))
-          case '/root/secret':
-            return jsonResponse(200, { size: 1024, complete: false })
-          case '/root/huge':
-            return jsonResponse(200, { size: 3 * 1024 * 1024, complete: true })
-          default:
-            return jsonResponse(400, { title: 'Bad Request', status: 400, detail: 'No.' })
-        }
+        jsonResponse(200, { ...home, entries: [entry('logs', 'directory'), entry('secret', 'directory'), entry('huge', 'directory'), entry('gone', 'directory'), entry('notes.txt', 'file')] }),
+      'POST /api/sftp/folder-sizes': (_url, init) => {
+        bodies.push(JSON.parse(String(init.body)))
+        return lines.response
       },
     })
 
     const panel = await openFiles(user)
     const row = async (name: string) => (await within(panel).findByRole('button', { name: new RegExp(name) })).closest('tr')!
 
-    // One slow folder holds up neither the others nor the buttons.
-    expect(within(await row('logs')).getByText('Calculating…')).toBeInTheDocument()
+    // One slow folder holds up neither the others nor the buttons, and it's all one request.
     expect(await within(await row('huge')).findByText('3.0 MB')).toBeInTheDocument()
     expect(await within(await row('secret')).findByText('≥ 1.0 KB')).toBeInTheDocument()
-    expect(await within(await row('gone')).findByText('—')).toBeInTheDocument()
+    expect(within(await row('logs')).getByText('Calculating…')).toBeInTheDocument()
     expect(within(panel).getByRole('button', { name: 'Upload' })).toBeEnabled()
-    expect(bodies[0]).toMatchObject({ hostId: 'h-app01', credentialId: 'c-root', path: '/root/logs' })
+    expect(bodies).toEqual([expect.objectContaining({ hostId: 'h-app01', credentialId: 'c-root', paths: ['/root/logs', '/root/secret', '/root/huge', '/root/gone'] })])
 
-    finish(jsonResponse(200, { size: 0, complete: true }))
+    lines.send({ path: '/root/logs', size: 0, complete: true })
     expect(await within(await row('logs')).findByText('0 B')).toBeInTheDocument()
+
+    // A folder with no line by the end couldn't be measured.
+    expect(within(await row('gone')).getByText('Calculating…')).toBeInTheDocument()
+    lines.end()
+    expect(await within(await row('gone')).findByText('—')).toBeInTheDocument()
+  })
+
+  it('shows folder sizes as unknown when they can’t be asked for', async () => {
+    const { user } = renderWorkspace({
+      'POST /api/sftp/list': () => jsonResponse(200, home),
+      'POST /api/sftp/folder-sizes': () => jsonResponse(400, { title: 'Bad Request', status: 400, detail: 'No.' }),
+    })
+
+    const panel = await openFiles(user)
+    const row = (await within(panel).findByRole('button', { name: /logs/ })).closest('tr')!
+    expect(await within(row).findByText('—')).toBeInTheDocument()
   })
 
   it('stops working out folder sizes when another folder is opened', async () => {
@@ -152,9 +174,9 @@ describe('files (SFTP)', () => {
     const { user } = renderWorkspace({
       'POST /api/sftp/list': (_url, init) =>
         jsonResponse(200, JSON.parse(String(init.body)).path === '/root/logs' ? { ...home, path: '/root/logs', parent: '/root', entries: [] } : home),
-      'POST /api/sftp/folder-size': (_url, init) => {
+      'POST /api/sftp/folder-sizes': (_url, init) => {
         signals.push(init.signal!)
-        return new Promise<Response>(() => {})
+        return sizeLines().response
       },
     })
 
@@ -180,10 +202,7 @@ describe('files (SFTP)', () => {
             at(entry('small.txt', 'file'), 10, '2026-10-04T00:00:00Z'),
           ],
         }),
-      'POST /api/sftp/folder-size': (_url, init) => {
-        const { path } = JSON.parse(String(init.body))
-        return path === '/root/pending' ? new Promise<Response>(() => {}) : jsonResponse(200, { size: path === '/root/alpha' ? 100 : 9000, complete: true })
-      },
+      'POST /api/sftp/folder-sizes': () => sizeLines({ path: '/root/alpha', size: 100, complete: true }, { path: '/root/zeta', size: 9000, complete: true }).response,
     })
 
     const panel = await openFiles(user)
@@ -224,7 +243,7 @@ describe('files (SFTP)', () => {
     let body: Record<string, unknown> | undefined
     const { user } = renderWorkspace({
       'POST /api/sftp/list': () => jsonResponse(200, home),
-      'POST /api/sftp/folder-size': () => jsonResponse(200, { size: 0, complete: true }),
+      'POST /api/sftp/folder-sizes': () => sizeLines({ path: '/root/logs', size: 0, complete: true }).response,
       'POST /api/sftp/download-link': (_url, init) => {
         body = JSON.parse(String(init.body))
         return jsonResponse(200, { url: '/api/sftp/download/abc' })
@@ -247,7 +266,7 @@ describe('files (SFTP)', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     const { user } = renderWorkspace({
       'POST /api/sftp/list': () => jsonResponse(200, home),
-      'POST /api/sftp/folder-size': () => jsonResponse(200, { size: 0, complete: true }),
+      'POST /api/sftp/folder-sizes': () => sizeLines({ path: '/root/logs', size: 0, complete: true }).response,
       'POST /api/sftp/download-link': () => jsonResponse(400, { title: 'Bad Request', status: 400, detail: '/root/logs is too big to zip.' }),
     })
 
