@@ -10,6 +10,8 @@
 - [Telnet](#telnet)
 - [Files (SFTP)](#files-sftp)
 - [Storage (iSCSI, multipath, DRBD)](#storage-iscsi-multipath-drbd)
+- [Journal (journalctl)](#journal-journalctl)
+- [SELinux](#selinux)
 - [Microsoft SQL Server](#microsoft-sql-server)
 - [Oracle](#oracle)
 - [SAP ASE and Replication Server](#sap-ase-and-replication-server)
@@ -183,7 +185,7 @@ Changing a host's hostname or IP address forgets its trusted keys too, for the s
 
 Right-click a host in the tree, or press the Menu key or Shift+F10 on it, then choose **Connect ▸ service ▸ credential**. Each session opens as a tab next to the host details and keeps running while you switch tabs, and while you're on Reports, Users or Settings: **Hosts** brings you back to them as you left them. Sessions close when you close them, sign out, or close or reload the browser tab.
 
-**Connect** lists the clients: SSH, Telnet, RDP, VNC, RPC, web interfaces, iDRAC and VM consoles. The tools that do more than open a client are under **Connect ▸ Tools**: **Files** and **Storage** (on an SSH service), **KVM** (a hypervisor's VMs), **MS SQL**, **Oracle**, **SAP ASE** and **Replication Server**.
+**Connect** lists the clients: SSH, Telnet, RDP, VNC, RPC, web interfaces, iDRAC and VM consoles. The tools that do more than open a client are under **Connect ▸ Tools**: **Files**, **Storage**, **Journal** and **SELinux** (on an SSH service), **KVM** (a hypervisor's VMs), **MS SQL**, **Oracle**, **SAP ASE** and **Replication Server**.
 
 - **Double-click** a host to connect with its first connectable service and first suitable credential. If none fits, you're asked for a login.
 - The **Connect** button in the host details opens the same menu, which is the way to connect on touch screens.
@@ -236,6 +238,30 @@ Any Linux host with an SSH service has **Connect ▸ Tools ▸ Storage ▸ crede
 - **Asks first:** logging out, flushing, taking a resource down, changing its role and disconnecting it say what will happen and wait for you to confirm. The tools still refuse what would break something in use (a mounted map or a primary in use), and the tab shows their answer.
 - **Root:** the tools need root. Sign in as root, or as a user who may use `sudo` without a password.
 - **Logins and trust** are the same as SSH. Each change is recorded in the audit log (category *Storage*), with what it acted on.
+
+## Journal (journalctl)
+
+Any Linux host with systemd and an SSH service has **Connect ▸ Tools ▸ Journal ▸ credential**. NKeeper reads its journal with `journalctl` and shows it in a tab, newest first. It only reads.
+
+- **Filtering:** set a **Start** and **Stop** (in your browser's time zone; leave either empty), a **Priority** (that level and worse), a **Unit**, a **Program** and a **Search**, then **Apply**. It starts with the last hour.
+- **Search** is a regular expression on the message, run on the host. Written in lower case it ignores case; any capital makes it case-sensitive. It needs systemd 237 or later (not CentOS 7).
+- **Reading:** click a message to see all of it, with its unit, PID and host. Each read gets up to 200 entries; **Load older entries** gets the next ones. **Find** only searches the entries already loaded. Messages over 4 KB aren't sent by the journal, and say so.
+- **Follow** shows new entries as they arrive, on one SSH connection, so watching doesn't fill the journal with logins. It needs an empty **Stop**. A tab keeps the newest 5,000 entries.
+- **The login:** root or a user who may use `sudo` without a password sees everything. So does one in the `systemd-journal` group. Others see only their own entries, and the tab says so.
+- **Logins and trust** are the same as SSH. Reading and following are recorded in the audit log (category *Linux journals*), but what the entries said isn't.
+
+## SELinux
+
+Any Linux host with an SSH service has **Connect ▸ Tools ▸ SELinux ▸ credential**. It shows the host's SELinux mode, what it has blocked, and its policies, in one tab. It uses the host's own tools, and needs root, or a user who may use `sudo` without a password. Hosts without SELinux (usually Debian and Ubuntu) say so.
+
+- **Blocks and audits** come from the audit log (`ausearch`), so `auditd` must be running. Set a **Start** and **Stop** (the last 24 hours to begin with), then **Apply**; **Find** searches what's shown. **Blocked** was stopped. **Logged** wasn't, because the host or that domain is permissive, but would be if enforcing. Click a target to see its contexts and the audit record. Only the newest 1,000 records are shown. What a `dontaudit` rule hides isn't logged, so it can't appear here.
+- **Adding a policy from blocks:** tick what to allow, choose **Create policy from selected** and name the policy. `audit2allow` on the host writes the rules, and you read (and can edit) them before **Install**. If its comments name a boolean that would do the job, that's usually better than a new rule. Nothing is installed until you choose to.
+- **Writing a policy:** **Add policy** takes a type enforcement (`.te`) source starting with `module name 1.0;`. NKeeper compiles and installs it with `checkmodule`, `semodule_package` and `semodule`, and shows any compile errors so you can fix them. `policy_module()` sources need the policy's development files, so compile those on the host.
+- **Removing a policy:** **Remove** asks first, as what the policy allowed is blocked again at once. NKeeper doesn't keep the source.
+- **The distribution's modules** are listed but can't be removed, or replaced by a policy with the same name, as the system depends on them.
+- **Installing and removing** rebuild the host's whole policy, which can take a minute or more. Each is checked against the modules the host lists afterwards, and recorded in the audit log (category *SELinux policies*).
+- **Tools on the host:** `audit2allow` is in `policycoreutils-python-utils` and `checkmodule` in `checkpolicy` on Red Hat family systems. If one is missing, the tab says which.
+- **Not here:** changing the mode, booleans, file contexts and ports. Use SSH for those.
 
 ## Microsoft SQL Server
 

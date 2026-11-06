@@ -22,8 +22,8 @@ export const WEB_PROTOCOLS = new Set<ServiceProtocol>(['Http', 'Https', 'Proxmox
 /** What an iDRAC service opens: its HTML5 virtual console, the server's status and power, or RACADM (its SSH command line). */
 export type IdracMode = 'console' | 'overview' | 'racadm'
 
-/** What a connection opens: an iDRAC's console, status or RACADM, or an SSH service's files (SFTP) or storage (iSCSI, multipath, DRBD). */
-export type ConnectMode = IdracMode | 'files' | 'storage'
+/** What a connection opens: an iDRAC's console, status or RACADM, or an SSH service's files (SFTP), storage (iSCSI, multipath, DRBD), journal or SELinux. */
+export type ConnectMode = IdracMode | 'files' | 'storage' | 'journal' | 'selinux'
 
 /**
  * Services that open a tool rather than a plain client session: a KVM host's VM list, and SQL Server.
@@ -180,7 +180,7 @@ function guestConsoleEntries(host: Host, actions: Pick<HostMenuActions, 'guests'
 }
 
 /**
- * Connect ▸ Tools: Files (SFTP) and Storage (iSCSI, multipath, DRBD) on an SSH service, a KVM host's
+ * Connect ▸ Tools: Files (SFTP), Storage (iSCSI, multipath, DRBD), Journal and SELinux on an SSH service, a KVM host's
  * VMs, MS SQL ▸ instance, Oracle ▸ service name, SAP ASE and Replication Server; each then ▸ login (or ▸ service ▸ login when there are several).
  */
 function toolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
@@ -282,13 +282,13 @@ export function sqlInstanceLabel(service: HostService): string {
   return service.instance ?? 'Default instance'
 }
 
-/** Files (SFTP) and Storage (iSCSI, multipath, DRBD) ▸ login, or ▸ SSH service ▸ login when there are several; none without an SSH service. */
+/** Files (SFTP), Storage (iSCSI, multipath, DRBD), Journal and SELinux ▸ login, or ▸ SSH service ▸ login when there are several; none without an SSH service. */
 function sshToolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | 'connectWithPrompt' | 'connectWithoutLogin'>): MenuEntry[] {
   const ssh = host.services.map((service, index) => ({ service, index })).filter(({ service }) => service.protocol === 'Ssh')
   if (ssh.length === 0) {
     return []
   }
-  const entry = (mode: 'files' | 'storage', label: string, detail: string): MenuEntry => ({
+  const entry = (mode: 'files' | 'storage' | 'journal' | 'selinux', label: string, detail: string): MenuEntry => ({
     kind: 'item',
     label,
     detail,
@@ -297,7 +297,12 @@ function sshToolEntries(host: Host, actions: Pick<HostMenuActions, 'connect' | '
         ? loginEntries(host, ssh[0].index, actions, mode)
         : ssh.map(({ service, index }) => ({ kind: 'item', label: serviceLabel(service), detail: servicePort(service), submenu: loginEntries(host, index, actions, mode) })),
   })
-  return [entry('files', 'Files', 'SFTP'), entry('storage', 'Storage', 'iSCSI · multipath · DRBD')]
+  return [
+    entry('files', 'Files', 'SFTP'),
+    entry('storage', 'Storage', 'iSCSI · multipath · DRBD'),
+    entry('journal', 'Journal', 'journalctl'),
+    entry('selinux', 'SELinux', 'Policies · blocks'),
+  ]
 }
 
 export function serviceLabel(service: HostService): string {
