@@ -35,7 +35,7 @@
 .item.open {
   outline: none;
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 .item[aria-disabled='true'] {
@@ -76,7 +76,7 @@
 .item:focus .detail,
 .item.open .detail,
 .item:focus .shortcut {
-  color: rgb(255 255 255 / 0.8);
+  color: color-mix(in srgb, var(--color-on-accent) 80%, transparent);
 }
 
 .chevron {

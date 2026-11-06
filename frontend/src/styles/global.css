@@ -1,4 +1,7 @@
-/* Design tokens. Colors chosen for WCAG AA contrast on the dark navy surfaces. */
+/*
+ * Design tokens. Colors chosen for WCAG AA contrast on the dark navy surfaces: the default color scheme.
+ * Other schemes override the colors on the root element (see features/appearance/colorSchemes.ts).
+ */
 :root {
   color-scheme: dark;
 
@@ -8,6 +11,7 @@
   --color-input: #0d1526;
   --color-border: #233150;
   --color-border-strong: #33456b;
+  --color-border-hover: #46598a;
 
   --color-text: #e5ebf5;
   --color-text-muted: #9aa8c1;
@@ -16,12 +20,20 @@
   --color-accent: #2563eb;
   --color-accent-hover: #1d4ed8;
   --color-accent-text: #8fb4ff;
+  --color-accent-text-hover: #b5ceff;
+  --color-on-accent: #fff;
   --color-focus: #60a5fa;
 
   --color-danger: #fca5a5;
   --color-danger-border: #b91c1c;
   --color-danger-bg: rgb(127 29 29 / 0.25);
   --color-info-bg: rgb(37 99 235 / 0.12);
+  --color-info-border: #2a4a8a;
+  --color-success: #86efac;
+  --color-warning: #f5b84b;
+
+  /* Terminals stay dark in every scheme: what runs in them assumes a dark screen. */
+  --color-console-bg: #0b1220;
 
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -79,7 +91,7 @@ a {
 }
 
 a:hover {
-  color: #b5ceff;
+  color: var(--color-accent-text-hover);
 }
 
 :focus-visible {

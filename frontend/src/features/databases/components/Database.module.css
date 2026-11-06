@@ -311,7 +311,7 @@
   display: flex;
   flex-basis: 0;
   min-height: 60px;
-  background: #0b1220;
+  background: var(--color-input);
   border-bottom: 1px solid var(--color-border);
 }
 

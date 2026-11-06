@@ -71,7 +71,7 @@
 }
 
 .running .icon {
-  color: #f5b84b;
+  color: var(--color-warning);
 }
 
 .done .icon {

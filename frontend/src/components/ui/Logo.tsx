@@ -16,13 +16,13 @@ export function Logo({ size = 32, showName = true }: LogoProps) {
         <path
           d="M10 22V10l12 12V10"
           fill="none"
-          stroke="#fff"
+          stroke="var(--color-on-accent)"
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        <circle cx="10" cy="10" r="2.5" fill="#fff" />
-        <circle cx="22" cy="22" r="2.5" fill="#fff" />
+        <circle cx="10" cy="10" r="2.5" fill="var(--color-on-accent)" />
+        <circle cx="22" cy="22" r="2.5" fill="var(--color-on-accent)" />
       </svg>
       {showName ? <span className={styles.name}>{PRODUCT_NAME}</span> : <span className="visually-hidden">{PRODUCT_NAME}</span>}
     </span>

@@ -307,7 +307,7 @@
 }
 
 .up {
-  color: #86efac;
+  color: var(--color-success);
 }
 
 .down {
