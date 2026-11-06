@@ -113,8 +113,10 @@ internal static partial class StorageHost
     /// <summary>
     /// Renames a map (<c>sh -c … wwid alias</c>, as root). A map's name comes from the alias in its
     /// <c>multipath { wwid … }</c> block, so this sets the alias in the block that already exists
-    /// (in <c>/etc/multipath.conf</c> or <c>conf.d</c>) or adds a file with a new block, reloads the
-    /// maps, and tells multipathd. If the map doesn't end up with the name, the files are put back.
+    /// (in <c>/etc/multipath.conf</c> or <c>conf.d</c>) or adds a file with a new block, then reloads
+    /// the maps and tells multipathd. Hosts differ in which of those applies the name and what they
+    /// exit with, and multipathd does it after answering, so only the map's name decides: if it
+    /// doesn't have the new one within a few seconds, the files are put back.
     /// </summary>
     private const string RenameMapScript = """
         PATH=$PATH:/usr/sbin:/sbin
@@ -162,12 +164,22 @@ internal static partial class StorageHost
           esac
         done
 
+        # multipathd keeps its own copy of the configuration; it may not be running.
+        reconfigure() {
+          if command -v multipathd > /dev/null 2>&1; then multipathd reconfigure > /dev/null 2>&1; fi
+        }
+
         restore() {
           while read -r i f; do
             if [ -f "$t/$i.old" ]; then cat "$t/$i.old" > "$f"; fi
           done < "$t/changed"
           if [ -n "$created" ]; then rm -f "$own"; fi
           multipath -r > /dev/null 2>&1
+          reconfigure
+        }
+
+        named() {
+          multipath -ll 2>/dev/null | awk -v a="$a" -v w="($w)" '$1 == a && $2 == w { f = 1 } END { exit !f }'
         }
 
         # cat keeps each file's owner and mode.
@@ -183,17 +195,16 @@ internal static partial class StorageHost
           fi
         fi
 
-        if ! multipath -r > "$t/out" 2>&1; then
-          why=$(tail -n 1 "$t/out"); restore
-          echo "multipath -r refused it, so the configuration was put back: $why" >&2; exit 1
-        fi
-        if ! multipath -ll 2>/dev/null | awk -v a="$a" -v w="($w)" '$1 == a && $2 == w { f = 1 } END { exit !f }'; then
-          restore
-          echo "multipath didn't take the new name from its configuration, so the configuration was put back" >&2; exit 1
-        fi
-
-        # multipathd keeps its own copy of the configuration; it may not be running.
-        if command -v multipathd > /dev/null 2>&1; then multipathd reconfigure > /dev/null 2>&1; fi
+        multipath -r > "$t/out" 2>&1
+        reconfigure
+        tries=1
+        until named; do
+          if [ "$tries" -ge 10 ]; then
+            why=$(tail -n 1 "$t/out"); restore
+            echo "multipath didn't take the new name from its configuration, so the configuration was put back${why:+ (multipath -r said: $why)}" >&2; exit 1
+          fi
+          tries=$((tries + 1)); sleep 1
+        done
         exit 0
         """;
 
