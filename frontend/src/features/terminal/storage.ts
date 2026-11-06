@@ -77,6 +77,7 @@ export type StorageAction =
   | 'iscsi.rescan'
   | 'multipath.reload'
   | 'multipath.flush'
+  | 'multipath.rename'
   | 'drbd.up'
   | 'drbd.down'
   | 'drbd.primary'
@@ -91,7 +92,12 @@ export interface StorageActionRequest {
   target?: string
   portal?: string
   name?: string
+  /** What a multipath map is renamed to. */
+  newName?: string
 }
+
+/** A name a multipath map can be given; it also becomes the map's /dev/mapper name. */
+export const MULTIPATH_ALIAS = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
 /**
  * Actions that take storage away from whatever uses it, or change which node may write: they ask

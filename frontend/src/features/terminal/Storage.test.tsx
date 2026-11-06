@@ -180,6 +180,44 @@ describe('storage (iSCSI, multipath, DRBD)', () => {
     expect(actions).toEqual([expect.objectContaining({ action: 'iscsi.logout', target: 'iqn.2003-01.org.example.san:disk1', portal: '10.0.0.5:3260' })])
   })
 
+  it('renames a multipath map and reloads, warning first and checking the new name', async () => {
+    const actions: Record<string, unknown>[] = []
+    const renamed = { ...status, multipath: [{ ...status.multipath[0], name: 'db01' }] }
+    const { user } = renderWorkspace({
+      'POST /api/storage/status': () => ready(status),
+      'POST /api/storage/action': (_url, init) => {
+        actions.push(JSON.parse(String(init.body)))
+        return ready(renamed, 'Renamed mpatha to db01 and reloaded the maps. It’s now /dev/mapper/db01.')
+      },
+    })
+
+    const panel = await openStorage(user)
+    const multipath = await within(panel).findByRole('region', { name: 'Multipath' })
+    await user.click(within(within(multipath).getByRole('row', { name: /mpatha/ })).getByRole('button', { name: 'Rename' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('/dev/mapper/mpatha goes away')
+    const submit = within(dialog).getByRole('button', { name: 'Rename and reload' })
+    const field = within(dialog).getByLabelText('New name')
+
+    // The name it already has can't be submitted, nor can one the host would refuse.
+    expect(field).toHaveValue('mpatha')
+    expect(submit).toBeDisabled()
+    await user.clear(field)
+    await user.type(field, 'bad name')
+    expect(submit).toBeDisabled()
+    expect(field).toHaveAccessibleDescription(/letters, digits/)
+    expect(actions).toEqual([])
+
+    await user.clear(field)
+    await user.type(field, 'db01{Enter}')
+
+    expect(await within(panel).findByText(/Renamed mpatha to db01/)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(actions).toEqual([expect.objectContaining({ action: 'multipath.rename', name: 'mpatha', newName: 'db01' })])
+    expect(within(multipath).getByRole('row', { name: /db01/ })).toBeInTheDocument()
+  })
+
   it('brings a DRBD resource up straight away, and says when no storage tools are installed', async () => {
     const actions: Record<string, unknown>[] = []
     const { user } = renderWorkspace({
