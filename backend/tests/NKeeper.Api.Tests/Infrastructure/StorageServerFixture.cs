@@ -70,7 +70,7 @@ public sealed class StorageServerFixture : IAsyncLifetime
     {
         var setup = await _container!.ExecAsync([
             "sh", "-c",
-            "set -e; rm -rf /var/lib/fake-iscsi /var/lib/fake-multipath /var/lib/fake-drbd"
+            "set -e; rm -rf /var/lib/fake-iscsi /var/lib/fake-multipath /var/lib/fake-drbd /etc/multipath /etc/multipath.conf"
             + " && mkdir -p /etc/iscsi /var/lib/fake-iscsi /var/lib/fake-multipath /var/lib/fake-drbd"
             + " && echo 'InitiatorName=iqn.1993-08.org.debian:01:san-test' > /etc/iscsi/initiatorname.iscsi && chmod 600 /etc/iscsi/initiatorname.iscsi"
             + " && printf '10.0.0.5:3260,1 iqn.2003-01.org.example.san:disk1\\n10.0.0.5:3260,1 iqn.2003-01.org.example.san:disk2\\n' > /var/lib/fake-iscsi/nodes"

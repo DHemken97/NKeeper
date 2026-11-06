@@ -140,6 +140,7 @@ All sessions start from a **target**: a host, one of its services, and a saved c
 - **Storage** (`/api/storage/status`, `/api/storage/action`):
   - `StorageHost` runs one script over SSH (as root, or with `sudo -n`) that prints an `@@section` for each installed tool: `iscsiadm -m session -P 3` and `-m node`, `multipath -ll`, and `drbdadm sh-resources` with `drbdsetup status --json` (or its text output, for older utilities). A tool that isn't installed is null in the answer;
   - an action re-reads the state first and acts only on what the host reported (a known target and portal, an existing map, a configured resource); discovery's portal must be an address. Values are also checked against strict formats and single-quoted in the command line. It then answers with the state afterwards, and records `storage.action` in the audit log;
+  - renaming a multipath map sets its alias by WWID: in its existing `multipath { }` block, or in a new `conf.d/nkeeper-alias-<wwid>.conf`. The script runs `multipath -r`, checks `multipath -ll` shows the new name, restores the files if not, then runs `multipathd reconfigure`;
   - tests run the real SSH path against fake `iscsiadm`, `multipath`, `drbdadm` and `drbdsetup` scripts (`tests/NKeeper.Api.Tests/Storage/`), which keep their state in files.
 - **iDRAC** (`/api/idrac/overview`, `/api/idrac/power`, `/api/idrac/console`):
   - an iDRAC service has its own address (`HostService.Address`), which `SessionTargetResolver` connects to instead of the host's;

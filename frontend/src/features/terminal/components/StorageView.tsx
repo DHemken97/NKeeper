@@ -5,7 +5,7 @@ import { Dialog } from '../../../components/ui/Dialog'
 import { TextField } from '../../../components/ui/TextField'
 import { api, ApiError } from '../../../lib/api'
 import { hostKeyPrompt, kvmRequestBody } from '../kvm'
-import { CONFIRM, iscsiRows, multipathTargets, type DrbdResource, type StorageActionRequest, type StorageResponse, type StorageStatus } from '../storage'
+import { CONFIRM, iscsiRows, MULTIPATH_ALIAS, multipathTargets, type DrbdResource, type StorageActionRequest, type StorageResponse, type StorageStatus } from '../storage'
 import type { RemoteSession, SessionPhase } from '../types'
 import { EndedCard, OpeningCard, SessionStatusBar, TrustCard } from './SessionChrome'
 import styles from './Session.module.css'
@@ -34,6 +34,7 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
   const [confirming, setConfirming] = useState<StorageActionRequest | null>(null)
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [portal, setPortal] = useState('')
+  const [renaming, setRenaming] = useState<{ map: string; newName: string } | null>(null)
   const trustRef = useRef<string | undefined>(undefined)
   const target = session.title
 
@@ -127,6 +128,16 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
     }
   }
 
+  function rename(event: FormEvent) {
+    event.preventDefault()
+    if (renaming && renameProblem === null) {
+      setRenaming(null)
+      act({ action: 'multipath.rename', name: renaming.map, newName: renaming.newName.trim() })
+    }
+  }
+
+  const newName = renaming?.newName.trim() ?? ''
+  const renameProblem = !newName || newName === renaming?.map ? '' : MULTIPATH_ALIAS.test(newName) ? null : 'Use up to 64 letters, digits, dots, dashes or underscores, starting with a letter or digit.'
   const disabled = busy !== null
   const nothing = storage && !storage.iscsi && !storage.multipath && !storage.drbd
   const confirmInfo = confirming ? CONFIRM[confirming.action] : undefined
@@ -294,7 +305,16 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
                                 </div>
                               ))}
                             </td>
-                            <td className={styles.vmActions}>
+                            <td className={`${styles.vmActions} ${styles.storageActions}`}>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => setRenaming({ map: map.name, newName: map.name })}
+                                disabled={disabled}
+                                loading={busy?.action === 'multipath.rename' && busy.name === map.name}
+                              >
+                                Rename
+                              </Button>
                               <Button size="sm" variant="secondary" onClick={() => act({ action: 'multipath.flush', name: map.name })} disabled={disabled}>
                                 Flush
                               </Button>
@@ -358,6 +378,40 @@ export function StorageView({ session, active, onShowHost }: StorageViewProps) {
           }
         >
           <p>{confirmInfo.explanation}</p>
+        </Dialog>
+      ) : null}
+
+      {renaming ? (
+        <Dialog
+          title={`Rename ${renaming.map}?`}
+          description={`On ${session.title}.`}
+          onClose={() => setRenaming(null)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setRenaming(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" form="multipath-rename" disabled={renameProblem !== null}>
+                Rename and reload
+              </Button>
+            </>
+          }
+        >
+          <form id="multipath-rename" onSubmit={rename}>
+            <TextField
+              label="New name"
+              value={renaming.newName}
+              onChange={(event) => setRenaming({ ...renaming, newName: event.target.value })}
+              error={renameProblem || undefined}
+              autoComplete="off"
+              spellCheck={false}
+              data-autofocus
+            />
+          </form>
+          <p>
+            NKeeper saves the name in this host’s multipath configuration and reloads the maps. Whatever has the map open keeps working, but /dev/mapper/{renaming.map} goes away:
+            change anything that refers to it (fstab, LVM filters, DRBD, VM disks), and rename it on this LUN’s other hosts too if they should match.
+          </p>
         </Dialog>
       ) : null}
     </div>

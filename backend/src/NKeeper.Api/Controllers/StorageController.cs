@@ -26,7 +26,7 @@ public sealed record StorageActionRequest : StorageRequest
     [Required(ErrorMessage = "Choose an action.")]
     [AllowedValues(
         StorageActions.IscsiDiscover, StorageActions.IscsiLogin, StorageActions.IscsiLogout, StorageActions.IscsiRescan,
-        StorageActions.MultipathReload, StorageActions.MultipathFlush,
+        StorageActions.MultipathReload, StorageActions.MultipathFlush, StorageActions.MultipathRename,
         StorageActions.DrbdUp, StorageActions.DrbdDown, StorageActions.DrbdPrimary, StorageActions.DrbdSecondary,
         StorageActions.DrbdConnect, StorageActions.DrbdDisconnect, StorageActions.DrbdAdjust, ErrorMessage = "Choose an action.")]
     public string Action { get; init; } = string.Empty;
@@ -42,6 +42,10 @@ public sealed record StorageActionRequest : StorageRequest
     /// <summary>A multipath map or DRBD resource.</summary>
     [StringLength(128)]
     public string? Name { get; init; }
+
+    /// <summary>Multipath rename: the map's new name.</summary>
+    [StringLength(128)]
+    public string? NewName { get; init; }
 }
 
 /// <summary>The host's storage (after an action, as it is afterwards), or the SSH host key to trust first.</summary>
@@ -51,7 +55,7 @@ public sealed record StorageResponse(string Status, StorageStatus? Storage, Host
 /// <summary>
 /// A Linux host's shared storage over SSH: its iSCSI sessions and targets, multipath maps and DRBD
 /// resources, and the everyday actions on them (iSCSI discovery, login, logout and rescan; multipath
-/// reload and flush; DRBD up, down, primary, secondary, connect, disconnect and adjust). Actions
+/// reload, flush and rename; DRBD up, down, primary, secondary, connect, disconnect and adjust). Actions
 /// are audited. NKeeper runs the host's own tools as root (or with sudo without a password).
 /// </summary>
 [ApiController]
@@ -73,20 +77,21 @@ public sealed class StorageController(AuditLog audit) : ControllerBase
         WithHostAsync(request, async client =>
         {
             var before = await StorageHost.GetStatusAsync(client, cancellationToken);
-            var command = StorageHost.CommandFor(request.Action, request.Target?.Trim(), request.Portal, request.Name, before);
+            var newName = request.NewName?.Trim();
+            var command = StorageHost.CommandFor(request.Action, request.Target?.Trim(), request.Portal, request.Name, before, newName);
             var output = await StorageHost.RunActionAsync(client, command, cancellationToken);
             await audit.RecordAsync(new AuditEntry("storage.action", request.HostId, command.Description));
 
             // Success is judged by the host's state afterwards, not by the tool's exit code.
             var after = await StorageHost.GetStatusAsync(client, cancellationToken);
             var target = request.Target?.Trim();
-            if (StorageHost.Unachieved(request.Action, target, request.Portal, request.Name, after) is { } problem)
+            if (StorageHost.Unachieved(request.Action, target, request.Portal, request.Name, after, newName) is { } problem)
             {
                 throw new SessionException(SessionErrorCodes.ConnectionFailed, $"{command.Description} didn't take effect: {problem}. {Printed(output)}");
             }
 
             return new StorageResponse(
-                "ready", after, null, Message(request.Action, output, before, after) ?? StorageHost.Achieved(request.Action, target, request.Portal, request.Name, after));
+                "ready", after, null, Message(request.Action, output, before, after) ?? StorageHost.Achieved(request.Action, target, request.Portal, request.Name, after, newName));
         }, cancellationToken);
 
     /// <summary>What the tool printed, for an action that didn't take effect.</summary>
