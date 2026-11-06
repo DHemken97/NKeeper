@@ -69,6 +69,7 @@ public static class StorageActions
     public const string IscsiRescan = "iscsi.rescan";
     public const string MultipathReload = "multipath.reload";
     public const string MultipathFlush = "multipath.flush";
+    public const string MultipathRename = "multipath.rename";
     public const string DrbdUp = "drbd.up";
     public const string DrbdDown = "drbd.down";
     public const string DrbdPrimary = "drbd.primary";
@@ -109,6 +110,93 @@ internal static partial class StorageHost
         + "echo '@@drbd-devices'; for r in $($p drbdadm sh-resources 2>/dev/null); do for d in $($p drbdadm sh-dev \"$r\" 2>/dev/null); do echo \"$r $d\"; done; done; fi; "
         + "exit 0";
 
+    /// <summary>
+    /// Renames a map (<c>sh -c … wwid alias</c>, as root). A map's name comes from the alias in its
+    /// <c>multipath { wwid … }</c> block, so this sets the alias in the block that already exists
+    /// (in <c>/etc/multipath.conf</c> or <c>conf.d</c>) or adds a file with a new block, reloads the
+    /// maps, and tells multipathd. If the map doesn't end up with the name, the files are put back.
+    /// </summary>
+    private const string RenameMapScript = """
+        PATH=$PATH:/usr/sbin:/sbin
+        w=$1; a=$2; main=/etc/multipath.conf; dir=/etc/multipath/conf.d; own="$dir/nkeeper-alias-$w.conf"; created=
+        t=$(mktemp -d) || exit 1
+        trap 'rm -rf "$t"' EXIT
+        : > "$t/changed"
+
+        if [ -e "/dev/mapper/$a" ]; then echo "/dev/mapper/$a already exists on this host" >&2; exit 1; fi
+        if [ -f /etc/multipath/bindings ] && awk -v w="$w" -v a="$a" '$1 == a && $2 != w { f = 1 } END { exit !f }' /etc/multipath/bindings; then
+          echo "$a is already bound to another WWID in /etc/multipath/bindings" >&2; exit 1
+        fi
+
+        # Each file with the alias set: exits 3 if it has this WWID's block, 4 if the alias belongs to another WWID.
+        n=0
+        for f in "$main" "$dir"/*.conf; do
+          [ -f "$f" ] || continue
+          n=$((n + 1))
+          awk -v w="$w" -v a="$a" '
+            function put(i) {
+              if (bw == w) hit = 1; else if (ba == a) clash = 1
+              for (i = 1; i <= c; i++) {
+                if (bw == w && i == al) { print ind "alias " a; continue }
+                print buf[i]
+                if (bw == w && !al && i == wl) print ind "alias " a
+              }
+              inb = 0
+            }
+            /^[ \t]*multipath[ \t]*[{]/ { inb = 1; c = 0; bw = ""; ba = ""; al = 0; wl = 0; buf[++c] = $0; next }
+            inb {
+              buf[++c] = $0; v = $2; gsub(/"/, "", v)
+              if ($1 == "wwid") { bw = v; wl = c; match($0, /^[ \t]*/); ind = substr($0, 1, RLENGTH) }
+              else if ($1 == "alias") { ba = v; al = c }
+              if ($0 ~ /^[ \t]*[}]/) put()
+              next
+            }
+            { print }
+            END { if (inb) put(); exit (clash ? 4 : (hit ? 3 : 0)) }
+          ' "$f" > "$t/$n.new"
+          case $? in
+            0) ;;
+            3) printf '%s %s\n' "$n" "$f" >> "$t/changed" ;;
+            4) echo "$a is already the alias of another WWID in $f" >&2; exit 1 ;;
+            *) echo "couldn't read $f" >&2; exit 1 ;;
+          esac
+        done
+
+        restore() {
+          while read -r i f; do
+            if [ -f "$t/$i.old" ]; then cat "$t/$i.old" > "$f"; fi
+          done < "$t/changed"
+          if [ -n "$created" ]; then rm -f "$own"; fi
+          multipath -r > /dev/null 2>&1
+        }
+
+        # cat keeps each file's owner and mode.
+        while read -r i f; do
+          if ! { cp "$f" "$t/$i.old" && cat "$t/$i.new" > "$f"; }; then
+            restore; echo "couldn't write $f" >&2; exit 1
+          fi
+        done < "$t/changed"
+        if [ ! -s "$t/changed" ]; then
+          created=1
+          if ! { mkdir -p "$dir" && printf 'multipaths {\n\tmultipath {\n\t\twwid %s\n\t\talias %s\n\t}\n}\n' "$w" "$a" > "$own"; }; then
+            restore; echo "couldn't write $own" >&2; exit 1
+          fi
+        fi
+
+        if ! multipath -r > "$t/out" 2>&1; then
+          why=$(tail -n 1 "$t/out"); restore
+          echo "multipath -r refused it, so the configuration was put back: $why" >&2; exit 1
+        fi
+        if ! multipath -ll 2>/dev/null | awk -v a="$a" -v w="($w)" '$1 == a && $2 == w { f = 1 } END { exit !f }'; then
+          restore
+          echo "multipath didn't take the new name from its configuration, so the configuration was put back" >&2; exit 1
+        fi
+
+        # multipathd keeps its own copy of the configuration; it may not be running.
+        if command -v multipathd > /dev/null 2>&1; then multipathd reconfigure > /dev/null 2>&1; fi
+        exit 0
+        """;
+
     private static readonly TimeSpan StatusTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>iSCSI logins and discovery wait for the target; give them longer than iscsiadm's own timeouts.</summary>
@@ -127,7 +215,7 @@ internal static partial class StorageHost
     /// afterwards (<paramref name="after"/>); null when it did. A tool can exit 0 without having
     /// done it, so success is never taken from the exit code alone.
     /// </summary>
-    internal static string? Unachieved(string action, string? target, string? portal, string? name, StorageStatus after)
+    internal static string? Unachieved(string action, string? target, string? portal, string? name, StorageStatus after, string? newName = null)
     {
         var at = NormalizePortal(portal);
         var session = after.Iscsi?.Sessions.FirstOrDefault(s => s.Target == target && s.Portal == at);
@@ -142,6 +230,7 @@ internal static partial class StorageHost
             StorageActions.IscsiLogin when session.State != "LOGGED_IN" => $"the session to {target} is {session.State}, not logged in",
             StorageActions.IscsiLogout when session is not null => $"the host is still logged in to {target} at {at}",
             StorageActions.MultipathFlush when map is not null => $"the multipath map {name} is still there",
+            StorageActions.MultipathRename when after.Multipath?.Any(m => m.Name == newName) != true => $"the host has no multipath map named {newName} afterwards",
             StorageActions.DrbdUp when resource is not { Up: true } => $"{name} isn't up afterwards",
             StorageActions.DrbdDown when resource is { Up: true } => $"{name} is still up",
             StorageActions.DrbdPrimary when resource?.Role != "Primary" => $"{name} is {resource?.Role ?? "down"}, not Primary",
@@ -153,7 +242,7 @@ internal static partial class StorageHost
     }
 
     /// <summary>What a successful action changed, from the host's storage afterwards.</summary>
-    internal static string Achieved(string action, string? target, string? portal, string? name, StorageStatus after)
+    internal static string Achieved(string action, string? target, string? portal, string? name, StorageStatus after, string? newName = null)
     {
         var at = NormalizePortal(portal);
         var session = after.Iscsi?.Sessions.FirstOrDefault(s => s.Target == target && s.Portal == at);
@@ -165,6 +254,7 @@ internal static partial class StorageHost
             StorageActions.IscsiRescan => "Rescanned the iSCSI sessions for new or resized LUNs.",
             StorageActions.MultipathReload => "Reloaded the multipath maps.",
             StorageActions.MultipathFlush => $"Removed the multipath map {name}.",
+            StorageActions.MultipathRename => $"Renamed {name} to {newName} and reloaded the maps. It's now /dev/mapper/{newName}.",
             StorageActions.DrbdUp or StorageActions.DrbdPrimary or StorageActions.DrbdSecondary or StorageActions.DrbdAdjust =>
                 $"{name} is {(resource is { Up: true } ? resource.Role ?? "up" : "down")}{(resource is { Up: true } ? $", disk {string.Join("/", resource.Volumes.Select(v => v.DiskState ?? "unknown"))}" : "")}.",
             StorageActions.DrbdDown => $"{name} is down.",
@@ -181,9 +271,10 @@ internal static partial class StorageHost
 
     /// <summary>
     /// The command for an action on the host as it is now (<paramref name="status"/>), or why it
-    /// can't be done. <paramref name="name"/> is a multipath map or DRBD resource.
+    /// can't be done. <paramref name="name"/> is a multipath map or DRBD resource;
+    /// <paramref name="newName"/> is what a multipath map is renamed to.
     /// </summary>
-    public static StorageCommand CommandFor(string action, string? target, string? portal, string? name, StorageStatus status)
+    public static StorageCommand CommandFor(string action, string? target, string? portal, string? name, StorageStatus status, string? newName = null)
     {
         switch (action)
         {
@@ -228,6 +319,31 @@ internal static partial class StorageHost
             {
                 var map = RequireMultipath(status).FirstOrDefault(m => m.Name == name) ?? throw Refused("There's no multipath map by that name any more.");
                 return new($"$p multipath -f '{Checked(map.Name, MapName())}'", $"Multipath flush · {map.Name}");
+            }
+
+            case StorageActions.MultipathRename:
+            {
+                var maps = RequireMultipath(status);
+                var map = maps.FirstOrDefault(m => m.Name == name) ?? throw Refused("There's no multipath map by that name any more.");
+                if (newName is null || !MapAlias().IsMatch(newName))
+                {
+                    throw Refused("A map's new name needs 1 to 64 letters, digits, dots, dashes or underscores, starting with a letter or digit.");
+                }
+
+                if (newName == map.Name)
+                {
+                    throw Refused($"The map is already called {newName}.");
+                }
+
+                if (maps.Any(m => m.Name == newName || m.Wwid == newName))
+                {
+                    throw Refused($"Another multipath map is already called {newName}.");
+                }
+
+                // Quoted, so the script reaches the shell that sudo starts exactly as it's written.
+                return new(
+                    $"s=$(cat <<'NKEEPER'\n{RenameMapScript}\nNKEEPER\n); $p sh -c \"$s\" sh '{Checked(map.Wwid, MapName())}' '{newName}'",
+                    $"Multipath rename · {map.Name} → {newName}");
             }
 
             case StorageActions.DrbdUp or StorageActions.DrbdDown or StorageActions.DrbdPrimary or StorageActions.DrbdSecondary
@@ -611,6 +727,10 @@ internal static partial class StorageHost
     /// <summary>A multipath map's alias or WWID, or a DRBD resource's name.</summary>
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$")]
     private static partial Regex MapName();
+
+    /// <summary>A new name for a multipath map, which also becomes its <c>/dev/mapper</c> name.</summary>
+    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")]
+    private static partial Regex MapAlias();
 
     [GeneratedRegex(@"Attached scsi disk (?<disk>[A-Za-z0-9]+)")]
     private static partial Regex AttachedDisk();

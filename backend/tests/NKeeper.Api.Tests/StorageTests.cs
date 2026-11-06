@@ -191,6 +191,107 @@ public sealed class StorageTests(PostgresServerFixture postgres, StorageServerFi
     }
 
     [Fact]
+    public async Task Multipath_RenamesAMapWithoutAConfiguredBlock_ThroughItsOwnFile_AndAgain()
+    {
+        var host = await CreateTrustedHostAsync();
+        const string Own = "/etc/multipath/conf.d/nkeeper-alias-36001405aaaaaaaaaaaaaaaaaaaaaaaaa.conf";
+
+        var renamed = await RenameAsync(host, "mpatha", "db01");
+        Assert.Equal("Renamed mpatha to db01 and reloaded the maps. It's now /dev/mapper/db01.", renamed.GetProperty("message").GetString());
+        var map = Storage(renamed).Multipath!.Single(m => m.Wwid == "36001405aaaaaaaaaaaaaaaaaaaaaaaaa");
+        Assert.Equal(("db01", "dm-0"), (map.Name, map.DmDevice));
+        Assert.Equal(0, await san.ExecAsync($"grep -q 'alias db01' {Own}"));
+
+        // Its own file now has the block, so a second rename edits that instead of adding another.
+        Assert.Contains(Storage(await RenameAsync(host, "db01", "db02")).Multipath!, m => m.Name == "db02");
+        Assert.Equal(0, await san.ExecAsync($"grep -q 'alias db02' {Own} && ! grep -q db01 {Own}"));
+
+        // A map named by its WWID gets its first alias, and survives a reload.
+        await RenameAsync(host, "36001405bbbbbbbbbbbbbbbbbbbbbbbbb", "db03");
+        var reloaded = Storage(await ActAsync(host, StorageActions.MultipathReload));
+        Assert.Equal(["db02", "db03"], reloaded.Multipath!.Select(m => m.Name));
+
+        var audit = await _client.GetFromJsonAsync<JsonElement>("/api/audit/events?category=storage", Ct);
+        Assert.Contains("Multipath rename · db01 → db02", audit.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("detail").GetString()));
+    }
+
+    [Fact]
+    public async Task Multipath_RenameEditsTheBlockInTheHostsConfiguration_AndLeavesTheRestOfIt()
+    {
+        var host = await CreateTrustedHostAsync();
+        Assert.Equal(0, await san.ExecAsync(
+            "printf 'defaults {\\n\\tuser_friendly_names yes\\n}\\n# multipath { wwid 36001405aaaaaaaaaaaaaaaaaaaaaaaaa }\\n"
+            + "multipaths {\\n\\tmultipath {\\n\\t\\twwid \"36001405aaaaaaaaaaaaaaaaaaaaaaaaa\"\\n\\t\\talias \"mpatha\"\\n\\t\\tno_path_retry 5\\n\\t}\\n"
+            + "\\tmultipath {\\n\\t\\twwid 36001405other\\n\\t\\talias keepme\\n\\t}\\n}\\n' > /etc/multipath.conf && chmod 640 /etc/multipath.conf"));
+
+        Assert.Contains(Storage(await RenameAsync(host, "mpatha", "db01")).Multipath!, m => m.Name == "db01");
+
+        Assert.Equal(0, await san.ExecAsync(
+            "printf 'defaults {\\n\\tuser_friendly_names yes\\n}\\n# multipath { wwid 36001405aaaaaaaaaaaaaaaaaaaaaaaaa }\\n"
+            + "multipaths {\\n\\tmultipath {\\n\\t\\twwid \"36001405aaaaaaaaaaaaaaaaaaaaaaaaa\"\\n\\t\\talias db01\\n\\t\\tno_path_retry 5\\n\\t}\\n"
+            + "\\tmultipath {\\n\\t\\twwid 36001405other\\n\\t\\talias keepme\\n\\t}\\n}\\n' | cmp - /etc/multipath.conf"
+            + " && [ \"$(stat -c %a /etc/multipath.conf)\" = 640 ] && [ ! -e /etc/multipath/conf.d ]"));
+
+        // A block without an alias gets one, under its WWID.
+        Assert.Equal(0, await san.ExecAsync(
+            "printf 'multipaths {\\n  multipath {\\n    wwid 36001405bbbbbbbbbbbbbbbbbbbbbbbbb\\n    no_path_retry 5\\n  }\\n}\\n' > /etc/multipath.conf"));
+        await RenameAsync(host, "36001405bbbbbbbbbbbbbbbbbbbbbbbbb", "db03");
+        Assert.Equal(0, await san.ExecAsync(
+            "printf 'multipaths {\\n  multipath {\\n    wwid 36001405bbbbbbbbbbbbbbbbbbbbbbbbb\\n    alias db03\\n    no_path_retry 5\\n  }\\n}\\n' | cmp - /etc/multipath.conf"));
+    }
+
+    [Theory]
+    [InlineData("bad name", HttpStatusCode.BadRequest, "1 to 64 letters")]
+    [InlineData("x'; reboot; '", HttpStatusCode.BadRequest, "1 to 64 letters")]
+    [InlineData("-f", HttpStatusCode.BadRequest, "1 to 64 letters")]
+    [InlineData("mpatha", HttpStatusCode.BadRequest, "already called")]
+    [InlineData("36001405bbbbbbbbbbbbbbbbbbbbbbbbb", HttpStatusCode.BadRequest, "Another multipath map")]
+    public async Task Multipath_RefusesABadNewName(string newName, HttpStatusCode expected, string message)
+    {
+        var host = await CreateTrustedHostAsync();
+
+        var response = await RenameResponseAsync(host, "mpatha", newName);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Contains(message, await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("mkdir -p /etc/multipath && echo 'taken 36001405other' > /etc/multipath/bindings", "bound to another WWID")]
+    [InlineData("printf 'multipaths {\\n\\tmultipath {\\n\\t\\twwid 36001405other\\n\\t\\talias taken\\n\\t}\\n}\\n' > /etc/multipath.conf", "alias of another WWID")]
+    public async Task Multipath_RefusesANameTheConfigurationGivesAnotherWwid(string setup, string message)
+    {
+        var host = await CreateTrustedHostAsync();
+        Assert.Equal(0, await san.ExecAsync(setup));
+
+        var response = await RenameResponseAsync(host, "mpatha", "taken");
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.Contains(message, await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+        Assert.Equal(0, await san.ExecAsync("[ ! -e /etc/multipath/conf.d ]"));
+    }
+
+    [Theory]
+    [InlineData("refuse-reload", "device or resource busy")]
+    [InlineData("ignore-aliases", "didn't take the new name")]
+    public async Task Multipath_PutsTheConfigurationBack_WhenARenameDoesntTakeEffect(string fault, string message)
+    {
+        var host = await CreateTrustedHostAsync();
+        const string Before = "printf 'multipaths {\\n\\tmultipath {\\n\\t\\twwid 36001405aaaaaaaaaaaaaaaaaaaaaaaaa\\n\\t\\talias mpatha\\n\\t}\\n}\\n'";
+        Assert.Equal(0, await san.ExecAsync($"{Before} > /etc/multipath.conf && touch /var/lib/fake-multipath/{fault}"));
+
+        var edited = await RenameResponseAsync(host, "mpatha", "db01");
+        Assert.Equal(HttpStatusCode.BadGateway, edited.StatusCode);
+        Assert.Contains(message, await edited.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+        Assert.Equal(0, await san.ExecAsync($"{Before} | cmp - /etc/multipath.conf"));
+
+        // A file NKeeper added for a map without a block is removed again.
+        var added = await RenameResponseAsync(host, "36001405bbbbbbbbbbbbbbbbbbbbbbbbb", "db03");
+        Assert.Equal(HttpStatusCode.BadGateway, added.StatusCode);
+        Assert.Equal(0, await san.ExecAsync("[ ! -e /etc/multipath/conf.d/nkeeper-alias-36001405bbbbbbbbbbbbbbbbbbbbbbbbb.conf ]"));
+    }
+
+    [Fact]
     public async Task Drbd_BringsResourcesUp_ChangesRoles_AndConnections()
     {
         var host = await CreateTrustedHostAsync();
@@ -250,6 +351,18 @@ public sealed class StorageTests(PostgresServerFixture postgres, StorageServerFi
         _client.SendJsonAsync(
             HttpMethod.Post, "/api/storage/action",
             new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, action, target, portal, name }, Ct);
+
+    private async Task<JsonElement> RenameAsync(HostResponse host, string name, string newName)
+    {
+        var response = await RenameResponseAsync(host, name, newName);
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(Ct));
+        return await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+    }
+
+    private Task<HttpResponseMessage> RenameResponseAsync(HostResponse host, string name, string newName) =>
+        _client.SendJsonAsync(
+            HttpMethod.Post, "/api/storage/action",
+            new { hostId = host.Id, serviceIndex = 0, credentialId = host.Credentials[0].Id, action = StorageActions.MultipathRename, name, newName }, Ct);
 
     private async Task<JsonElement> PostAsync(string path, object body)
     {
