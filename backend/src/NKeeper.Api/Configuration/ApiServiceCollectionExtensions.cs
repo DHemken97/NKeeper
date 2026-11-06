@@ -73,6 +73,7 @@ internal static class ApiServiceCollectionExtensions
         services.AddScoped<NKeeper.Api.Telnet.TelnetTerminalSession>();
         services.AddScoped<DesktopSession>();
         services.AddScoped<NKeeper.Api.Rpc.RpcSession>();
+        services.AddScoped<NKeeper.Api.Journal.JournalFollowSession>();
         services.AddSingleton<SessionLimiter>();
         services.AddHttpContextAccessor();
         services.AddOptions<NKeeper.Api.Auditing.AuditSettings>()

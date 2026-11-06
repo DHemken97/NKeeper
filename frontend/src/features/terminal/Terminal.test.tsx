@@ -470,7 +470,7 @@ describe('connectMenuEntries', () => {
     )
     expect(mixed.map((entry) => (entry.kind === 'item' ? entry.label : entry.kind))).toEqual(['SSH', 'separator', 'Tools'])
     const tools = mixed.find((entry) => entry.kind === 'item' && entry.label === 'Tools')
-    expect(tools?.kind === 'item' && tools.submenu?.map((entry) => (entry.kind === 'item' ? entry.label : entry.kind))).toEqual(['Files', 'Storage'])
+    expect(tools?.kind === 'item' && tools.submenu?.map((entry) => (entry.kind === 'item' ? entry.label : entry.kind))).toEqual(['Files', 'Storage', 'Journal', 'SELinux'])
 
     const none = connectMenuEntries({ ...linux01, services: [{ protocol: 'WinRm', port: null, label: null }] }, actions)
     expect(none).toEqual([{ kind: 'item', label: 'No services to connect with', detail: 'Edit the host to add one', disabled: true }])

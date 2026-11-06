@@ -37,7 +37,7 @@ public sealed class TerminalClient : IAsyncDisposable
     public bool Closed { get; private set; }
 
     public static async Task<TerminalClient> ConnectAsync(
-        NKeeperApiFactory factory, CookieContainer cookies, CancellationToken cancellationToken, string origin = "http://localhost", string protocol = "ssh")
+        NKeeperApiFactory factory, CookieContainer cookies, CancellationToken cancellationToken, string origin = "http://localhost", string protocol = "ssh", string path = "session")
     {
         var client = factory.Server.CreateWebSocketClient();
         client.ConfigureRequest = request =>
@@ -45,7 +45,7 @@ public sealed class TerminalClient : IAsyncDisposable
             request.Headers.Cookie = cookies.GetCookieHeader(new Uri("http://localhost/"));
             request.Headers.Origin = origin;
         };
-        return new TerminalClient(await client.ConnectAsync(new Uri($"ws://localhost/api/{protocol}/session"), cancellationToken), protocol is "rdp" or "vnc");
+        return new TerminalClient(await client.ConnectAsync(new Uri($"ws://localhost/api/{protocol}/{path}"), cancellationToken), protocol is "rdp" or "vnc");
     }
 
     public Task SendJsonAsync(object message, CancellationToken cancellationToken) =>
