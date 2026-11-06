@@ -36,6 +36,7 @@ public sealed class InventoryLimitsTests(PostgresServerFixture postgres) : IAsyn
         var limits = await admin.GetFromJsonAsync<JsonElement>("/api/settings/limits", Ct);
         Assert.Equal(100, limits.GetProperty("maxServicesPerHost").GetInt32());
         Assert.Equal(10, limits.GetProperty("scanUsersPreselectedUpTo").GetInt32());
+        Assert.Equal(5, limits.GetProperty("zipReserveGigabytes").GetInt32());
         Assert.Equal(HttpStatusCode.Created, (await admin.SendJsonAsync(HttpMethod.Post, "/api/hosts", Host("many", 40), Ct)).StatusCode);
     }
 
@@ -54,6 +55,8 @@ public sealed class InventoryLimitsTests(PostgresServerFixture postgres) : IAsyn
         // Out of range is refused.
         Assert.Equal(HttpStatusCode.BadRequest, (await admin.SendJsonAsync(HttpMethod.Put, "/api/admin/limits", Limits(services: 0), Ct)).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await admin.SendJsonAsync(HttpMethod.Put, "/api/admin/limits", Limits(services: 1001), Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.SendJsonAsync(HttpMethod.Put, "/api/admin/limits", new { zipReserveGigabytes = -1 }, Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.SendJsonAsync(HttpMethod.Put, "/api/admin/limits", new { zipReserveGigabytes = 1001 }, Ct)).StatusCode);
     }
 
     [Fact]

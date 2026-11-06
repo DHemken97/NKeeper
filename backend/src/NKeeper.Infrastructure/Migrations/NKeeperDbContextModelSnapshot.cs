@@ -877,6 +877,9 @@ namespace NKeeper.Infrastructure.Migrations
                     b.Property<Guid?>("UpdatedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("ZipReserveGigabytes")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("UpdatedByUserId");

@@ -9,6 +9,7 @@ public sealed record InventoryLimitsResponse(
     int MaxCredentialsPerHost,
     int MaxTagsPerHost,
     int ScanUsersPreselectedUpTo,
+    int ZipReserveGigabytes,
     DateTimeOffset? UpdatedAtUtc)
 {
     public int CeilingServices => InventoryLimits.CeilingServices;
@@ -19,8 +20,10 @@ public sealed record InventoryLimitsResponse(
 
     public int CeilingScanUsers => InventoryLimits.CeilingScanUsers;
 
+    public int CeilingZipReserveGigabytes => InventoryLimits.CeilingZipReserveGigabytes;
+
     public static InventoryLimitsResponse From(InventoryLimits limits) =>
-        new(limits.MaxServicesPerHost, limits.MaxCredentialsPerHost, limits.MaxTagsPerHost, limits.ScanUsersPreselectedUpTo, limits.UpdatedAtUtc);
+        new(limits.MaxServicesPerHost, limits.MaxCredentialsPerHost, limits.MaxTagsPerHost, limits.ScanUsersPreselectedUpTo, limits.ZipReserveGigabytes, limits.UpdatedAtUtc);
 }
 
 public sealed record InventoryLimitsRequest
@@ -37,4 +40,8 @@ public sealed record InventoryLimitsRequest
     /// <summary>0: found users always start unticked.</summary>
     [Range(0, InventoryLimits.CeilingScanUsers, ErrorMessage = "Between 0 and 1000 users.")]
     public int ScanUsersPreselectedUpTo { get; init; } = InventoryLimits.DefaultScanUsersPreselectedUpTo;
+
+    /// <summary>0: a folder may use all the free space.</summary>
+    [Range(0, InventoryLimits.CeilingZipReserveGigabytes, ErrorMessage = "Between 0 and 1000 GB.")]
+    public int ZipReserveGigabytes { get; init; } = InventoryLimits.DefaultZipReserveGigabytes;
 }

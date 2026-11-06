@@ -169,9 +169,11 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
     [Fact]
     public async Task Folders_TooBigForTheServersFreeSpace_AreRefusedBeforeZipping()
     {
+        const long gigabyte = 1024L * 1024 * 1024;
         await UploadAsync("top.txt", "12345");
-        _tempSpace.Bytes = 50L * 1024 * 1024;
 
+        // 5 GB is kept free by default.
+        _tempSpace.Bytes = 5 * gigabyte;
         var refused = await PostAsync("download-link", new { path = _folder });
         Assert.False(refused.IsSuccessStatusCode);
         Assert.Contains("too big to zip", await refused.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
@@ -179,8 +181,15 @@ public sealed class SftpTests(PostgresServerFixture postgres, SshServerFixture s
         // A single file isn't zipped, so it doesn't depend on the space.
         Assert.Equal("12345", await DownloadAsync($"{_folder}/top.txt"));
 
-        _tempSpace.Bytes = 200L * 1024 * 1024;
+        _tempSpace.Bytes = 6 * gigabyte;
         Assert.True((await _admin.GetAsync(await LinkAsync(_folder), Ct)).IsSuccessStatusCode);
+
+        // The amount kept free comes from Settings.
+        (await _admin.SendJsonAsync(HttpMethod.Put, "/api/admin/limits", new { zipReserveGigabytes = 7 }, Ct)).EnsureSuccessStatusCode();
+        Assert.False((await PostAsync("download-link", new { path = _folder })).IsSuccessStatusCode);
+        (await _admin.SendJsonAsync(HttpMethod.Put, "/api/admin/limits", new { zipReserveGigabytes = 1 }, Ct)).EnsureSuccessStatusCode();
+        _tempSpace.Bytes = 2 * gigabyte;
+        Assert.True((await PostAsync("download-link", new { path = _folder })).IsSuccessStatusCode);
     }
 
     private sealed class FakeTempSpace : SftpTempSpace

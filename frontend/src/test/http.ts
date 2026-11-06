@@ -18,11 +18,13 @@ const defaultRoutes: Record<string, Handler> = {
       maxCredentialsPerHost: 100,
       maxTagsPerHost: 50,
       scanUsersPreselectedUpTo: 10,
+      zipReserveGigabytes: 5,
       updatedAtUtc: null,
       ceilingServices: 1000,
       ceilingCredentials: 1000,
       ceilingTags: 500,
       ceilingScanUsers: 1000,
+      ceilingZipReserveGigabytes: 1000,
     }),
 }
 

@@ -91,7 +91,7 @@ With email set up, **Email 2FA challenge code** can be turned on for any user, w
 
 ## Limits
 
-**Settings → Limits** (administrators only) sets how much one host may hold, and how scans pre-select what they find. Everyone's host editor, bulk edits, imports and scans follow them; the server refuses a save that goes over.
+**Settings → Limits** (administrators only) sets how much one host may hold, how scans pre-select what they find, and the disk space folder downloads leave free. Everyone's host editor, bulk edits, imports and scans follow them; the server refuses a save that goes over.
 
 | Setting | Default | Most |
 | --- | --- | --- |
@@ -99,8 +99,11 @@ With email set up, **Email 2FA challenge code** can be turned on for any user, w
 | Credentials per host | 100 | 1000 |
 | Tags per host | 50 | 500 |
 | Users a scan ticks for you | 10 | 1000 |
+| Disk space to keep free when zipping (GB) | 5 | 1000 |
 
 **Users a scan ticks for you:** when a scan finds more new local users than this, they all start unticked, and you tick the ones you want as credentials. At 0 they're never ticked. Lowering a limit doesn't touch hosts that already have more: they can still be edited and saved, but can't gain more until they're under it. Changes are audited (`settings.limits`).
+
+**Disk space to keep free when zipping:** a folder download is zipped in the NKeeper server's temp folder first. It's refused if the folder's size plus this amount is more than that disk has free. The check uses the folder's full size, without allowing for compression, and only runs when the download starts, so several at once can still use more. At 0 a folder may use all the free space.
 
 ## Moving to a new server
 

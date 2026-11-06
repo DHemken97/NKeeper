@@ -8,11 +8,14 @@ export interface InventoryLimits {
   maxTagsPerHost: number
   /** A scan that finds this many new users or fewer ticks them; more, and they all start unticked. */
   scanUsersPreselectedUpTo: number
+  /** A folder is only zipped for download if the server would still have this much free beyond the folder's size. */
+  zipReserveGigabytes: number
   updatedAtUtc: string | null
   ceilingServices: number
   ceilingCredentials: number
   ceilingTags: number
   ceilingScanUsers: number
+  ceilingZipReserveGigabytes: number
 }
 
 /** The server's defaults, used until its answer comes (and if it can't be asked). */
@@ -21,16 +24,18 @@ export const DEFAULT_LIMITS: InventoryLimits = {
   maxCredentialsPerHost: 100,
   maxTagsPerHost: 50,
   scanUsersPreselectedUpTo: 10,
+  zipReserveGigabytes: 5,
   updatedAtUtc: null,
   ceilingServices: 1000,
   ceilingCredentials: 1000,
   ceilingTags: 500,
   ceilingScanUsers: 1000,
+  ceilingZipReserveGigabytes: 1000,
 }
 
 export const limitsApi = {
   get: (signal?: AbortSignal) => api.get<InventoryLimits>('/api/settings/limits', { signal }),
-  save: (input: Pick<InventoryLimits, 'maxServicesPerHost' | 'maxCredentialsPerHost' | 'maxTagsPerHost' | 'scanUsersPreselectedUpTo'>) =>
+  save: (input: Pick<InventoryLimits, 'maxServicesPerHost' | 'maxCredentialsPerHost' | 'maxTagsPerHost' | 'scanUsersPreselectedUpTo' | 'zipReserveGigabytes'>) =>
     api.put<InventoryLimits>('/api/admin/limits', { body: input }),
 }
 

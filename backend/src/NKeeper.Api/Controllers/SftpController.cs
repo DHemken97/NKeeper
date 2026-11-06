@@ -11,6 +11,7 @@ using NKeeper.Api.RemoteSessions;
 using NKeeper.Api.Security;
 using NKeeper.Api.Ssh;
 using NKeeper.Infrastructure.Inventory;
+using NKeeper.Infrastructure.Persistence;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 using Renci.SshNet.Sftp;
@@ -85,12 +86,9 @@ public sealed record SftpDownloadLinkResponse(string Url);
 [ApiController]
 [Authorize]
 [Route("api/sftp")]
-public sealed class SftpController(SftpDownloadLinks links, SftpTempSpace tempSpace, AuditLog audit) : ControllerBase
+public sealed class SftpController(SftpDownloadLinks links, SftpTempSpace tempSpace, NKeeperDbContext db, AuditLog audit) : ControllerBase
 {
     private const long MaxUploadBytes = 2L * 1024 * 1024 * 1024;
-
-    /// <summary>Kept free beyond a folder's size when zipping it: a zip adds a little per file, and the server needs room to carry on.</summary>
-    private const long ZipHeadroomBytes = 100L * 1024 * 1024;
 
     /// <summary>Not real files: /proc/kcore alone reports over 100 TB.</summary>
     private static readonly HashSet<string> PseudoFileSystems = new(StringComparer.Ordinal) { "/proc", "/sys", "/dev" };
@@ -171,12 +169,13 @@ public sealed class SftpController(SftpDownloadLinks links, SftpTempSpace tempSp
             if (client.GetAttributes(path).IsDirectory)
             {
                 var folder = await MeasureFolderAsync(client, path, cancellationToken);
+                var reserve = (await InventoryLimits.ReadAsync(db, cancellationToken)).ZipReserveGigabytes;
                 var free = tempSpace.AvailableBytes;
-                if (folder.Size + ZipHeadroomBytes > free)
+                if (folder.Size > free - (reserve * 1024L * 1024 * 1024))
                 {
                     throw new SessionException(
                         SessionErrorCodes.FileOperationFailed,
-                        $"{path} is too big to zip: it holds {Megabytes(folder.Size)} and the NKeeper server has {Megabytes(free)} free. Download smaller folders.");
+                        $"{path} is too big to zip: it holds {Megabytes(folder.Size)}, and the NKeeper server has {Megabytes(free)} free and must keep {reserve} GB of that. Download smaller folders.");
                 }
             }
         }

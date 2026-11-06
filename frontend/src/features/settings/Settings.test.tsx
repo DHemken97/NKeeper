@@ -101,7 +101,7 @@ describe('Settings: limits', () => {
       'PUT /api/admin/limits': (_url, init) => {
         const body = JSON.parse(String(init.body))
         puts.push(body)
-        return jsonResponse(200, { ...body, updatedAtUtc: '2026-11-04T12:00:00Z', ceilingServices: 1000, ceilingCredentials: 1000, ceilingTags: 500, ceilingScanUsers: 1000 })
+        return jsonResponse(200, { ...body, updatedAtUtc: '2026-11-04T12:00:00Z', ceilingServices: 1000, ceilingCredentials: 1000, ceilingTags: 500, ceilingScanUsers: 1000, ceilingZipReserveGigabytes: 1000 })
       },
     })
     const user = renderPage()
@@ -113,10 +113,13 @@ describe('Settings: limits', () => {
     await user.type(panel.getByLabelText('Services per host'), '250')
     await user.clear(panel.getByLabelText('Users a scan ticks for you'))
     await user.type(panel.getByLabelText('Users a scan ticks for you'), '5')
+    expect(panel.getByLabelText('Disk space to keep free when zipping (GB)')).toHaveValue(5)
+    await user.clear(panel.getByLabelText('Disk space to keep free when zipping (GB)'))
+    await user.type(panel.getByLabelText('Disk space to keep free when zipping (GB)'), '20')
     await user.click(panel.getByRole('button', { name: 'Save' }))
 
-    expect(await panel.findByText('Saved. The host editor and scans use them now.')).toBeInTheDocument()
-    expect(puts).toEqual([{ maxServicesPerHost: 250, maxCredentialsPerHost: 100, maxTagsPerHost: 50, scanUsersPreselectedUpTo: 5 }])
+    expect(await panel.findByText('Saved. They apply now.')).toBeInTheDocument()
+    expect(puts).toEqual([{ maxServicesPerHost: 250, maxCredentialsPerHost: 100, maxTagsPerHost: 50, scanUsersPreselectedUpTo: 5, zipReserveGigabytes: 20 }])
   })
 })
 
