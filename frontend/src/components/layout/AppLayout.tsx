@@ -4,6 +4,7 @@ import { ChangePasswordDialog } from '../../features/account/components/ChangePa
 import { ColorSchemeDialog } from '../../features/appearance/components/ColorSchemeDialog'
 import { useAuth } from '../../features/auth/context'
 import { isAdministrator } from '../../features/auth/types'
+import { WorkspacePage } from '../../features/inventory/pages/WorkspacePage'
 import { useHotkeys } from '../../lib/hotkeys'
 import { Alert } from '../ui/Alert'
 import { ContextMenu } from '../ui/ContextMenu'
@@ -11,7 +12,11 @@ import { Logo } from '../ui/Logo'
 import styles from './AppLayout.module.css'
 import { ShortcutsDialog } from './ShortcutsDialog'
 
-/** Shell for authenticated pages: a compact top bar, and the page filling the rest of the window. */
+/**
+ * Shell for authenticated pages: a compact top bar, and the page filling the rest of the window.
+ * Once opened, the Hosts workspace stays mounted and is only hidden on the other pages, so its
+ * sessions keep running and it comes back as it was left.
+ */
 export function AppLayout() {
   const { user, logout } = useAuth()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -20,13 +25,20 @@ export function AppLayout() {
   const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
   const admin = isAdministrator(user)
   const navigate = useNavigate()
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const [showingShortcuts, setShowingShortcuts] = useState(false)
+  const onHosts = pathname === '/'
+  // Not opened until first needed, so other pages don't load the hosts. `search` is the view to go back to.
+  const [workspace, setWorkspace] = useState({ opened: onHosts, search: onHosts ? search : '' })
+  if (onHosts && (!workspace.opened || workspace.search !== search)) {
+    setWorkspace({ opened: true, search })
+  }
+  const hostsLink = { pathname: '/', search: workspace.search }
 
   useHotkeys([
     { keys: ['?', 'Ctrl+/'], run: () => setShowingShortcuts(true) },
     // On the Hosts page itself, the workspace takes Alt+Shift+H to the tree, keeping the view.
-    { keys: 'Alt+Shift+H', run: () => navigate('/'), enabled: pathname !== '/' },
+    { keys: 'Alt+Shift+H', run: () => navigate(hostsLink), enabled: !onHosts },
     { keys: 'Alt+Shift+R', run: () => navigate('/reports') },
     { keys: 'Alt+Shift+U', run: () => navigate('/users'), enabled: admin },
     { keys: 'Alt+Shift+S', run: () => navigate('/settings'), enabled: admin },
@@ -46,7 +58,7 @@ export function AppLayout() {
       <header className={styles.header}>
         <Logo size={24} />
         <nav className={styles.nav} aria-label="Main">
-          <NavLink to="/" end className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
+          <NavLink to={hostsLink} end className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
             Hosts
           </NavLink>
           <NavLink to="/reports" className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`}>
@@ -89,6 +101,7 @@ export function AppLayout() {
         </div>
       ) : null}
       <main className={styles.content}>
+        {workspace.opened ? <WorkspacePage visible={onHosts} /> : null}
         <Outlet />
       </main>
 

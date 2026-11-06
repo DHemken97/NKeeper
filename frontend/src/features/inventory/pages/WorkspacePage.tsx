@@ -183,19 +183,35 @@ interface MenuState {
  * selected host's details (or editor) and a tab per open terminal session. Right-click a host
  * for Connect > service > credential. View state lives in the URL, e.g.
  * `/?group=site&group=role&q=env:prod&host=<id>`, so views can be bookmarked; sessions do not.
+ *
+ * It stays mounted while another page is showing (`visible` is false), so sessions keep running.
+ * Meanwhile it leaves the address, the keyboard and the server's health checks to that page.
  */
-export function WorkspacePage() {
-  const [params, setParams] = useSearchParams()
+export function WorkspacePage({ visible }: { visible: boolean }) {
+  const [urlParams, setParams] = useSearchParams()
   const { user } = useAuth()
   const admin = isAdministrator(user)
   const resource = useResource((signal) => hostsApi.list(signal))
   // Service health, refreshed every minute (the server checks every few minutes).
   const health = useResource((signal) => healthApi.list(signal))
   const reloadHealth = health.reload
+  const reloadHosts = resource.reload
+  const visibleRef = useRef(visible)
   useEffect(() => {
+    if (!visible) {
+      return
+    }
     const timer = setInterval(reloadHealth, 60_000)
     return () => clearInterval(timer)
-  }, [reloadHealth])
+  }, [visible, reloadHealth])
+  // Back from another page, where hosts may have changed.
+  useEffect(() => {
+    if (visible && !visibleRef.current) {
+      reloadHosts()
+      reloadHealth()
+    }
+    visibleRef.current = visible
+  }, [visible, reloadHosts, reloadHealth])
   const checksByHost = useMemo(() => {
     const byHost = new Map<string, ServiceCheck[]>()
     for (const check of health.data ?? []) {
@@ -212,6 +228,8 @@ export function WorkspacePage() {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const [sessions, setSessions] = useState<RemoteSession[]>([])
   const [activeTab, setActiveTab] = useState(DETAILS_TAB)
+  // The other pages' addresses aren't this view's: it keeps the last one of its own until it's back.
+  const [shown, setShown] = useState({ visible, params: urlParams })
   const [menu, setMenu] = useState<MenuState | null>(null)
   /** Asking for a login: to connect, or for an internal scan. `account` prefills a credential without a secret. */
   const [prompt, setPrompt] = useState<{
@@ -252,6 +270,17 @@ export function WorkspacePage() {
   } | null>(null)
   const [preferencesError, setPreferencesError] = useState<string | null>(null)
   const preferenceSave = useRef<Promise<void>>(Promise.resolve())
+
+  if (shown.visible !== visible || (visible && shown.params !== urlParams)) {
+    // A link from another page (a report's host) to a different view: show that, not a session.
+    if (visible && !shown.visible && urlParams.toString() !== shown.params.toString()) {
+      setActiveTab(DETAILS_TAB)
+      setBulk(new Set())
+    }
+    setShown({ visible, params: visible ? urlParams : shown.params })
+  }
+  const params = visible ? urlParams : shown.params
+  const shownTab = visible ? activeTab : null
 
   const loadedHosts = local.basedOn !== undefined && local.basedOn === resource.data ? local.hosts : resource.data
   // VMs inherit tags from the hosts they run on: worked out again whenever a host changes.
@@ -315,6 +344,10 @@ export function WorkspacePage() {
   function update(changes: Record<string, string | string[] | null>) {
     if ('q' in changes) {
       clearTimeout(searchTimer.current)
+    }
+    // Something finishing after the user left (a save, a paused search) mustn't change the page they're on.
+    if (!visibleRef.current) {
+      return
     }
     setParams(
       (current) => {
@@ -669,7 +702,7 @@ export function WorkspacePage() {
   const menuHost = menu ? allHosts?.find((h) => h.id === menu.hostId) : undefined
   const singleHost = bulkHosts.length > 1 ? undefined : selectedHost
 
-  useHotkeys([
+  useHotkeys(!visible ? [] : [
     // Work in a terminal or remote desktop too: the way back out of one.
     { keys: 'Alt+PageDown', run: () => stepTab(1), enabled: hasSessions, inSessions: true },
     { keys: 'Alt+PageUp', run: () => stepTab(-1), enabled: hasSessions, inSessions: true },
@@ -700,7 +733,7 @@ export function WorkspacePage() {
   ])
 
   return (
-    <div className={`${styles.workspace} ${showingPanel ? styles.panelOpen : ''}`}>
+    <div className={`${styles.workspace} ${showingPanel ? styles.panelOpen : ''}`} hidden={!visible}>
       <aside className={styles.sidebar} aria-label="Host inventory">
         <div className={styles.sidebarHeader}>
           <h1 className={styles.sidebarTitle}>
@@ -1038,7 +1071,7 @@ export function WorkspacePage() {
               <WebSession
                 key={session.id}
                 session={session}
-                active={activeTab === session.id}
+                active={shownTab === session.id}
                 onShowHost={(id) => showHost(id)}
                 onEnded={() => closeSession(session.id)}
               />
@@ -1046,21 +1079,21 @@ export function WorkspacePage() {
               <VirtualMachinesView
                 key={session.id}
                 session={session}
-                active={activeTab === session.id}
+                active={shownTab === session.id}
                 onShowHost={(id) => showHost(id)}
                 onOpenConsole={(vm) => openConsole(session, vm)}
               />
             ) : session.protocol === 'sftp' ? (
-              <FileBrowser key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+              <FileBrowser key={session.id} session={session} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'mssql' || session.protocol === 'oracle' || session.protocol === 'ase' || session.protocol === 'rs' ? (
-              <DatabaseView key={session.id} session={session} engine={session.protocol} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+              <DatabaseView key={session.id} session={session} engine={session.protocol} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'storage' ? (
-              <StorageView key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+              <StorageView key={session.id} session={session} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'idrac' ? (
               <IdracView
                 key={session.id}
                 session={session}
-                active={activeTab === session.id}
+                active={shownTab === session.id}
                 onShowHost={(id) => showHost(id)}
                 onOpen={(mode) => openFromIdrac(session, mode)}
                 host={allHosts?.find((h) => h.id === session.hostId)}
@@ -1070,27 +1103,27 @@ export function WorkspacePage() {
               <KvmVmConsole
                 key={session.id}
                 session={session}
-                active={activeTab === session.id}
+                active={shownTab === session.id}
                 onShowHost={(id) => showHost(id)}
                 onDisplay={(display) => showKvmConsole(session.id, display)}
               />
             ) : session.protocol === 'spice' ? (
-              <SpiceConsole key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+              <SpiceConsole key={session.id} session={session} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'vmvnc' || session.protocol === 'pvevnc' ? (
               <VncConsole
                 key={session.id}
                 session={session}
-                active={activeTab === session.id}
+                active={shownTab === session.id}
                 onShowHost={(id) => showHost(id)}
                 via={session.protocol === 'pvevnc' ? 'proxmox' : 'kvm'}
               />
             ) : session.protocol === 'rpc' ? (
-              <RpcSession key={session.id} session={session} active={activeTab === session.id} onShowHost={(id) => showHost(id)} />
+              <RpcSession key={session.id} session={session} active={shownTab === session.id} onShowHost={(id) => showHost(id)} />
             ) : session.protocol === 'rdp' || session.protocol === 'vnc' ? (
               <DesktopSession
                 key={session.id}
                 session={session}
-                active={activeTab === session.id}
+                active={shownTab === session.id}
                 onShowHost={(id) => showHost(id)}
                 onEnded={() => closeSession(session.id)}
               />
@@ -1098,7 +1131,7 @@ export function WorkspacePage() {
               <SshTerminal
                 key={session.id}
                 session={session}
-                active={activeTab === session.id}
+                active={shownTab === session.id}
                 onShowHost={(id) => showHost(id)}
                 onEnded={() => closeSession(session.id)}
               />

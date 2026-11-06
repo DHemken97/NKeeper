@@ -3,7 +3,6 @@ import { AppLayout } from '../components/layout/AppLayout'
 import { AdminRoute, ProtectedRoute, PublicOnlyRoute } from '../features/auth/components/RouteGuards'
 import { ForgotPasswordPage } from '../features/auth/pages/ForgotPasswordPage'
 import { LoginPage } from '../features/auth/pages/LoginPage'
-import { WorkspacePage } from '../features/inventory/pages/WorkspacePage'
 import { IpAddressReport } from '../features/reports/pages/IpAddressReport'
 import { ReportsLayout } from '../features/reports/pages/ReportsLayout'
 import { VmResourcesReport } from '../features/reports/pages/VmResourcesReport'
@@ -31,8 +30,9 @@ export const routes: RouteObject[] = [
       {
         element: <AppLayout />,
         // The workspace is a single page; view state (selection, search, grouping) lives in the query string.
+        // AppLayout renders it rather than this route, so its sessions stay open on the other pages.
         children: [
-          { index: true, element: <WorkspacePage /> },
+          { index: true, element: null },
           {
             path: '/reports',
             element: <ReportsLayout />,

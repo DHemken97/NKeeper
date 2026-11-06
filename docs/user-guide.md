@@ -181,7 +181,7 @@ Changing a host's hostname or IP address forgets its trusted keys too, for the s
 
 ## Connecting
 
-Right-click a host in the tree, or press the Menu key or Shift+F10 on it, then choose **Connect ▸ service ▸ credential**. Each session opens as a tab next to the host details and keeps running while you switch tabs.
+Right-click a host in the tree, or press the Menu key or Shift+F10 on it, then choose **Connect ▸ service ▸ credential**. Each session opens as a tab next to the host details and keeps running while you switch tabs, and while you're on Reports, Users or Settings: **Hosts** brings you back to them as you left them. Sessions close when you close them, sign out, or close or reload the browser tab.
 
 **Connect** lists the clients: SSH, Telnet, RDP, VNC, RPC, web interfaces, iDRAC and VM consoles. The tools that do more than open a client are under **Connect ▸ Tools**: **Files** and **Storage** (on an SSH service), **KVM** (a hypervisor's VMs), **MS SQL**, **Oracle**, **SAP ASE** and **Replication Server**.
 
