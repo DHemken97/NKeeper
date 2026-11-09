@@ -516,3 +516,50 @@ export interface BulkCredentialUpdate extends BulkCredentialMatch {
   privateKey?: string
   clearPrivateKey?: boolean
 }
+
+/** A network the NKeeper server is on, suggested as a network scan's target. */
+export interface LocalNetwork {
+  subnet: string
+  interface: string
+  address: string
+}
+
+/** A machine a network scan found, with what it learned about it and the NKeeper host it already is. */
+export interface DiscoveredDevice {
+  ipAddress: string
+  macAddress: string | null
+  /** The network card's maker, for known prefixes (mostly virtual machines). */
+  vendor: string | null
+  /** The MAC address is a virtual machine's (or container's). */
+  isVirtual: boolean
+  /** The best name found (reverse DNS, then NetBIOS, then certificates). */
+  hostname: string | null
+  /** Every name found, with its source, e.g. "server01 (NetBIOS)". */
+  names: string[]
+  operatingSystem: string | null
+  ttl: number | null
+  /** How it was found: "ping", "tcp" and/or "arp". */
+  respondedTo: string[]
+  ports: ScannedPort[]
+  /** What its services said: banners, page titles, certificates, its workgroup. */
+  details: string[]
+  hostId: string | null
+  matchedHostName: string | null
+  matchedBy: 'mac' | 'ip' | 'hostname' | null
+  /** For a machine NKeeper doesn't have: the host that could be added for it. */
+  newHost: ProposedHost | null
+}
+
+/** A network scan's progress and findings so far. */
+export interface NetworkScan {
+  id: string
+  subnet: string
+  state: 'running' | 'finished' | 'cancelled' | 'failed'
+  total: number
+  done: number
+  devices: DiscoveredDevice[]
+  notes: string[]
+  startedAtUtc: string
+  finishedAtUtc: string | null
+  message: string | null
+}

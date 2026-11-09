@@ -7,6 +7,8 @@ import type {
   HostInput,
   HypervisorLink,
   InternalScanLogin,
+  LocalNetwork,
+  NetworkScan,
   ScannedHostInput,
   ScanResponse,
   ServiceCheck,
@@ -42,4 +44,16 @@ export const healthApi = {
   list: (signal?: AbortSignal) => api.get<ServiceCheck[]>('/api/health', { signal }),
   /** Check one host's services now. */
   check: (hostId: string) => api.post<ServiceCheck[]>(`/api/health/hosts/${hostId}/check`),
+}
+
+/** Network (subnet) scans, run on the server. Administrators only. */
+export const networkScanApi = {
+  /** The networks the server is on, to suggest as targets. */
+  networks: () => api.get<LocalNetwork[]>('/api/network-scan/networks'),
+  /** The user's most recent scan, or null when there's none. */
+  latest: async () => (await api.get<NetworkScan | undefined>('/api/network-scan/latest')) ?? null,
+  /** Starts sweeping the subnet; poll `get` for progress. The user must have acknowledged the warning. */
+  start: (subnet: string) => api.post<NetworkScan>('/api/network-scan', { body: { subnet, acknowledged: true } }),
+  get: (id: string, signal?: AbortSignal) => api.get<NetworkScan>(`/api/network-scan/${id}`, { signal }),
+  cancel: (id: string) => api.delete(`/api/network-scan/${id}`),
 }

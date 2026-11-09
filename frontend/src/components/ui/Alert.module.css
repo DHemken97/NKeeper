@@ -16,3 +16,10 @@
   border-color: var(--color-border-strong);
   color: var(--color-text);
 }
+
+/* The warning token is a text colour that stays readable on the surface; the tint is mixed from it. */
+.warning {
+  background: color-mix(in srgb, var(--color-warning) 10%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-warning) 55%, transparent);
+  color: var(--color-text);
+}

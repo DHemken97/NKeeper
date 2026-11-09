@@ -16,6 +16,7 @@ import { HostDetails } from '../components/HostDetails'
 import { HostEditor } from '../components/HostEditor'
 import { HostTree, type SelectMode } from '../components/HostTree'
 import { ImportHostsDialog } from '../components/ImportHostsDialog'
+import { NetworkScanDialog } from '../components/NetworkScanDialog'
 import { ScanDialog } from '../components/ScanDialog'
 import {
   buildTree,
@@ -262,6 +263,7 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
   } | null>(null)
   const [scan, setScan] = useState<{ host: Host; kind: 'internal' | 'external'; login?: InternalScanLogin } | null>(null)
   const [importing, setImporting] = useState(false)
+  const [scanningNetwork, setScanningNetwork] = useState(false)
   /** Hosts selected together for bulk changes; two or more replace the details with the bulk panel. */
   const [bulk, setBulk] = useState<ReadonlySet<string>>(new Set())
   /** Where a Shift+click range starts. */
@@ -804,6 +806,9 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
                 <Button size="sm" variant="secondary" onClick={() => setImporting(true)} title="Import (Alt+Shift+I)" aria-keyshortcuts="Alt+Shift+I">
                   Import
                 </Button>
+                <Button size="sm" variant="secondary" onClick={() => setScanningNetwork(true)} title="Find the machines on a subnet (a loud network scan)">
+                  Scan network
+                </Button>
                 <Button size="sm" onClick={() => showHost(NEW_HOST)} title="New host (Alt+Shift+N)" aria-keyshortcuts="Alt+Shift+N">
                   New host
                 </Button>
@@ -1220,6 +1225,9 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
         />
       ) : null}
       {importing ? <ImportHostsDialog onClose={() => setImporting(false)} onImported={resource.reload} /> : null}
+      {scanningNetwork ? (
+        <NetworkScanDialog hostNames={(allHosts ?? []).map((h) => h.name)} onClose={() => setScanningNetwork(false)} onAdded={resource.reload} />
+      ) : null}
     </div>
   )
 }

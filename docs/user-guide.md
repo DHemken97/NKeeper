@@ -183,6 +183,25 @@ Administrators can bring in an mRemoteNG connection file with **Import** (next t
 
 Changing a host's hostname or IP address forgets its trusted keys too, for the same reason.
 
+## Scanning a network
+
+**Scan network** (administrators, in the toolbar above the host list) finds every machine on a subnet and learns what it can about each one. It's the loud counterpart to reading a host's neighbour table.
+
+> **This scan is loud.** The NKeeper server pings every address, tries about 65 TCP ports on each machine that answers, and talks to the services it finds. Firewalls, intrusion detection and prevention systems, honeypots and other security tools may treat it as an attack: they may raise alerts or block the NKeeper server. The dialog says so, and you must tick that you understand and are allowed to scan the network before **Start scan** is enabled. Every scan is recorded in the audit trail (*Network scanned*, filter **Network scans**).
+
+- **Target:** an IPv4 subnet in CIDR form, a /20 (4,096 addresses) at most, such as `192.168.1.0/24`. The server's own networks are offered as suggestions. A /24 takes about a minute.
+- **Finding machines:** an address counts as a machine when it answers a **ping**, answers (or refuses) a **TCP** connection on a common port, or resolves in **ARP** (only on the server's own network segment). A machine that drops all of those isn't found.
+- **What it learns about each machine:**
+  - its open TCP ports (the external scan's ports, plus ones that identify printers, NAS boxes, hypervisors, container hosts, databases and management interfaces);
+  - its names: reverse DNS, its **NetBIOS** name and workgroup (Windows and Samba), and the names in its Remote Desktop and web certificates;
+  - its MAC address (from ARP on the server's segment, or from its NetBIOS answer across routers) and, for well-known prefixes, the maker: VMware, Hyper-V, QEMU/KVM, Proxmox, VirtualBox, Xen, Docker, Raspberry Pi, Synology. A virtual machine's prefix marks it as one;
+  - what its services say: the SSH banner, each web page's server and title (up to four web ports), certificates, and its ping TTL (a hint at the operating system family);
+  - an operating system guess, from the SSH banner, or *Windows* when Remote Desktop, Microsoft RPC or Windows file sharing answers.
+- **Matching:** each machine is matched to an NKeeper host by its **MAC address**, else its **IP address**, else its **hostname**. Click an address to see everything found about it.
+- **Adding machines:** tick the new ones you want (or **Select all**) and **Add hosts**. Each new host gets its short hostname as its name (its IP address if there's no name, or if a host already has it), its hostname, IP and MAC address, *Virtual machine* when the MAC says so, an `os` tag, and a service for each open port NKeeper has a service for. Add logins afterwards.
+
+The scan runs on the server, so closing the dialog doesn't stop it: reopen **Scan network** to see its progress, and **Stop scan** to end it early (what it found so far stays). Only one network scan runs at a time. A finished scan is shown again for an hour. Run from a container, NKeeper only sees MAC addresses if it uses the host's network.
+
 ## Connecting
 
 Right-click a host in the tree, or press the Menu key or Shift+F10 on it, then choose **Connect ▸ service ▸ credential**. Each session opens as a tab next to the host details and keeps running while you switch tabs, and while you're on Reports, Users or Settings: **Hosts** brings you back to them as you left them. Sessions close when you close them, sign out, or close or reload the browser tab.

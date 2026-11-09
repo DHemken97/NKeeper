@@ -149,6 +149,7 @@ public sealed class AuditController(NKeeperDbContext db) : ControllerBase
             "signin" => "auth.",
             "session" => "session.",
             "host" => "host.",
+            "network" => "network.",
             "user" => "user.",
             "transfer" => "transfer.",
             "idrac" => "idrac.",

@@ -63,6 +63,7 @@ internal static class ApiServiceCollectionExtensions
         services.AddScoped<NKeeper.Api.Zabbix.ZabbixConnection>();
         services.AddScoped<NKeeper.Api.Inventory.Import.HostImporter>();
         services.AddSingleton<NKeeper.Api.Inventory.Scanning.ExternalScan>();
+        services.AddSingleton<NKeeper.Api.Inventory.Scanning.NetworkScans>();
         services.AddScoped<NKeeper.Api.Users.UserAdministration>();
         services.AddScoped<SessionTargetResolver>();
         services.AddScoped<NKeeper.Api.Transfer.InstanceExporter>();

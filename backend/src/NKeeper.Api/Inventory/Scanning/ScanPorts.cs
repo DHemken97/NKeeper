@@ -13,6 +13,17 @@ internal static class ScanPorts
         1433, 1521, 2049, 2179, 3306, 3389, 5432, 5900, 5901, 5985, 5986, 6379, 8006, 8080, 8443, 9090, 9100,
     ];
 
+    /// <summary>
+    /// The ports a network (subnet) scan probes on each machine that answers: the common ones plus
+    /// others that say what a device is (printers, NAS, hypervisors, containers, databases, apps).
+    /// </summary>
+    public static readonly int[] Network =
+    [
+        .. Common,
+        111, 515, 548, 631, 873, 902, 1883, 2375, 2376, 3000, 5000, 5001, 5060, 5672, 6443, 7001,
+        8000, 8008, 8081, 8888, 9000, 9200, 9443, 10000, 10050, 11211, 16509, 27017,
+    ];
+
     private static readonly Dictionary<int, string> Names = new()
     {
         [21] = "FTP", [22] = "SSH", [23] = "Telnet", [25] = "SMTP", [53] = "DNS", [80] = "HTTP", [88] = "Kerberos",
@@ -22,6 +33,13 @@ internal static class ScanPorts
         [3306] = "MySQL / MariaDB", [3389] = "Remote Desktop (RDP)", [5432] = "PostgreSQL", [5985] = "WinRM (HTTP)",
         [5986] = "WinRM (HTTPS)", [6379] = "Redis", [8006] = "Proxmox VE", [8080] = "HTTP (alternate)",
         [8443] = "HTTPS (alternate)", [9090] = "Cockpit", [9100] = "Printer (JetDirect)", [16509] = "libvirt",
+        [111] = "RPC portmapper", [515] = "Printer (LPD)", [548] = "AFP (Apple file sharing)", [631] = "Printer (IPP)",
+        [873] = "rsync", [902] = "VMware ESXi", [1883] = "MQTT", [2375] = "Docker API", [2376] = "Docker API (TLS)",
+        [3000] = "HTTP (app, e.g. Grafana)", [5000] = "HTTP (app, e.g. Synology)", [5001] = "HTTPS (app, e.g. Synology)",
+        [5060] = "SIP (VoIP)", [5672] = "AMQP (RabbitMQ)", [6443] = "Kubernetes API", [7001] = "WebLogic",
+        [8000] = "HTTP (alternate)", [8008] = "HTTP (alternate)", [8081] = "HTTP (alternate)", [8888] = "HTTP (alternate)",
+        [9000] = "HTTP (app, e.g. Portainer)", [9200] = "Elasticsearch", [9443] = "HTTPS (app, e.g. Portainer)",
+        [10000] = "Webmin", [10050] = "Zabbix agent", [11211] = "Memcached", [27017] = "MongoDB",
     };
 
     /// <summary>
