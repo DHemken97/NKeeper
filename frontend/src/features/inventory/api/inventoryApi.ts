@@ -35,6 +35,8 @@ export const hostsApi = {
   bulkUpdate: (input: BulkHostUpdateInput) => api.post<Host[]>('/api/hosts/bulk', { body: input }),
   /** Add hosts for VMs a scan found, linked to their hypervisor. Administrators only. */
   createFromScan: (hosts: ScannedHostInput[]) => api.post<Host[]>('/api/hosts/from-scan', { body: { hosts } }),
+  /** Combine duplicates into this host; they're deleted. Returns the combined host. */
+  merge: (id: string, sourceIds: string[]) => api.post<Host>(`/api/hosts/${id}/merge`, { body: { sourceIds } }),
   /** Send a Wake-on-LAN packet to the host's MAC address, from the server. */
   wake: (id: string) => api.post<{ sentTo: string[] }>(`/api/hosts/${id}/wake`),
 }

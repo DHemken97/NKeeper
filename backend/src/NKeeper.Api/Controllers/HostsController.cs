@@ -109,6 +109,17 @@ public sealed class HostsController(HostManager hosts) : ControllerBase
     public async Task<IActionResult> ForgetTrustedKeys(Guid id, CancellationToken cancellationToken) =>
         await hosts.ForgetTrustedKeysAsync(id, RequestUser.From(User), cancellationToken) ? NoContent() : NotFound();
 
+    /// <summary>
+    /// Combines duplicates into this host: it gets what they have that it lacks, what pointed at them points at it,
+    /// and they're deleted. Needs Manage on every one of them. Audited as host.merge.
+    /// </summary>
+    [HttpPost("{id:guid}/merge")]
+    [ProducesResponseType<HostResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<HostResponse>> Merge(Guid id, MergeHostsRequest request, [FromServices] HostMerger merger, CancellationToken cancellationToken) =>
+        await merger.MergeAsync(id, request.SourceIds, RequestUser.From(User), cancellationToken) is { } host ? host : NotFound();
+
     [Audit("host.delete")]
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

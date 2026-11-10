@@ -78,6 +78,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'host.create': 'Host added',
   'host.update': 'Host changed',
   'host.delete': 'Host deleted',
+  'host.merge': 'Duplicate hosts combined',
   'host.import': 'Hosts imported',
   'host.bulk_update': 'Hosts changed together',
   'host.link_vms': 'VM links recorded',

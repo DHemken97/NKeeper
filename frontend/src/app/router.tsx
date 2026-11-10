@@ -8,6 +8,7 @@ import { ReportsLayout } from '../features/reports/pages/ReportsLayout'
 import { VmResourcesReport } from '../features/reports/pages/VmResourcesReport'
 import { HealthReport } from '../features/reports/pages/HealthReport'
 import { InventoryReport } from '../features/reports/pages/InventoryReport'
+import { DuplicatesReport } from '../features/reports/pages/DuplicatesReport'
 import { InsuranceReport } from '../features/reports/pages/InsuranceReport'
 import { ZabbixReport } from '../features/zabbix/pages/ZabbixReport'
 import { AuditLogReport } from '../features/audit/pages/AuditLogReport'
@@ -43,6 +44,7 @@ export const routes: RouteObject[] = [
               { path: 'vm-resources', element: <VmResourcesReport /> },
               { path: 'health', element: <HealthReport /> },
               { path: 'inventory', element: <InventoryReport /> },
+              { path: 'duplicates', element: <DuplicatesReport /> },
               // Hidden: not in the list, and only for the system administrator.
               { element: <SystemAdminRoute />, children: [{ path: 'insurance', element: <InsuranceReport /> }] },
               {

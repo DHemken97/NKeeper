@@ -537,6 +537,15 @@ public sealed record BulkHostUpdateRequest : IValidatableObject
     }
 }
 
+/// <summary>Duplicates of a host to combine into it; they're deleted afterwards.</summary>
+public sealed record MergeHostsRequest
+{
+    [Required]
+    [MinLength(1, ErrorMessage = "Choose the other hosts to combine into this one.")]
+    [MaxLength(NKeeper.Api.Inventory.HostMerger.MaxSources, ErrorMessage = "Combine at most 50 hosts at a time.")]
+    public Guid[] SourceIds { get; init; } = [];
+}
+
 /// <summary>A host to add for a VM or container a scan of its hypervisor found.</summary>
 public sealed record ScannedHostRequest
 {

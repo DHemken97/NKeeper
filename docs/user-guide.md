@@ -602,6 +602,12 @@ The figures come from the hosts' hardware fields: scan the hypervisors (internal
 - **Linked to a missing Zabbix host:** links to a Zabbix host that was deleted, or that the API token can't see. **Unlink** clears them.
 - **Linked:** every pair, folded away.
 
+**Duplicate hosts** finds hosts that look like the same machine and combines them:
+- **Matching:** the first field both hosts have decides, in this order: MAC address, IP address, hostname (without its domain), name. Two hosts with different MAC addresses are never duplicates, even with the same IP or name. Hosts reached through different jump hosts only match by MAC address, since they can share a private address.
+- **Choosing:** each group lists its hosts. The one holding the most (details, services, credentials, tags) is ticked to **Keep**; choose another if you like, and untick any host that isn't really a duplicate.
+- **Combine** asks first, then: the kept host keeps its own details and fills in the ones it lacks from the others (hostname, address, MAC, hardware, serial, Zabbix link, where a VM runs, jump host). It gets their tags, services and credentials unless it has them already; a credential it has takes a password or key it lacks, and the services of both. Trusted keys come along from a duplicate at the same address. VMs that ran on, hosts reached through, and access given for the others move to it. Then the others are **deleted**.
+- You need to be able to manage every host in the group. Combining is recorded in the audit log.
+
 **IP address map** is a spreadsheet of your address space:
 - **Columns** are /24 subnets, one for each subnet that has at least one host (e.g. `10.0.1.x`, `192.168.1.x`, `192.168.42.x`), in numeric order. Each header shows how many of the subnet's addresses are used.
 - **Rows** are the last octet, `.0` to `.255`.

@@ -358,3 +358,35 @@
   resize: horizontal;
   text-overflow: ellipsis;
 }
+
+/* Duplicate hosts */
+
+.duplicates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+}
+
+.duplicateGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.duplicateReasons {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.duplicateActions {
+  display: flex;
+  justify-content: flex-end;
+}
