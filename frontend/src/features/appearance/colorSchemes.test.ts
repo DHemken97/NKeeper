@@ -25,6 +25,17 @@ describe('color schemes', () => {
     expect(contrast(tokens['--color-on-accent']!, preset.accent)).toBeGreaterThanOrEqual(4.5)
   })
 
+  it('offers plenty of both dark and light presets, each with its own id, name and colors', () => {
+    const modes = COLOR_SCHEME_PRESETS.map((preset) => deriveTokens(preset)['color-scheme'])
+
+    expect(COLOR_SCHEME_PRESETS).toHaveLength(32)
+    expect(modes.filter((mode) => mode === 'dark')).toHaveLength(18)
+    expect(modes.filter((mode) => mode === 'light')).toHaveLength(14)
+    expect(new Set(COLOR_SCHEME_PRESETS.map((preset) => preset.id)).size).toBe(32)
+    expect(new Set(COLOR_SCHEME_PRESETS.map((preset) => preset.name)).size).toBe(32)
+    expect(new Set(COLOR_SCHEME_PRESETS.map(({ background, surface, text, accent }) => [background, surface, text, accent].join())).size).toBe(32)
+  })
+
   it('keeps derived text readable with awkward custom colors', () => {
     const colors: ColorSchemeColors[] = [
       { background: '#ffffff', surface: '#ffffff', text: '#000000', accent: '#ffff00' },

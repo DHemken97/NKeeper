@@ -38,6 +38,33 @@ export const COLOR_SCHEME_PRESETS: readonly ColorSchemePreset[] = [
   { id: 'forest', name: 'Forest', background: '#0f1a14', surface: '#16241c', text: '#e4efe7', accent: '#2f855a' },
   { id: 'plum', name: 'Plum', background: '#171120', surface: '#211830', text: '#ece6f5', accent: '#7c3aed' },
   { id: 'high-contrast', name: 'High contrast', background: '#000000', surface: '#0a0a0a', text: '#ffffff', accent: '#ffd400' },
+  // Dark
+  { id: 'deep-sea', name: 'Deep Sea', background: '#081a1f', surface: '#0e2830', text: '#dff3f2', accent: '#0d9488' },
+  { id: 'ember', name: 'Ember', background: '#1a100c', surface: '#261812', text: '#f5e7df', accent: '#c2410c' },
+  { id: 'oxblood', name: 'Oxblood', background: '#1a0c10', surface: '#271419', text: '#f5e3e7', accent: '#be123c' },
+  { id: 'mulberry', name: 'Mulberry', background: '#1c0d1c', surface: '#2a152a', text: '#f3e4f3', accent: '#a21caf' },
+  { id: 'slate', name: 'Slate', background: '#12171f', surface: '#1b222d', text: '#e6eaf0', accent: '#0284c7' },
+  { id: 'moss', name: 'Moss', background: '#14170c', surface: '#1f2413', text: '#eef0dc', accent: '#65803a' },
+  { id: 'indigo-night', name: 'Indigo Night', background: '#0e0f26', surface: '#17193a', text: '#e6e7fa', accent: '#4f46e5' },
+  { id: 'espresso', name: 'Espresso', background: '#17110d', surface: '#221a14', text: '#efe6dd', accent: '#a16207' },
+  { id: 'amber-terminal', name: 'Amber Terminal', background: '#120e05', surface: '#1d1709', text: '#ffe9b8', accent: '#d97706' },
+  { id: 'phosphor', name: 'Phosphor', background: '#05120a', surface: '#0a1f12', text: '#c8f7d4', accent: '#16a34a' },
+  { id: 'arctic-night', name: 'Arctic Night', background: '#0c1620', surface: '#142230', text: '#e3eef7', accent: '#38bdf8' },
+  { id: 'rosewood', name: 'Rosewood', background: '#1b1113', surface: '#28191c', text: '#f3e5e6', accent: '#db2777' },
+  { id: 'storm', name: 'Storm', background: '#15191d', surface: '#1f2529', text: '#e4e8eb', accent: '#64748b' },
+  // Light
+  { id: 'paper', name: 'Paper', background: '#f5f5f0', surface: '#ffffff', text: '#22221e', accent: '#57534e' },
+  { id: 'sky', name: 'Sky', background: '#eef6fc', surface: '#ffffff', text: '#13293d', accent: '#0369a1' },
+  { id: 'mint', name: 'Mint', background: '#edf8f3', surface: '#ffffff', text: '#12302a', accent: '#0f766e' },
+  { id: 'blossom', name: 'Blossom', background: '#fcf0f4', surface: '#fffafb', text: '#3a1a26', accent: '#be185d' },
+  { id: 'lavender', name: 'Lavender', background: '#f3f0fb', surface: '#fdfcff', text: '#241a3d', accent: '#6d28d9' },
+  { id: 'butter', name: 'Butter', background: '#fbf6dc', surface: '#fffdf0', text: '#2e2a12', accent: '#a16207' },
+  { id: 'linen', name: 'Linen', background: '#f4efe9', surface: '#fbf8f4', text: '#2f2822', accent: '#9a3412' },
+  { id: 'sage', name: 'Sage', background: '#eef2ea', surface: '#fafcf8', text: '#1f2a1d', accent: '#4d7c0f' },
+  { id: 'peach', name: 'Peach', background: '#fdf0e6', surface: '#fffaf5', text: '#3a2416', accent: '#c2410c' },
+  { id: 'cloud', name: 'Cloud', background: '#eceff3', surface: '#f9fafb', text: '#1f2933', accent: '#475569' },
+  { id: 'seafoam', name: 'Seafoam', background: '#e6f5f4', surface: '#f8fdfc', text: '#0f2e30', accent: '#0e7490' },
+  { id: 'coral', name: 'Coral', background: '#fdeeec', surface: '#fffaf9', text: '#3b1b18', accent: '#dc2626' },
 ]
 
 type Rgb = [number, number, number]
