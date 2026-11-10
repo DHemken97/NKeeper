@@ -8,7 +8,7 @@ import { AuthProvider } from '../auth/components/AuthProvider'
 import type { DatabaseSurvey } from '../databases/databaseApi'
 import type { Host } from '../inventory/types'
 import { escapeHtml, questionnaireHtml } from './insurance/document'
-import { countedHosts, databaseInstances, resolve, summarizeServers, type QuestionnaireAnswers } from './insurance/model'
+import { copyAllFound, countedHosts, databaseInstances, resolve, summarizeServers, type QuestionnaireAnswers } from './insurance/model'
 
 const user = { id: 'u1', userName: 'admin', email: 'admin@example.com', roles: ['Administrator'], mustChangePassword: false, isSystemAdministrator: true }
 
@@ -97,6 +97,26 @@ describe('insurance questionnaire: model', () => {
 
     expect(resolve('managedBy', { managedBy: ' ' }, { managedBy: 'DBA team' }, { managedBy: 'IT' })).toBe('DBA team')
     expect(resolve('managedBy', undefined, {})).toBe('')
+  })
+})
+
+describe('insurance questionnaire: copy all', () => {
+  it('fills every empty answer with what was found, keeping typed ones and skipping left-out servers', () => {
+    const { sections: _sections, ...saved } = survey
+    const instances = databaseInstances(hosts)
+    const { answers, copied } = copyAllFound({ instances: { 'h2:s1': { survey: saved, server: { writers: 'Typed by me' } } } }, instances)
+    const server = answers.instances!['h2:s1']
+    expect(server.server?.writers).toBe('Typed by me')
+    expect(server.server?.software).toBe('Microsoft SQL Server 2022 Standard.')
+    expect(server.databases?.Payroll?.writers).toBe('Payroll: db_datawriter: CORP\\Payroll Clerks (Windows group).')
+    expect(server.backup?.types).toBe('Payroll: Full: 30 backups on record.')
+    expect(server.backup?.schedule).toBe('SQL Server Agent job “Nightly”: daily, at 01:00.')
+    // Questions nothing was found for stay blank.
+    expect(server.server?.managedBy).toBeUndefined()
+    expect(copied).toBe(4)
+
+    expect(copyAllFound(answers, instances).copied).toBe(0)
+    expect(copyAllFound({ instances: { 'h2:s1': { survey: saved, excluded: true } } }, instances).copied).toBe(0)
   })
 })
 

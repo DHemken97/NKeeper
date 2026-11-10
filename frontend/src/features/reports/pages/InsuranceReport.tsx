@@ -18,6 +18,8 @@ import { answersApi, surveyInstance, type SavedAnswers } from '../insurance/insu
 import {
   BACKUP_QUESTIONS,
   businessDatabases,
+  copyAllFound,
+  factsText,
   countedHosts,
   DATABASE_QUESTIONS,
   databaseInstances,
@@ -95,6 +97,7 @@ function Questionnaire({ hosts, saved }: { hosts: Host[]; saved: SavedAnswers })
   const [sections, setSections] = useState<Record<string, ToolSection[]>>({})
   const [surveys, setSurveys] = useState<Record<string, SurveyState>>({})
   const [readingAll, setReadingAll] = useState(false)
+  const [copiedMessage, setCopiedMessage] = useState<string | null>(null)
 
   useEffect(() => {
     if (!dirty) {
@@ -167,6 +170,18 @@ function Questionnaire({ hosts, saved }: { hosts: Host[]; saved: SavedAnswers })
 
   const download = (kind: 'word' | 'html') => downloadNow({ answers, servers, instances: included, sections }, kind)
 
+  const copyAll = () => {
+    const { answers: filled, copied } = copyAllFound(answers, included)
+    if (copied > 0) {
+      update(() => filled)
+    }
+    setCopiedMessage(
+      copied > 0
+        ? `Copied what NKeeper found into ${copied} empty answer${copied === 1 ? '' : 's'}. Answers you typed weren’t changed. Save to keep them.`
+        : 'Nothing to copy: every answer with findings already has text, or no server has been read yet.',
+    )
+  }
+
   const repositories = answers.repositories ?? []
   const setRepository = (id: string, change: (r: ExtraRepository) => ExtraRepository) =>
     update((a) => ({ ...a, repositories: (a.repositories ?? []).map((r) => (r.id === id ? change(r) : r)) }))
@@ -189,6 +204,9 @@ function Questionnaire({ hosts, saved }: { hosts: Host[]; saved: SavedAnswers })
           <Button size="sm" onClick={save} loading={saving} disabled={!dirty}>
             Save answers
           </Button>
+          <Button size="sm" variant="secondary" onClick={copyAll} title="Fill every empty answer with what NKeeper found; typed answers are kept">
+            Copy all found into answers
+          </Button>
           <Button size="sm" variant="secondary" onClick={() => download('word')}>
             Download Word
           </Button>
@@ -200,6 +218,7 @@ function Questionnaire({ hosts, saved }: { hosts: Host[]; saved: SavedAnswers })
 
       <div className={styles.body}>
         {saveError ? <Alert>{saveError}</Alert> : null}
+        {copiedMessage ? <Alert variant="info">{copiedMessage}</Alert> : null}
         <p className={styles.intro}>
           The questions an insurer (or an e-discovery request) asks about servers, databases and backups. NKeeper fills in what it knows from its
           inventory and, when you read a database server, from read-only queries of it. It never guesses what only you know (what a database is for,
@@ -525,7 +544,7 @@ function QuestionList<K extends string>({ questions, answers, defaults, placehol
                 <div className={styles.foundHeader}>
                   <span>Found by NKeeper (goes in the report under the answer)</span>
                   {!value.trim() ? (
-                    <Button size="sm" variant="ghost" onClick={() => onChange(q.key, found.map((f) => (f.database ? `${f.database}: ${f.text}` : f.text)).join('\n'))}>
+                    <Button size="sm" variant="ghost" onClick={() => onChange(q.key, factsText(found))}>
                       Copy into the answer
                     </Button>
                   ) : null}

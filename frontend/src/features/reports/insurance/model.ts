@@ -334,3 +334,47 @@ export function resolve<K extends string>(key: K, ...levels: (Answers<K> | undef
 export function newRepositoryId(): string {
   return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 }
+
+/** Found facts as answer text: one per line, each database's prefixed with its name. */
+export function factsText(found: SurveyFact[]): string {
+  return found.map((f) => (f.database ? `${f.database}: ${f.text}` : f.text)).join('\n')
+}
+
+/**
+ * Copies what NKeeper found into every empty answer of the servers in the report (their own, each database's
+ * and their backups'), as each question's "Copy into the answer" does. Typed answers are never replaced.
+ * Returns the new answers and how many were filled in.
+ */
+export function copyAllFound(answers: QuestionnaireAnswers, instances: DatabaseInstance[]): { answers: QuestionnaireAnswers; copied: number } {
+  let copied = 0
+  const fill = <K extends string>(own: Answers<K> | undefined, questions: Question<K>[], facts: (q: Question<K>) => SurveyFact[]): Answers<K> => {
+    const next: Answers<K> = { ...own }
+    questions.forEach((q) => {
+      const found = facts(q)
+      if (!next[q.key]?.trim() && found.length > 0) {
+        next[q.key] = factsText(found)
+        copied++
+      }
+    })
+    return next
+  }
+  const result: Record<string, InstanceAnswers> = { ...answers.instances }
+  instances.forEach((instance) => {
+    const saved = result[instance.key]
+    const survey = saved?.survey
+    if (!survey || saved.excluded) {
+      return
+    }
+    const databases: Record<string, Answers<DatabaseQuestionKey>> = { ...saved.databases }
+    businessDatabases(survey).forEach((d) => {
+      databases[d.name] = fill(databases[d.name], DATABASE_QUESTIONS, (q) => factsFor(survey, q.topics, d.name).filter((f) => f.database != null))
+    })
+    result[instance.key] = {
+      ...saved,
+      server: fill(saved.server, DATABASE_QUESTIONS, (q) => serverFacts(survey, q.topics)),
+      databases,
+      backup: fill(saved.backup, BACKUP_QUESTIONS, (q) => factsFor(survey, q.topics)),
+    }
+  })
+  return { answers: copied > 0 ? { ...answers, instances: result } : answers, copied }
+}
