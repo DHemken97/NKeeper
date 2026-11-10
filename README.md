@@ -33,7 +33,7 @@ NKeeper is a web-based remote connection manager: a browser-based alternative to
   - **Alt+PageUp/PageDown** between tabs, which also works from inside a terminal.
   - SSH **Full screen** sends Ctrl+W to the shell instead of closing the browser tab.
 - **Audit log**: who signed in, opened which session to which host, and changed what, searchable and exportable. SSH and Telnet sessions are recorded and can be played back.
-- **Reports**: an IP address map of every /24 subnet in use, and each VM host's capacity with what its VMs use, both as CSV; and an **insurance questionnaire** (at `/reports/insurance`, not listed) of servers, databases and backups, filled in from the inventory and read-only queries of the database servers, as a Word document.
+- **Reports**: an IP address map of every /24 subnet in use, and each VM host's capacity with what its VMs use, both as CSV; and an **insurance questionnaire** (at `/reports/insurance`, not listed, for the first administrator only) of servers, databases and backups, filled in from the inventory and read-only queries of the database servers, as a Word document.
 - **Trust on first use**: SSH host keys, RDP certificates and self-signed HTTPS and SQL Server certificates are confirmed once, then pinned. A changed key or certificate is refused.
 - **Moving servers**: export a whole instance into one passphrase-encrypted file and import it on a fresh NKeeper, between any install modes. Stored passwords are re-encrypted with the new server's keys.
 - **Users and access**: administrators and users. Users get access to tag-based groups of hosts or to single hosts, at *Use* or *Manage* level. Changes apply immediately.

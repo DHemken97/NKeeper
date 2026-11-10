@@ -57,6 +57,12 @@ export function PublicOnlyRoute() {
 }
 
 
+/** Pages for the system administrator alone (not other administrators); anyone else is sent to the workspace. The API hides them too. */
+export function SystemAdminRoute() {
+  const { user } = useAuth()
+  return user?.isSystemAdministrator ? <Outlet /> : <Navigate to="/" replace />
+}
+
 /** Administrator-only pages; anyone else is sent to the workspace (the API enforces this too). */
 export function AdminRoute() {
   const { user } = useAuth()

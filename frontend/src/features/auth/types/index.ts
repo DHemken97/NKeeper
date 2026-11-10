@@ -22,6 +22,8 @@ export interface User {
   colorScheme?: string
   /** The color schemes this user built. */
   customColorSchemes?: CustomColorScheme[]
+  /** The instance's first administrator (the one setup created), who alone sees some pages. */
+  isSystemAdministrator?: boolean
 }
 
 export const ADMINISTRATOR_ROLE = 'Administrator'

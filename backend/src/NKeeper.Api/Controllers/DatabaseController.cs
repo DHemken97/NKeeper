@@ -250,6 +250,7 @@ public sealed class DatabaseController(DatabaseSessionStore sessions, AuditLog a
     /// auditing, routine deletions and backups. Only reads; it can take a minute on a server with many databases.
     /// </summary>
     [HttpGet("sessions/{id}/survey")]
+    [SystemAdministratorOnly]
     [ProducesResponseType<DatabaseSurvey>(StatusCodes.Status200OK)]
     public Task<ActionResult<DatabaseSurvey>> Survey(string id, CancellationToken cancellationToken) =>
         WithToolConnectionAsync(id, connection => DatabaseSurveys.RunAsync(Engine, connection, timeProvider.GetUtcNow(), cancellationToken));

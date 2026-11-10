@@ -44,7 +44,7 @@ type SurveyState = { running: true } | { running: false; error?: string; trust?:
  * The insurance questionnaire: the number and kinds of servers, each database (its software, who manages it,
  * what it holds, who can change it, where it is, deletions and change logs, documentation) and each
  * repository's backups. NKeeper fills in what it knows from the inventory and from read-only surveys of the
- * database servers, which a person starts; people type the rest. Answers are saved for everyone, and the whole
+ * database servers, which a person starts; people type the rest. Only the system administrator sees it. Answers are saved, and the whole
  * thing downloads as a Word document or a web page to print.
  */
 export function InsuranceReport() {
@@ -204,7 +204,7 @@ function Questionnaire({ hosts, saved }: { hosts: Host[]; saved: SavedAnswers })
           The questions an insurer (or an e-discovery request) asks about servers, databases and backups. NKeeper fills in what it knows from its
           inventory and, when you read a database server, from read-only queries of it. It never guesses what only you know (what a database is for,
           who manages it, documentation): those are left blank in the download for you to fill in, unless you answer them here. Answers typed here
-          are saved for everyone and kept for next time. The download is a Word document (or a web page to print to PDF).
+          are saved and kept for next time. The download is a Word document (or a web page to print to PDF).
         </p>
 
         <Section title="About the report">

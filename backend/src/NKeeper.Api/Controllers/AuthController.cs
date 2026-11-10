@@ -291,6 +291,7 @@ public sealed class AuthController(
             user.WorkspaceGroupBy,
             user.WorkspaceSort,
             user.ColorScheme,
-            CustomColorScheme.Parse(user.CustomColorSchemes));
+            CustomColorScheme.Parse(user.CustomColorSchemes),
+            roles.Contains(SystemRoles.Administrator) && await SystemAdministrator.IsAsync(userManager, user.Id));
     }
 }

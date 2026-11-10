@@ -21,6 +21,7 @@ public sealed record LoginRequest
 /// <param name="IsDirectoryAccount">An Active Directory account: its password is changed in Windows, not NKeeper.</param>
 /// <param name="IsSingleSignOnAccount">Signs in with the identity provider: it has no NKeeper password.</param>
 /// <param name="SignInAccount">The domain login (CORP\jdoe) this session can pass on to RDP sessions, or null when it has none.</param>
+/// <param name="IsSystemAdministrator">The instance's first administrator (see SystemAdministrator), who alone sees some pages.</param>
 public sealed record CurrentUserResponse(
     Guid Id,
     string UserName,
@@ -33,7 +34,8 @@ public sealed record CurrentUserResponse(
     IReadOnlyList<string> WorkspaceGroupBy,
     string WorkspaceSort,
     string ColorScheme,
-    IReadOnlyList<CustomColorScheme> CustomColorSchemes);
+    IReadOnlyList<CustomColorScheme> CustomColorSchemes,
+    bool IsSystemAdministrator = false);
 
 public sealed record WorkspacePreferencesResponse(IReadOnlyList<string> GroupBy, string Sort);
 

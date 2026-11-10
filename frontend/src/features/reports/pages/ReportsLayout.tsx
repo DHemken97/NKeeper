@@ -5,7 +5,7 @@ import styles from './Reports.module.css'
 
 /**
  * The reports NKeeper offers, in the section's list. Some reports are deliberately left out and are only
- * reached by their address: the insurance questionnaire, at /reports/insurance.
+ * reached by their address: the insurance questionnaire, at /reports/insurance (the system administrator's alone).
  */
 const REPORTS = [
   { path: 'inventory', label: 'Inventory', description: 'Host counts by tag, OS, service, username and more' },

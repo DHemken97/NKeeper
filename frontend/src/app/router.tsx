@@ -1,6 +1,6 @@
 import { Navigate, type RouteObject } from 'react-router'
 import { AppLayout } from '../components/layout/AppLayout'
-import { AdminRoute, ProtectedRoute, PublicOnlyRoute } from '../features/auth/components/RouteGuards'
+import { AdminRoute, ProtectedRoute, PublicOnlyRoute, SystemAdminRoute } from '../features/auth/components/RouteGuards'
 import { ForgotPasswordPage } from '../features/auth/pages/ForgotPasswordPage'
 import { LoginPage } from '../features/auth/pages/LoginPage'
 import { IpAddressReport } from '../features/reports/pages/IpAddressReport'
@@ -43,7 +43,8 @@ export const routes: RouteObject[] = [
               { path: 'vm-resources', element: <VmResourcesReport /> },
               { path: 'health', element: <HealthReport /> },
               { path: 'inventory', element: <InventoryReport /> },
-              { path: 'insurance', element: <InsuranceReport /> },
+              // Hidden: not in the list, and only for the system administrator.
+              { element: <SystemAdminRoute />, children: [{ path: 'insurance', element: <InsuranceReport /> }] },
               {
                 element: <AdminRoute />,
                 children: [

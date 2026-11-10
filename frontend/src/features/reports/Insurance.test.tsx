@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { routes } from '../../app/router'
 import { antiforgeryRoute, jsonResponse, mockFetch } from '../../test/http'
 import { AuthProvider } from '../auth/components/AuthProvider'
@@ -10,7 +10,7 @@ import type { Host } from '../inventory/types'
 import { escapeHtml, questionnaireHtml } from './insurance/document'
 import { countedHosts, databaseInstances, resolve, summarizeServers, type QuestionnaireAnswers } from './insurance/model'
 
-const user = { id: 'u1', userName: 'bob', email: 'bob@example.com', roles: [], mustChangePassword: false }
+const user = { id: 'u1', userName: 'admin', email: 'admin@example.com', roles: ['Administrator'], mustChangePassword: false, isSystemAdministrator: true }
 
 function host(id: string, name: string, extra: Partial<Host> = {}): Host {
   return {
@@ -141,6 +141,22 @@ describe('insurance questionnaire: document', () => {
 })
 
 describe('insurance questionnaire page', () => {
+  it('is only for the system administrator: other administrators are sent to the workspace', async () => {
+    mockFetch({
+      ...antiforgeryRoute,
+      'GET /api/auth/me': () => jsonResponse(200, { ...user, userName: 'second', isSystemAdministrator: false }),
+      'GET /api/hosts': () => jsonResponse(200, []),
+    })
+    const router = createMemoryRouter(routes, { initialEntries: ['/reports/insurance'] })
+    render(
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>,
+    )
+    await vi.waitFor(() => expect(router.state.location.pathname).toBe('/'))
+    expect(screen.queryByText('Insurance questionnaire')).not.toBeInTheDocument()
+  })
+
   it('reads a database server with its saved login, shows what it found, and saves the answers', async () => {
     let savedBody: unknown = null
     const fetchMock = mockFetch({

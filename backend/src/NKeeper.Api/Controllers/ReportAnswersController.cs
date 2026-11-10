@@ -21,11 +21,13 @@ public sealed record ReportAnswersRequest
 
 /// <summary>
 /// What people typed into a report that asks questions NKeeper can't answer itself (the insurance
-/// questionnaire), kept so the next person, or next year's renewal, starts from it. Everyone signed in reads
-/// and saves them; saving is audited. The page decides what's in the JSON.
+/// questionnaire), kept so next year's renewal starts from this year's.
+/// The system administrator alone reads and saves them (to anyone else they don't exist); saving is audited.
+/// The page decides what's in the JSON.
 /// </summary>
 [ApiController]
 [Authorize]
+[SystemAdministratorOnly]
 [Route("api/reports/answers/{key:regex(^[[a-z0-9-]]{{1,64}}$)}")]
 public sealed class ReportAnswersController(NKeeperDbContext db, TimeProvider timeProvider) : ControllerBase
 {
