@@ -498,6 +498,8 @@ export interface BulkHostUpdateInput {
   /** Credentials are removed, then changed, then added. */
   removeCredentials?: BulkCredentialMatch[]
   updateCredentials?: BulkCredentialUpdate[]
+  /** Services of these types are taken off the matching credentials (one used with all services keeps the others). */
+  removeCredentialServices?: (BulkCredentialMatch & { protocols: ServiceProtocol[] })[]
   /** A host that already has the account keeps its own. */
   addCredentials?: HostCredentialInput[]
 }

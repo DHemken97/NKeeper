@@ -2,8 +2,8 @@ import { Button } from '../../../components/ui/Button'
 import { Checkbox } from '../../../components/ui/Checkbox'
 import { PasswordField } from '../../../components/ui/PasswordField'
 import { TextArea } from '../../../components/ui/TextArea'
-import { credentialImpact, newCredentialChange, type CredentialAction, type CredentialChange } from '../bulkCredentials'
-import type { Host } from '../types'
+import { credentialImpact, newCredentialChange, serviceTypes, type CredentialAction, type CredentialChange } from '../bulkCredentials'
+import { PROTOCOL_INFO, type Host } from '../types'
 import listStyles from './ListEditor.module.css'
 import styles from './HostPanel.module.css'
 
@@ -26,8 +26,8 @@ export function BulkCredentialChanges({ value, onChange, hosts }: BulkCredential
     <fieldset className={listStyles.fieldset}>
       <legend className={listStyles.legend}>Credentials</legend>
       <p className={listStyles.hint}>
-        Add one to every host (hosts that already have the account keep theirs), change an account’s password or key, or remove it. Leave the domain
-        empty to match any.
+        Add one to every host (hosts that already have the account keep theirs), change an account’s password or key, remove it, or take services
+        off it (e.g. SAP ASE off root). Leave the domain empty to match any.
       </p>
       {value.length === 0 ? <p className={listStyles.empty}>No credential changes.</p> : null}
       <ol className={listStyles.list}>
@@ -45,6 +45,7 @@ export function BulkCredentialChanges({ value, onChange, hosts }: BulkCredential
                 <option value="add">Add</option>
                 <option value="change">Change</option>
                 <option value="remove">Remove</option>
+                <option value="services">Remove services</option>
               </select>
               <input
                 className={listStyles.input}
@@ -74,7 +75,23 @@ export function BulkCredentialChanges({ value, onChange, hosts }: BulkCredential
               >
                 ×
               </button>
-              {change.action === 'remove' ? null : (
+              {change.action === 'services' ? (
+                <fieldset className={`${styles.bulkEffect} ${styles.bulkServices}`}>
+                  <legend className={styles.fieldHint}>Take these services off it</legend>
+                  {serviceTypes(hosts).map((protocol) => (
+                    <Checkbox
+                      key={protocol}
+                      label={PROTOCOL_INFO[protocol].name}
+                      checked={change.protocols.includes(protocol)}
+                      onChange={(event) =>
+                        update(change.key, {
+                          protocols: event.target.checked ? [...change.protocols, protocol] : change.protocols.filter((p) => p !== protocol),
+                        })
+                      }
+                    />
+                  ))}
+                </fieldset>
+              ) : change.action === 'remove' ? null : (
                 <div className={styles.bulkEffect}>
                   <PasswordField
                     label={change.action === 'change' ? 'New password' : 'Password'}

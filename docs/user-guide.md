@@ -58,6 +58,8 @@ On a phone, the two panes show one at a time.
   - **Set** a tag, replacing every value it has;
   - **Remove** a tag (one value, or every value when you leave the value empty);
   - set or clear the host they **run on**, which also marks them as virtual machines.
+  - remove or add **services**;
+  - **credentials**: add one to each host, change an account's password or key, remove it, or **Remove services** from it: type the username and tick the types of service to take off it (e.g. SAP ASE off `root`). A credential used with all services keeps all the others.
 
   Each change says how many hosts it affects. **Apply** saves them all in one go, and hosts you can't manage are left out. A plain click on a host goes back to a single host.
 

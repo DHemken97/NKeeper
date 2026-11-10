@@ -538,8 +538,8 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
     }
 
     /// <summary>
-    /// Removes, then updates the secrets of, the matching credentials, then adds new ones after the
-    /// host's own (skipping accounts, or labels, it already has).
+    /// Removes, then updates the secrets of, the matching credentials, then takes services off them, then adds
+    /// new ones after the host's own (skipping accounts, or labels, it already has).
     /// </summary>
     /// <returns>Whether anything changed.</returns>
     private bool ApplyBulkCredentials(Host host, BulkHostUpdateRequest request, int credentialLimit, int configuredLimit)
@@ -581,6 +581,26 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
                 }
 
                 changed = true;
+            }
+        }
+
+        foreach (var removal in request.RemoveCredentialServices)
+        {
+            var dropped = host.Services.Where(s => removal.Protocols.Contains(s.Protocol)).Select(s => s.Id).ToHashSet();
+            if (dropped.Count == 0)
+            {
+                continue;
+            }
+
+            foreach (var credential in host.Credentials.Where(c => Matches(c, removal)))
+            {
+                // Used with all services: from now on, with all the others.
+                var current = credential.ServiceIds ?? [.. host.Services.OrderBy(s => s.Position).Select(s => s.Id)];
+                if (current.Any(dropped.Contains))
+                {
+                    credential.ServiceIds = [.. current.Where(id => !dropped.Contains(id))];
+                    changed = true;
+                }
             }
         }
 

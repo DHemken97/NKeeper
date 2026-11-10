@@ -424,6 +424,30 @@ public sealed record BulkCredentialUpdate : BulkCredentialMatch
     }
 }
 
+/// <summary>
+/// Takes services of these types off the matching credentials (e.g. SAP ASE off every "root"), which are then
+/// used with the host's other services. A credential used with all services gets the list of the others.
+/// </summary>
+public sealed record BulkCredentialServiceRemoval : BulkCredentialMatch
+{
+    [Required]
+    [MaxLength(50)]
+    public ServiceProtocol[] Protocols { get; init; } = [];
+
+    public override IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        foreach (var result in base.Validate(validationContext))
+        {
+            yield return result;
+        }
+
+        if (Protocols.Length == 0)
+        {
+            yield return new ValidationResult("Tick the services to take off the credential.", ["protocols"]);
+        }
+    }
+}
+
 /// <summary>Set (or, with no id, clear) the host the selected VMs run on.</summary>
 public sealed record BulkHypervisorChange
 {
@@ -434,7 +458,7 @@ public sealed record BulkHypervisorChange
 /// The same changes to many hosts at once, applied in this order: <see cref="RemoveTags"/>,
 /// <see cref="SetTags"/> (which replace every value of their names), <see cref="AddTags"/>,
 /// <see cref="Hypervisor"/>, <see cref="RemoveServices"/>, <see cref="AddServices"/>, then
-/// <see cref="RemoveCredentials"/>, <see cref="UpdateCredentials"/> and <see cref="AddCredentials"/>.
+/// <see cref="RemoveCredentials"/>, <see cref="UpdateCredentials"/>, <see cref="RemoveCredentialServices"/> and <see cref="AddCredentials"/>.
 /// Other details are left as they are.
 /// </summary>
 public sealed record BulkHostUpdateRequest : IValidatableObject
@@ -469,13 +493,17 @@ public sealed record BulkHostUpdateRequest : IValidatableObject
     [MaxLength(InventoryLimits.CeilingCredentials)]
     public BulkCredentialUpdate[] UpdateCredentials { get; init; } = [];
 
+    /// <summary>Services of these types are taken off the matching credentials.</summary>
+    [MaxLength(InventoryLimits.CeilingCredentials)]
+    public BulkCredentialServiceRemoval[] RemoveCredentialServices { get; init; } = [];
+
     /// <summary>Credentials each host gets, after its own; a host that already has the account (or label) keeps its own.</summary>
     [MaxLength(InventoryLimits.CeilingCredentials)]
     public HostCredentialRequest[] AddCredentials { get; init; } = [];
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        var credentialChanges = RemoveCredentials.Length + UpdateCredentials.Length + AddCredentials.Length;
+        var credentialChanges = RemoveCredentials.Length + UpdateCredentials.Length + RemoveCredentialServices.Length + AddCredentials.Length;
         if (AddTags.Length + SetTags.Length + RemoveTags.Length + AddServices.Length + RemoveServices.Length + credentialChanges == 0 && Hypervisor is null)
         {
             yield return new ValidationResult("Choose a change to make.", ["addTags"]);

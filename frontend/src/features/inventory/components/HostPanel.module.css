@@ -282,6 +282,20 @@
   grid-column: 1 / -1;
 }
 
+.bulkServices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.bulkServices legend {
+  width: 100%;
+  margin-bottom: var(--space-1);
+}
+
 @media (max-width: 40rem) {
   .bulkRow {
     grid-template-columns: minmax(0, 1fr) auto;

@@ -176,6 +176,11 @@ describe('bulk changes', () => {
     await user.selectOptions(within(panel).getByLabelText('Action for credential change 3'), 'remove')
     await user.type(within(panel).getByLabelText('Username for credential change 3'), 'legacy')
     expect(within(panel).getByText('No selected host has it')).toBeInTheDocument()
+    await user.click(within(panel).getByRole('button', { name: 'Add a credential change' }))
+    await user.selectOptions(within(panel).getByLabelText('Action for credential change 4'), 'services')
+    await user.type(within(panel).getByLabelText('Username for credential change 4'), 'root')
+    expect(within(panel).getByText('Tick the services to take off it')).toBeInTheDocument()
+    await user.click(within(panel).getByRole('checkbox', { name: 'SSH' }))
     await user.click(within(panel).getByRole('button', { name: 'Apply to 2 hosts' }))
 
     expect(await within(panel).findByText('Updated 2 hosts.')).toBeInTheDocument()
@@ -188,6 +193,7 @@ describe('bulk changes', () => {
       addCredentials: [{ label: null, username: 'deploy', domain: null, notes: null, password: 'd3ploy' }],
       updateCredentials: [{ username: 'ADMIN', domain: null, password: 'n3w-secret' }],
       removeCredentials: [{ username: 'legacy', domain: null }],
+      removeCredentialServices: [{ username: 'root', domain: null, protocols: ['Ssh'] }],
     })
     expect(within(panel).getByText('No credential changes.')).toBeInTheDocument()
   })

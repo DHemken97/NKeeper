@@ -269,6 +269,50 @@ public sealed class BulkUpdateTests(PostgresServerFixture postgres) : IAsyncLife
 
     private static List<string> Tags(HostResponse host) => [.. host.Tags.Select(t => t.Value is null ? t.Name : $"{t.Name}: {t.Value}")];
 
+    [Fact]
+    public async Task Services_AreTakenOffACredential_OnEverySelectedHost()
+    {
+        async Task<HostResponse> Make(string name, object[] credentials)
+        {
+            var host = await CreateAsync(name);
+            var response = await _client.SendJsonAsync(HttpMethod.Put, $"/api/hosts/{host.Id}", new
+            {
+                name,
+                hostname = $"{name}.example.com",
+                services = new object[] { new { protocol = "Ssh", port = 22 }, new { protocol = "Ase", port = 5000 }, new { protocol = "RepServer", port = 11752 } },
+                credentials,
+                version = host.Version,
+            }, Ct);
+            Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(Ct));
+            return (await response.Content.ReadFromJsonAsync<HostResponse>(Json, Ct))!;
+        }
+
+        // db1's root is used with every service; db2's with SSH and SAP ASE only. sybase on db1 is someone else.
+        var db1 = await Make("db1", [new { username = "root", password = "x" }, new { username = "sybase", password = "y" }]);
+        var db2 = await Make("db2", [new { username = "ROOT", password = "x", serviceIndexes = new[] { 0, 1 } }]);
+
+        var updated = await BulkAsync(new
+        {
+            hostIds = new[] { db1.Id, db2.Id },
+            removeCredentialServices = new[] { new { username = "root", protocols = new[] { "Ase" } } },
+        });
+
+        static List<ServiceProtocol> Used(HostResponse host, string username)
+        {
+            var credential = host.Credentials.Single(c => c.Username == username);
+            return credential.ServiceIds is null ? [] : [.. credential.ServiceIds.Select(id => host.Services.Single(s => s.Id == id).Protocol)];
+        }
+
+        var one = updated.Single(h => h.Id == db1.Id);
+        var two = updated.Single(h => h.Id == db2.Id);
+        Assert.Equal([ServiceProtocol.Ssh, ServiceProtocol.RepServer], Used(one, "root"));
+        Assert.Null(one.Credentials.Single(c => c.Username == "sybase").ServiceIds);
+        Assert.Equal([ServiceProtocol.Ssh], Used(two, "ROOT"));
+
+        // Nothing to tick is refused.
+        Assert.Equal(HttpStatusCode.BadRequest, (await PostAsync(new { hostIds = new[] { db1.Id }, removeCredentialServices = new[] { new { username = "root", protocols = Array.Empty<string>() } } })).StatusCode);
+    }
+
     private Task<HttpResponseMessage> PostAsync(object body) => _client.SendJsonAsync(HttpMethod.Post, "/api/hosts/bulk", body, Ct);
 
     private async Task<List<HostResponse>> BulkAsync(object body)
