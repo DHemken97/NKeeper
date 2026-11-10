@@ -77,6 +77,19 @@
   cursor: default;
 }
 
+/* Import, Scan network and New host, side by side above the search box. */
+.addActions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-2) var(--space-4);
+}
+
+.addActions > button {
+  justify-content: center;
+  white-space: nowrap;
+}
+
 .controls {
   display: flex;
   flex-direction: column;

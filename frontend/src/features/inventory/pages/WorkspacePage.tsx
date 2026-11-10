@@ -801,19 +801,6 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
                 />
               </svg>
             </button>
-            {admin ? (
-              <>
-                <Button size="sm" variant="secondary" onClick={() => setImporting(true)} title="Import (Alt+Shift+I)" aria-keyshortcuts="Alt+Shift+I">
-                  Import
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => setScanningNetwork(true)} title="Find the machines on a subnet (a loud network scan)">
-                  Scan network
-                </Button>
-                <Button size="sm" onClick={() => showHost(NEW_HOST)} title="New host (Alt+Shift+N)" aria-keyshortcuts="Alt+Shift+N">
-                  New host
-                </Button>
-              </>
-            ) : null}
           </div>
         </div>
 
@@ -821,6 +808,21 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
           <button type="button" className={styles.sessionsLink} onClick={() => setActiveTab(sessions[sessions.length - 1].id)}>
             {sessions.length} open {sessions.length === 1 ? 'session' : 'sessions'} ›
           </button>
+        ) : null}
+
+        {admin ? (
+          // Side by side, above the search box.
+          <div className={styles.addActions}>
+            <Button size="sm" variant="secondary" onClick={() => setImporting(true)} title="Import (Alt+Shift+I)" aria-keyshortcuts="Alt+Shift+I">
+              Import
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setScanningNetwork(true)} title="Find the machines on a subnet (a loud network scan)">
+              Scan network
+            </Button>
+            <Button size="sm" onClick={() => showHost(NEW_HOST)} title="New host (Alt+Shift+N)" aria-keyshortcuts="Alt+Shift+N">
+              New host
+            </Button>
+          </div>
         ) : null}
 
         <div className={styles.controls}>
