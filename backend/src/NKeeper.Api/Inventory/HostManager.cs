@@ -88,6 +88,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         await CheckHypervisorAsync(host.Id, request.IsVirtualMachine ? request.HypervisorId : null, user, cancellationToken);
         await CheckJumpHostAsync(host.Id, request, user, cancellationToken);
         Apply(host, request, userId, await LoadCopySourcesAsync(request, user, cancellationToken));
+        await AddSaCredentialsAsync(host, [], cancellationToken);
         db.Hosts.Add(host);
         await db.SaveChangesAsync(cancellationToken);
         return (await GetAsync(host.Id, user, cancellationToken))!;
@@ -126,7 +127,9 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         await CheckJumpHostAsync(id, request, user, cancellationToken);
         var previousAddress = (host.Hostname, host.IpAddress);
         var previousIdracAddresses = IdracAddresses(host);
+        var previousSqlServers = SqlServerKeys(host);
         Apply(host, request, userId, await LoadCopySourcesAsync(request, user, cancellationToken));
+        await AddSaCredentialsAsync(host, previousSqlServers, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
 
         // A new address may be a different machine: its keys and certificates must be confirmed again.
@@ -455,6 +458,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             }
 
             var hadSsh = host.Services.Any(s => s.Protocol == ServiceProtocol.Ssh);
+            var previousSqlServers = SqlServerKeys(host);
             foreach (var removal in request.RemoveServices)
             {
                 changed |= host.Services.RemoveAll(s => s.Protocol == removal.Protocol && (removal.Port is null || s.Port == removal.Port)) > 0;
@@ -467,15 +471,19 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
                     continue; // Already has it; its label and settings are kept.
                 }
 
-                host.Services.Add(new HostService
+                var added = new HostService
                 {
+                    // Set now, so an "sa" credential can name it (see AddSaCredentials).
+                    Id = Guid.NewGuid(),
                     Protocol = service.Protocol!.Value,
                     Port = service.Port,
                     Label = InventoryText.TrimToNull(service.Label),
                     Position = host.Services.Count == 0 ? 0 : host.Services.Max(s => s.Position) + 1,
                     RdpSecurity = service.Protocol == ServiceProtocol.Rdp && service.RdpSecurity is not RdpSecurityMode.Auto ? service.RdpSecurity : null,
                     Tools = ServiceTools.Normalize(service.Protocol!.Value, service.Tools),
-                });
+                };
+                host.Services.Add(added);
+                db.Entry(added).State = EntityState.Added;
                 changed = true;
             }
 
@@ -485,6 +493,7 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
             }
 
             changed |= ApplyBulkCredentials(host, request, credentialLimit, limits.MaxCredentialsPerHost);
+            changed |= AddSaCredentials(host, previousSqlServers, credentialLimit);
 
             if (hadSsh && !host.Services.Any(s => s.Protocol == ServiceProtocol.Ssh))
             {
@@ -804,6 +813,48 @@ public sealed class HostManager(NKeeperDbContext db, HostAccess access, Credenti
         ApplyTags(host, request.Tags);
         ApplyCredentials(host, request.Credentials, copySources);
     }
+
+    /// <summary>The host's MS SQL services, by port and instance: services get new IDs at every save, so this tells new ones apart.</summary>
+    private static HashSet<string> SqlServerKeys(Host host) =>
+        [.. host.Services.Where(s => s.Protocol == ServiceProtocol.Ssms).Select(SqlServerKey)];
+
+    private static string SqlServerKey(HostService service) => $"{service.Port}|{service.Instance?.ToUpperInvariant()}";
+
+    private async Task AddSaCredentialsAsync(Host host, HashSet<string> previous, CancellationToken cancellationToken) =>
+        AddSaCredentials(host, previous, (await InventoryLimits.ReadAsync(db, cancellationToken)).MaxCredentialsPerHost);
+
+    /// <summary>
+    /// Each MS SQL service added to the host gets an "sa" credential used with that service alone, with no
+    /// password yet (it's set in the host editor), unless an sa credential already covers the service.
+    /// Skipped when the host is at its credential limit.
+    /// </summary>
+    /// <param name="previous">The host's MS SQL services before the change (see <see cref="SqlServerKeys"/>).</param>
+    /// <returns>Whether any was added.</returns>
+    private static bool AddSaCredentials(Host host, HashSet<string> previous, int credentialLimit)
+    {
+        var added = false;
+        foreach (var service in host.Services.Where(s => s.Protocol == ServiceProtocol.Ssms && !previous.Contains(SqlServerKey(s))).OrderBy(s => s.Position).ToList())
+        {
+            var covered = host.Credentials.Any(c =>
+                string.Equals(c.Username, SaLogin, StringComparison.OrdinalIgnoreCase) && c.Domain is null && (c.ServiceIds is null || c.ServiceIds.Contains(service.Id)));
+            if (covered || host.Credentials.Count >= credentialLimit)
+            {
+                continue;
+            }
+
+            host.Credentials.Add(new HostCredential
+            {
+                Username = SaLogin,
+                ServiceIds = [service.Id],
+                Position = host.Credentials.Count == 0 ? 0 : host.Credentials.Max(c => c.Position) + 1,
+            });
+            added = true;
+        }
+
+        return added;
+    }
+
+    private const string SaLogin = "sa";
 
     private static HashSet<string> IdracAddresses(Host host) =>
         [.. host.Services.Where(s => s.Protocol == ServiceProtocol.Idrac && s.Address is not null).Select(s => s.Address!)];
