@@ -21,6 +21,7 @@
 
 .sidebarHeader {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
@@ -41,10 +42,15 @@
   font-weight: 500;
 }
 
+/* Wraps under the title when the buttons don't fit the sidebar, rather than running past its edge. */
 .sidebarActions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-1);
+  min-width: 0;
+  margin-left: auto;
 }
 
 .iconButton {
