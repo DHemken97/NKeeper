@@ -15,12 +15,17 @@ namespace NKeeper.Api.Transfer;
 
 /// <param name="Email">The SMTP settings, password in plain text; absent from older files.</param>
 /// <param name="Zabbix">The Zabbix settings, API token in plain text; absent from older files.</param>
+/// <param name="ReportAnswers">Answers typed into reports (the insurance questionnaire); absent from older files.</param>
 public sealed record BundleV1(
     IReadOnlyList<BundleUser> Users,
     IReadOnlyList<BundleGrant> Grants,
     IReadOnlyList<BundleHost> Hosts,
     BundleEmail? Email = null,
-    BundleZabbix? Zabbix = null);
+    BundleZabbix? Zabbix = null,
+    IReadOnlyList<BundleReportAnswers>? ReportAnswers = null);
+
+/// <param name="Json">The report's answers, as its page saved them.</param>
+public sealed record BundleReportAnswers(string Key, string Json, DateTimeOffset UpdatedAtUtc, Guid? UpdatedByUserId);
 
 public sealed record BundleZabbix(bool Enabled, string Url, string? ApiToken, string? TrustedCertificateFingerprint);
 

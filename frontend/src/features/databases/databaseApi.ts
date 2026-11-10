@@ -173,6 +173,55 @@ export interface ToolReport {
   atUtc: string
 }
 
+/** Something a survey found that answers a questionnaire question; `database` is null when it's about the whole server. */
+export interface SurveyFact {
+  topic: SurveyTopic
+  text: string
+  database?: string | null
+}
+
+/** The questions a fact answers (the API's SurveyTopics). */
+export type SurveyTopic =
+  | 'software'
+  | 'contents'
+  | 'writers'
+  | 'location'
+  | 'deletion'
+  | 'changeLog'
+  | 'backupTypes'
+  | 'backupData'
+  | 'backupSchedule'
+  | 'backupRetention'
+  | 'backupLabels'
+  | 'backupRestore'
+  | 'backupIndex'
+  | 'backupMedia'
+  | 'backupRemote'
+  | 'backupLocation'
+
+/** A database (Oracle: an application schema) a survey found. */
+export interface SurveyDatabase {
+  name: string
+  sizeMb: number | null
+  created: string | null
+  owner: string | null
+  state: string | null
+  location: string | null
+  /** The server's own (master, SYS…). */
+  system: boolean
+}
+
+/** What a database server said for the insurance questionnaire, with the sections it was read from. */
+export interface DatabaseSurvey {
+  product: string
+  version: string | null
+  developer: string
+  databases: SurveyDatabase[]
+  facts: SurveyFact[]
+  sections: ToolSection[]
+  atUtc: string
+}
+
 /** One of the user's open sessions, to pick another server. */
 export interface DatabaseSessionSummary {
   id: string
@@ -280,6 +329,8 @@ function createDbApi(engine: DbEngine) {
         { body: { fixes } },
       ),
     fixMatchedOrphans: (sessionId: string) => api.post<{ report: OrphanReport; message: string }>(`${base(sessionId)}/orphans/fix-matched`),
+    /** What the server says for the insurance questionnaire: software, databases, who can change data, deletions and backups. */
+    survey: (sessionId: string) => api.get<DatabaseSurvey>(`${base(sessionId)}/survey`),
     /** A Management report (tools.ts lists them). */
     report: (sessionId: string, tool: ReportTool) => api.get<ToolReport>(`${base(sessionId)}/reports/${tool}`),
     /** Replication Server: resume connection to server.database (optionally skipping the failed transaction). Audited. */

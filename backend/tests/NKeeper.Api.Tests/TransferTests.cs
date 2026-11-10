@@ -61,6 +61,9 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
             Assert.True((await users.CreateAsync(new NKeeper.Infrastructure.Identity.ApplicationUser { UserName = "carol", Email = "carol@corp.example.com", IsDirectoryAccount = true, WorkspaceGroupBy = ["site", "role"], WorkspaceSort = "address", ColorScheme = "custom-a", CustomColorSchemes = """[{"id":"custom-a","name":"Ocean","background":"#001122","surface":"#112233","text":"#eeffff","accent":"#0088cc"}]""" })).Succeeded);
         }
 
+        // Answers typed into the insurance questionnaire.
+        (await _sourceAdmin.SendJsonAsync(HttpMethod.Put, "/api/reports/answers/insurance", new { answers = new { organisation = "Acme" } }, Ct)).EnsureSuccessStatusCode();
+
         var bundle = await ExportAsync();
 
         // A fresh instance can import; the preview says what's in the file without changing anything.
@@ -85,6 +88,8 @@ public sealed class TransferTests(PostgresServerFixture postgres) : IAsyncLifeti
         (await bob.LoginAsync("bob", "Bob-Passw0rd-123", Ct)).EnsureSuccessStatusCode();
 
         var hosts = (await admin.GetFromJsonAsync<List<HostResponse>>("/api/hosts", Json, Ct))!;
+        var answers = await admin.GetFromJsonAsync<JsonElement>("/api/reports/answers/insurance", Ct);
+        Assert.Equal(("Acme", NKeeperApiFactory.AdminUserName), (answers.GetProperty("answers").GetProperty("organisation").GetString(), answers.GetProperty("updatedBy").GetString()));
         var movedVm = hosts.Single(h => h.Id == vm.Id);
         Assert.Equal((node.Id, 4, 8192, "libvirt:1"), (movedVm.HypervisorId!.Value, movedVm.CpuCores!.Value, movedVm.MemoryMiB!.Value, movedVm.VirtualMachineId!));
         var movedNode = hosts.Single(h => h.Id == node.Id);

@@ -245,6 +245,15 @@ public sealed class DatabaseController(DatabaseSessionStore sessions, AuditLog a
     public Task<ActionResult<ToolReport>> Report(string id, string tool, CancellationToken cancellationToken) =>
         WithToolConnectionAsync(id, connection => DatabaseReports.RunAsync(Engine, tool, connection, timeProvider.GetUtcNow(), cancellationToken));
 
+    /// <summary>
+    /// What the server says for the insurance questionnaire: its software, databases, who can change data,
+    /// auditing, routine deletions and backups. Only reads; it can take a minute on a server with many databases.
+    /// </summary>
+    [HttpGet("sessions/{id}/survey")]
+    [ProducesResponseType<DatabaseSurvey>(StatusCodes.Status200OK)]
+    public Task<ActionResult<DatabaseSurvey>> Survey(string id, CancellationToken cancellationToken) =>
+        WithToolConnectionAsync(id, connection => DatabaseSurveys.RunAsync(Engine, connection, timeProvider.GetUtcNow(), cancellationToken));
+
     /// <summary>Ends another session on the server, rolling back its open transaction. Audited.</summary>
     [HttpPost("sessions/{id}/kill")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

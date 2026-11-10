@@ -954,6 +954,29 @@ namespace NKeeper.Infrastructure.Migrations
                     b.ToTable("ServiceChecks", (string)null);
                 });
 
+            modelBuilder.Entity("NKeeper.Infrastructure.Reports.ReportAnswers", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Json")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Key");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.ToTable("ReportAnswers", (string)null);
+                });
+
             modelBuilder.Entity("NKeeper.Infrastructure.Zabbix.ZabbixSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -1178,6 +1201,14 @@ namespace NKeeper.Infrastructure.Migrations
                         .HasForeignKey("HostId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("NKeeper.Infrastructure.Reports.ReportAnswers", b =>
+                {
+                    b.HasOne("NKeeper.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("NKeeper.Infrastructure.Zabbix.ZabbixSettings", b =>

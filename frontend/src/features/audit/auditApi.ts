@@ -114,6 +114,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'transfer.import': 'Data imported',
   'transfer.unlock': 'Unlocked after export',
   'settings.diagnostics': 'Diagnostics settings changed',
+  'report.answers': 'Questionnaire answers saved',
   'settings.diagnostics_download': 'Diagnostics downloaded',
   'sftp.download': 'File downloaded',
   'sftp.upload': 'File uploaded',

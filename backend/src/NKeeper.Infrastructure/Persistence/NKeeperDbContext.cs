@@ -43,6 +43,8 @@ public sealed class NKeeperDbContext(DbContextOptions<NKeeperDbContext> options)
 
     public DbSet<Zabbix.ZabbixSettings> ZabbixSettings => Set<Zabbix.ZabbixSettings>();
 
+    public DbSet<Reports.ReportAnswers> ReportAnswers => Set<Reports.ReportAnswers>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);

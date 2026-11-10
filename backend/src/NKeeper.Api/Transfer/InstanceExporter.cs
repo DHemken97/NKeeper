@@ -67,6 +67,7 @@ internal sealed class InstanceExporter(NKeeperDbContext db, CredentialProtector 
         var grants = await db.HostAccessGrants.AsNoTracking().ToListAsync(cancellationToken);
         var email = await db.EmailSettings.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
         var zabbix = await db.ZabbixSettings.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
+        var answers = await db.ReportAnswers.AsNoTracking().ToListAsync(cancellationToken);
         var hosts = await db.Hosts.AsNoTracking()
             .Include(h => h.Services)
             .Include(h => h.Tags)
@@ -107,7 +108,8 @@ internal sealed class InstanceExporter(NKeeperDbContext db, CredentialProtector 
                 : new BundleZabbix(
                     zabbix.Enabled, zabbix.Url,
                     zabbix.ProtectedApiToken is null ? null : protector.Unprotect(zabbix.ProtectedApiToken),
-                    zabbix.TrustedCertificateFingerprint));
+                    zabbix.TrustedCertificateFingerprint),
+            [.. answers.Select(a => new BundleReportAnswers(a.Key, a.Json, a.UpdatedAtUtc, a.UpdatedByUserId))]);
     }
 }
 

@@ -134,6 +134,19 @@ internal sealed class InstanceImporter(
             });
         }
 
+        if (bundle.Data.ReportAnswers is { Count: > 0 } answers)
+        {
+            await db.ReportAnswers.ExecuteDeleteAsync(cancellationToken);
+            var userIds = bundle.Data.Users.Select(u => u.Id).ToHashSet();
+            db.ReportAnswers.AddRange(answers.Select(a => new Infrastructure.Reports.ReportAnswers
+            {
+                Key = a.Key,
+                Json = a.Json,
+                UpdatedAtUtc = a.UpdatedAtUtc,
+                UpdatedByUserId = a.UpdatedByUserId is { } id && userIds.Contains(id) ? id : null,
+            }));
+        }
+
         var roles = await db.Roles.ToDictionaryAsync(r => r.NormalizedName!, cancellationToken);
         foreach (var user in bundle.Data.Users)
         {
