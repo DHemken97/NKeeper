@@ -3,13 +3,15 @@ import { useAuth } from '../../auth/context'
 import { isAdministrator } from '../../auth/types'
 import styles from './Reports.module.css'
 
-/** The reports NKeeper offers, in the section's list. */
+/**
+ * The reports NKeeper offers, in the section's list. Some reports are deliberately left out and are only
+ * reached by their address: the insurance questionnaire, at /reports/insurance.
+ */
 const REPORTS = [
   { path: 'inventory', label: 'Inventory', description: 'Host counts by tag, OS, service, username and more' },
   { path: 'ip-addresses', label: 'IP address map', description: 'Hosts by address, one column per /24 subnet' },
   { path: 'health', label: 'Health', description: 'What’s down, and certificates about to expire' },
   { path: 'vm-resources', label: 'VM hosts & resources', description: 'Each VM host’s CPU and memory, and what its VMs use' },
-  { path: 'insurance', label: 'Insurance questionnaire', description: 'Servers, databases and backups, as insurers ask: a Word document' },
   { path: 'zabbix', label: 'Zabbix', description: 'Hosts in Zabbix and NKeeper: link them, or add Zabbix’s to NKeeper', adminOnly: true },
   { path: 'audit', label: 'Audit log', description: 'Sign-ins, sessions and changes, with recordings', adminOnly: true },
 ]
