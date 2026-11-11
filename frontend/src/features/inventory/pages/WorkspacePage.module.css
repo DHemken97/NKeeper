@@ -146,6 +146,9 @@
 }
 
 .treeScroll {
+  /* Positioned so the per-host visually-hidden labels (position: absolute) are laid out inside this
+     scroll box; otherwise they anchor to the page and stretch its scroll height with blank space. */
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;

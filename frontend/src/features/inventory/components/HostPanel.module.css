@@ -42,6 +42,8 @@
 }
 
 .body {
+  /* Positioned so visually-hidden text inside stays in this scroll box instead of growing the page. */
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
