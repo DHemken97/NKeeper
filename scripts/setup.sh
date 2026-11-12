@@ -605,7 +605,7 @@ native_build() {
     # Readable by the nkeeper user and nginx even when root's umask is strict.
     chmod 755 "$NATIVE_PREFIX"
     if $build_frontend; then
-        (cd "$build_dir/frontend" && PATH="$node_bin_dir:$PATH" npm ci --no-audit --no-fund --loglevel=error && PATH="$node_bin_dir:$PATH" npm run build --silent) >/dev/null
+        (cd "$build_dir/frontend" && export NPM_CONFIG_UPDATE_NOTIFIER=false && PATH="$node_bin_dir:$PATH" npm ci --no-audit --no-fund --loglevel=error && PATH="$node_bin_dir:$PATH" npm run build --silent) >/dev/null
         # Not --preserve=context: SELinux labels from the build cache would stop systemd running the API.
         cp -R --preserve=mode,timestamps "$build_dir/frontend/dist" "$NATIVE_PREFIX/frontend.new"
     fi
@@ -650,7 +650,7 @@ native_config() {
     id nkeeper >/dev/null 2>&1 || useradd --system --home-dir "$NATIVE_PREFIX" --shell /usr/sbin/nologin nkeeper
     mkdir -p "$NATIVE_CONFIG"
     local env="$NATIVE_CONFIG/nkeeper.env" fresh=true before
-    before=$(cat "$env" /etc/systemd/system/nkeeper.service 2>/dev/null | sha256sum)
+    before=$({ cat "$env" /etc/systemd/system/nkeeper.service 2>/dev/null || true; } | sha256sum)
     # NKEEPER_INSTALLED is only set once NKeeper has started (and created the administrator), so a
     # run that stopped earlier asks for the administrator again.
     [ -n "$(get_env "$env" NKEEPER_INSTALLED)" ] && fresh=false
@@ -862,7 +862,6 @@ native_install() {
     step "Installing packages (PostgreSQL, nginx, OpenSSL)"
     native_packages
     native_postgres
-    native_toolchain
     native_build
     native_config
     native_install_files
