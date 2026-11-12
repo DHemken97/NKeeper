@@ -96,6 +96,23 @@
 }
 
 @media (max-width: 480px) {
+  .header {
+    gap: var(--space-2);
+    padding: var(--space-2);
+  }
+
+  /* The page links scroll sideways instead of squeezing or wrapping on a phone. */
+  .nav {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .navLink {
+    flex-shrink: 0;
+    padding: var(--space-2) var(--space-3);
+    white-space: nowrap;
+  }
+
   .user {
     display: none;
   }

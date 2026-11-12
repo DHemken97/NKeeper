@@ -118,6 +118,15 @@ textarea {
   border: 0;
 }
 
+/* Phones zoom the page into any text box smaller than 16px when it gets focus; keep them at 16px there. */
+@media (max-width: 768px) and (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
