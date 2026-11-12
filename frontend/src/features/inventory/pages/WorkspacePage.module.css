@@ -420,3 +420,20 @@
 .notice > :first-child {
   flex: 1;
 }
+
+/* Touch screens: fingers need bigger targets than a mouse. */
+@media (pointer: coarse) {
+  .iconButton {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .tabClose {
+    width: 2.5rem;
+  }
+
+  .tab {
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
+  }
+}

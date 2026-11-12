@@ -117,3 +117,14 @@
     display: none;
   }
 }
+
+/* Phones with a notch or home bar: keep the top bar and page clear of them. */
+.header {
+  padding-top: max(var(--space-2), env(safe-area-inset-top));
+  padding-left: max(var(--space-2), env(safe-area-inset-left));
+  padding-right: max(var(--space-2), env(safe-area-inset-right));
+}
+
+.content {
+  padding-bottom: env(safe-area-inset-bottom);
+}
