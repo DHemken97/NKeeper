@@ -197,6 +197,8 @@ interface MenuState {
  * It stays mounted while another page is showing (`visible` is false), so sessions keep running.
  * Meanwhile it leaves the address, the keyboard and the server's health checks to that page.
  */
+const SIDEBAR_HIDDEN_KEY = 'nkeeper.workspace.sidebarHidden'
+
 export function WorkspacePage({ visible }: { visible: boolean }) {
   const [urlParams, setParams] = useSearchParams()
   const { user } = useAuth()
@@ -238,6 +240,22 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const [sessions, setSessions] = useState<RemoteSession[]>([])
   const [activeTab, setActiveTab] = useState(DETAILS_TAB)
+  // Wide screens can hide the host list to give the panel the whole width; remembered in this browser.
+  const [sidebarHidden, setSidebarHidden] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_HIDDEN_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  function toggleSidebar(hidden: boolean) {
+    setSidebarHidden(hidden)
+    try {
+      localStorage.setItem(SIDEBAR_HIDDEN_KEY, hidden ? '1' : '0')
+    } catch {
+      // Not remembered; it still applies now.
+    }
+  }
   // The other pages' addresses aren't this view's: it keeps the last one of its own until it's back.
   const [shown, setShown] = useState({ visible, params: urlParams })
   const [menu, setMenu] = useState<MenuState | null>(null)
@@ -750,7 +768,7 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
   ])
 
   return (
-    <div className={`${styles.workspace} ${showingPanel ? styles.panelOpen : ''}`} hidden={!visible}>
+    <div className={`${styles.workspace} ${showingPanel ? styles.panelOpen : ''} ${sidebarHidden ? styles.sidebarHidden : ''}`} hidden={!visible}>
       <aside className={styles.sidebar} aria-label="Host inventory">
         <div className={styles.sidebarHeader}>
           <h1 className={styles.sidebarTitle}>
@@ -762,6 +780,17 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
             ) : null}
           </h1>
           <div className={styles.sidebarActions}>
+            <button
+              type="button"
+              className={`${styles.iconButton} ${styles.sidebarToggle}`}
+              onClick={() => toggleSidebar(true)}
+              aria-label="Hide host list"
+              title="Hide host list"
+            >
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                <path d="M10 4 6 8l4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
             {groupIds.length > 0 ? (
               <button
                 type="button"
@@ -920,6 +949,11 @@ export function WorkspacePage({ visible }: { visible: boolean }) {
       </aside>
 
       <main className={styles.main}>
+        {sidebarHidden ? (
+          <button type="button" className={styles.showSidebar} onClick={() => toggleSidebar(false)} aria-label="Show host list" title="Show host list">
+            › Hosts
+          </button>
+        ) : null}
         {wakeNotice ? (
           <div className={styles.notice}>
             <Alert variant={wakeNotice.error ? 'error' : 'info'}>{wakeNotice.text}</Alert>
