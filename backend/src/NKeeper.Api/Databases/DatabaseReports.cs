@@ -15,6 +15,10 @@ internal static class DatabaseReports
     public static Task<ToolReport> RunAsync(DatabaseEngine engine, string tool, DbConnection connection, DateTimeOffset now, CancellationToken cancellationToken) =>
         (engine, tool) switch
         {
+            (DatabaseEngine.SqlServer, SqlSessionTools.Sessions or SqlSessionTools.Remote or SqlSessionTools.Gateway) =>
+                SqlSessionTools.ReportAsync((Microsoft.Data.SqlClient.SqlConnection)connection, tool, now, cancellationToken),
+
+            (DatabaseEngine.Oracle, OracleLinks.Tool) => OracleLinks.ReportAsync(connection, now, cancellationToken),
             (DatabaseEngine.Oracle, OracleDba.Storage or OracleDba.Backups or OracleDba.Health) => OracleDba.ReportAsync(connection, tool, now, cancellationToken),
 
             (DatabaseEngine.Ase, AseReplication.Tool) => AseReplication.PrimaryAsync(connection, now, cancellationToken),

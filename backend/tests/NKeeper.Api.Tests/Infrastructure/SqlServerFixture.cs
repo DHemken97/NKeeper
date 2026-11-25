@@ -45,10 +45,15 @@ public sealed class SqlServerFixture : IAsyncLifetime
     }
 
     /// <summary>A connection of the test's own (as sa), to set things up or to hold locks.</summary>
-    public async Task<SqlConnection> OpenAsync(string database = "master", CancellationToken cancellationToken = default)
+    public Task<SqlConnection> OpenAsync(string database = "master", CancellationToken cancellationToken = default) =>
+        OpenAsync(null, database, cancellationToken);
+
+    /// <param name="applicationName">The program name the server sees (sys.dm_exec_sessions.program_name).</param>
+    public async Task<SqlConnection> OpenAsync(string? applicationName, string database, CancellationToken cancellationToken)
     {
         var connection = new SqlConnection(new SqlConnectionStringBuilder
         {
+            ApplicationName = applicationName ?? "Core Microsoft SqlClient Data Provider",
             DataSource = $"tcp:{Address},{Port}",
             UserID = UserName,
             Password = Password,

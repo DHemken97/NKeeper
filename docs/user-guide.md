@@ -304,7 +304,7 @@ Any Linux host with an SSH service has **Connect ▸ Tools ▸ SELinux ▸ crede
 
 Add a **Microsoft SQL Server** service to the host for each instance. Leave **Instance** empty for the default instance (MSSQLSERVER), or type the named instance (e.g. `SQLEXPRESS`). The port is 1433 by default; a named instance without a port is looked up with the SQL Server Browser (UDP 1434). Add a **SQL login** (e.g. `sa`) as a credential with a password. Windows logins (a credential with a domain) can't be used, and are greyed out. Then **Connect ▸ Tools ▸ MS SQL ▸ instance ▸ login** opens a tab like a small SSMS:
 
-- **Object Explorer** (left): the server, its **Databases** (system ones under *System Databases*), and in each database its **Tables**, **Views**, **Synonyms**, **Programmability** (stored procedures and functions, with their parameters) and **Security** (users, roles, schemas). A table opens to its **Columns** (`Id (PK, int, not null)`), **Keys**, **Indexes** and **Triggers**. The server's **Security** lists logins and server roles, and **Management** has the **Blocking Manager** and **Orphaned Users**. Double-click or press → to expand, F5 to refresh. Right-click (or Shift+F10) for **New Query**, **Select Top 1000 Rows** (opens and runs it in a new window), **Script as CREATE**, **Script as EXECUTE** and **Copy name**.
+- **Object Explorer** (left): the server, its **Databases** (system ones under *System Databases*), and in each database its **Tables**, **Views**, **Synonyms**, **Programmability** (stored procedures and functions, with their parameters) and **Security** (users, roles, schemas). A table opens to its **Columns** (`Id (PK, int, not null)`), **Keys**, **Indexes** and **Triggers**. The server's **Security** lists logins and server roles, and **Management** has the **Blocking Manager**, **Orphaned Users**, **Session Health**, **Remote Servers** and **Oracle Gateway**. Double-click or press → to expand, F5 to refresh. Right-click (or Shift+F10) for **New Query**, **Select Top 1000 Rows** (opens and runs it in a new window), **Script as CREATE**, **Script as EXECUTE** and **Copy name**.
 - **Layout**: drag the bar between the Object Explorer and the query windows, or between a query's editor and its results, to give one more room (or focus the bar and use the arrow keys; double-click it to reset). The sizes are remembered in your browser.
 - **Query windows** (right): **New Query** opens another. Each has its own connection, as in SSMS, so it keeps its database, temporary tables and open transactions, and a long query in one doesn't hold up the others. **F5**, **Ctrl+Enter** or **Ctrl+E** runs the selection, or everything when nothing is selected; **Cancel** stops it. `GO` splits batches (`GO 5` runs one five times). Choose the database from the toolbar, or with `USE`.
 - **Results**: as a **Grid** (one per result set; click a cell, then Ctrl+C or right-click to copy it, its row, or everything with headers) with **Messages** beside it, or as **Text**. Messages list PRINT output, "(n rows affected)" and errors as SSMS writes them (`Msg 208, Level 16, State 1, Line 5`); double-click an error to select its line. A result set shows up to 10,000 rows (50,000 per query), with the full count.
@@ -318,6 +318,23 @@ Add a **Microsoft SQL Server** service to the host for each instance. Leave **In
   **In bulk:** tick users (or use **Select: All / Without a login of their name / With a login of their name**), then **Map selected to their logins** or **Drop selected…** (after confirming). Each user is fixed on its own: the ones that can't be (e.g. a user that owns schemas) are listed with why, and the rest go ahead.
 
   Right-click a user (or Shift+F10) for every fix. Databases whose owner login is missing are listed below, with **Set owner…**. Users created without a login on purpose, and contained users, aren't orphans. Fixes are recorded in the audit log (category *SQL Server*), never with the password; they need permission to alter users and create logins (sysadmin, or securityadmin and db_owner).
+- **Session Health**, **Remote Servers** and **Oracle Gateway** (in the Object Explorer, under **Management**) are reports. They only read: each KILL they offer is a script that opens in a query window for you to review and run. They need **VIEW SERVER STATE**, and without it each section shows its own error.
+  - **Session Health** lists the sessions left behind by clients that went away:
+    - Sessions **sleeping with a transaction open**, with how long they've been idle, how long the transaction has been open, the locks they hold, how many sessions they block, and the last SQL they ran. A KILL script is offered for each.
+    - **Distributed (MSDTC) transactions**. An orphaned one has no session, and its locks show as session **-2** (in the Blocking Manager too). It's killed by its unit of work (`KILL '<UOW>'`). One that is *Prepared* is in doubt: `KILL '<UOW>' WITH COMMIT` or `WITH ROLLBACK`, to match what the other side decided.
+    - Sessions **killed and still rolling back**, with `KILL … WITH STATUSONLY`. One stuck at 0% is usually waiting on a remote server.
+    - **Sessions by client** (host, address, program, login), to spot connection leaks.
+    - Sessions that no longer have a connection.
+  - **Remote Servers**:
+    - The remote timeouts and related server settings. It warns when `remote query timeout` is 0 (wait forever).
+    - **Linked servers** and their options (RPC out, promotion to MSDTC, timeouts), each with an `sp_testlinkedserver` script, and how logins map to them.
+    - Sessions **waiting on a remote server now** (OLEDB, MSQL_DQ, DTC and preemptive waits), with KILL scripts for those that block.
+    - MSDTC transactions, and remote waits since the server started.
+  - **Oracle Gateway**:
+    - Sessions opened by an Oracle Database Gateway (DG4MSQL, DG4ODBC), found by program name.
+    - The locks they hold, and the sessions they block. KILL scripts are offered for the ones asleep in a transaction.
+    - Oracle starts a remote transaction for every statement through a database link, even a `SELECT`, and the gateway keeps it open until the Oracle session commits or rolls back. A gateway session asleep with a transaction is waiting on Oracle. Its **Client PID** is the gateway agent's process ID: it's *Process* in the Oracle **Database Links** report.
+    - DG4ODBC sessions take their program name from the DSN's `APP=`. Set it to something containing *gateway* or *oracle* to have them listed.
 - **Encryption and trust**: the connection is always encrypted. The server's certificate is trusted like an HTTPS server's: once, then pinned. A SQL Server without a certificate of its own makes a new self-signed one (*SSL_Self_Signed_Fallback*) every time it starts, so NKeeper asks you to trust the new one after a restart instead of refusing to connect. Give the server a real certificate to have any change refused outright.
 - **Jump hosts**: SQL Server goes through the host's jump host. A named instance then needs its port set on the service (the SQL Server Browser can't be asked through the tunnel).
 
@@ -331,7 +348,7 @@ The tab works like the SQL Server one: Object Explorer, query windows, results a
 - **Script as CREATE** uses `DBMS_METADATA`, for tables, views, procedures, functions, packages, triggers, sequences and synonyms.
 - **Blocking Manager** kills with `ALTER SYSTEM KILL SESSION 'sid,serial#' IMMEDIATE`. It needs the `ALTER SYSTEM` privilege.
 
-**Management** also has three reports. They only read; anything that would change the database is offered as a script, which opens in a query window for you to review and run.
+**Management** also has four reports. They only read; anything that would change the database is offered as a script, which opens in a query window for you to review and run.
 - **Storage:**
   - Tablespaces with their size, used, free, % used and **% of maximum size**. The maximum counts autoextend: a file's MAXSIZE, or its size when it doesn't autoextend.
   - Temporary tablespaces, and every datafile.
@@ -345,6 +362,11 @@ The tab works like the SQL Server one: Object Explorer, query windows, results a
   - Instance, uptime and size; sessions and processes against their limits.
   - Outstanding alerts, alert-log errors from the last 24 hours (Oracle 12c and later), and redo log switches per hour.
   - Invalid objects (with recompile scripts), locked or expiring accounts (with unlock scripts), and long-running operations.
+- **Database Links:**
+  - The database links (marked when the connect descriptor has `HS=OK`), and the **gateway agents** (`V$HS_AGENT`) with the sessions using them (`V$HS_SESSION`). An agent whose Oracle session has gone is an orphan.
+  - Sessions **idle with a transaction open**, marked when they go through a gateway, with `ALTER SYSTEM KILL SESSION` scripts. Killing one ends its remote transaction too.
+  - Sessions **waiting on a link now** (`SQL*Net … from dblink`).
+  - **In-doubt distributed transactions** (`DBA_2PC_PENDING`) and where they went (`DBA_2PC_NEIGHBORS`), with `COMMIT FORCE`, `ROLLBACK FORCE` and `DBMS_TRANSACTION.PURGE_LOST_DB_ENTRY` scripts. Forcing needs `FORCE ANY TRANSACTION`.
 
 The reports read the `DBA_` and `V$` views, so the login needs `SELECT_CATALOG_ROLE` or `SELECT ANY DICTIONARY`. Without it, each section shows its own error.
 

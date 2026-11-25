@@ -640,7 +640,7 @@ internal static class OracleDba
     /// Runs a query and keeps its result; a failure is the section's error, not the report's. When the query fails
     /// (e.g. a column Oracle 11g lacks) and there's a <paramref name="fallbackSql"/>, that runs instead.
     /// </summary>
-    private static async Task<ToolSection> SectionAsync(
+    internal static async Task<ToolSection> SectionAsync(
         DbConnection connection, string title, string source, string sql, CancellationToken cancellationToken, string? fallbackSql = null, string? note = null)
     {
         try

@@ -162,7 +162,7 @@ internal static class SqlQueryRunner
                 Line: error.LineNumber <= 0 ? null : string.IsNullOrEmpty(error.Procedure) ? batchStartLine + error.LineNumber - 1 : error.LineNumber)
             : new SqlOutput("message", error.Message);
 
-    private static async Task<SqlOutput> ReadResultAsync(SqlDataReader reader, int budget, CancellationToken cancellationToken)
+    internal static async Task<SqlOutput> ReadResultAsync(SqlDataReader reader, int budget, CancellationToken cancellationToken)
     {
         var columns = Enumerable.Range(0, reader.FieldCount).Select(i => Column(reader, i)).ToList();
         var limit = Math.Max(0, Math.Min(MaxRowsPerResult, budget));

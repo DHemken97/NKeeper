@@ -18,11 +18,16 @@ export const TOOLS = {
   blocking: { title: 'Blocking Manager', view: 'blocking' },
   orphans: { title: 'Orphaned Users', view: 'orphans' },
   copy: { title: 'Copy Database', view: 'copy' },
+  // SQL Server
+  sessions: { title: 'Session Health', subtitle: 'Abandoned, Orphaned and In-Doubt Sessions', view: 'report' },
+  remote: { title: 'Remote Servers', subtitle: 'Linked Servers, Remote Waits and MSDTC', view: 'report' },
+  gateway: { title: 'Oracle Gateway', subtitle: 'Gateway Sessions, Their Locks and Whom They Block', view: 'report' },
   replication: { title: 'Replication Health', subtitle: 'Logs, Rep Agents, Threads and Queues', view: 'report' },
   // Oracle
   storage: { title: 'Storage', subtitle: 'Tablespaces and Datafiles', view: 'report' },
   backups: { title: 'Backups (RMAN)', subtitle: 'Backup History and Recovery Area', view: 'report' },
   health: { title: 'Health', subtitle: 'Limits, Alerts and Invalid Objects', view: 'report' },
+  dblinks: { title: 'Database Links', subtitle: 'Links, Gateway Agents and In-Doubt Transactions', view: 'report' },
   // SAP ASE
   space: { title: 'Space', subtitle: 'Databases, Logs and Devices', view: 'report' },
   drift: { title: 'Replication Drift', subtitle: 'Last Applied, Latency and Exceptions', view: 'report' },

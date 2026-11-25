@@ -62,6 +62,55 @@ public sealed class DatabaseToolLogicTests
         }
     }
 
+    [Fact]
+    public void An_orphaned_UOW_is_killed_and_an_in_doubt_one_is_told_which_way_to_go()
+    {
+        var uow = Guid.Parse("6f9619ff-8b86-d011-b42d-00c04fc964ff");
+        var orphaned = Assert.Single(SqlSessionTools.UowScripts(uow, "Active"));
+        Assert.Equal("KILL '6F9619FF-8B86-D011-B42D-00C04FC964FF';", orphaned.Text);
+
+        var inDoubt = SqlSessionTools.UowScripts(uow, "Prepared");
+        Assert.Collection(
+            inDoubt,
+            s => Assert.EndsWith("KILL '6F9619FF-8B86-D011-B42D-00C04FC964FF' WITH ROLLBACK;", s.Text, StringComparison.Ordinal),
+            s => Assert.EndsWith("KILL '6F9619FF-8B86-D011-B42D-00C04FC964FF' WITH COMMIT;", s.Text, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Oracle_in_doubt_transactions_are_forced_when_prepared_and_purged_once_decided()
+    {
+        var prepared = OracleLinks.InDoubtScripts("1.23.456", "prepared");
+        Assert.Contains(prepared, s => s.Text.EndsWith("ROLLBACK FORCE '1.23.456';", StringComparison.Ordinal));
+        Assert.Contains(prepared, s => s.Text.EndsWith("COMMIT FORCE '1.23.456';", StringComparison.Ordinal));
+
+        var decided = Assert.Single(OracleLinks.InDoubtScripts("1.23.456", "forced rollback"));
+        Assert.Contains("DBMS_TRANSACTION.PURGE_LOST_DB_ENTRY('1.23.456')", decided.Text, StringComparison.Ordinal);
+
+        Assert.Contains("ROLLBACK FORCE 'x''y';", OracleLinks.InDoubtScripts("x'y", "prepared")[0].Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Kill_scripts_name_the_session_and_say_what_rolls_back()
+    {
+        var sql = SqlSessionTools.KillScript(57, "app@web01, dg4msql", blocking: 3, openTransactions: 1);
+        Assert.Equal("Kill 57 (blocking 3)", sql.Label);
+        Assert.Equal("-- Session 57: app@web01, dg4msql. Its open transaction is rolled back.\nKILL 57;", sql.Text);
+
+        var oracle = OracleLinks.KillScript("123", "4567", "SCOTT@app01", blocking: 0);
+        Assert.Equal("Kill 123,4567", oracle.Label);
+        Assert.EndsWith("ALTER SYSTEM KILL SESSION '123,4567' IMMEDIATE;", oracle.Text, StringComparison.Ordinal);
+        Assert.Throws<FormatException>(() => OracleLinks.KillScript("1' --", "1", "x", 0));
+    }
+
+    [Theory]
+    [InlineData(45, "45 s")]
+    [InlineData(600, "10 min")]
+    [InlineData(5400, "90 min")]
+    [InlineData(9000, "2.5 h")]
+    [InlineData(259_200, "3 days")]
+    public void Durations_read_in_the_unit_that_fits(double seconds, string expected) =>
+        Assert.Equal(expected, SqlSessionTools.Duration(seconds));
+
     [Theory]
     [InlineData("16.0 SP04 PL01", "16.0 SP03 PL08", 1)]
     [InlineData("16.0 SP03 PL08", "16.0 SP03 PL08", 0)]

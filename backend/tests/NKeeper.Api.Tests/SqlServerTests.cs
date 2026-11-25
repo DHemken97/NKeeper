@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -395,7 +396,7 @@ public sealed class SqlServerTests(PostgresServerFixture postgres, SqlServerFixt
             (await ExploreAsync(session, procedure)).Select(n => $"{n.GetProperty("label").GetString()}: {n.GetProperty("detail").GetString()}"));
 
         var management = await ExploreAsync(session, server[2]);
-        Assert.Equal(["Blocking Manager", "Orphaned Users"], management.Select(n => n.GetProperty("label").GetString()));
+        Assert.Equal(["Blocking Manager", "Orphaned Users", "Session Health", "Remote Servers", "Oracle Gateway"], management.Select(n => n.GetProperty("label").GetString()));
 
         // Scripts, as SSMS writes them.
         var select = await ScriptAsync(session, customers, "selectTop");
@@ -667,6 +668,72 @@ public sealed class SqlServerTests(PostgresServerFixture postgres, SqlServerFixt
         Assert.Equal(0, lead.Value.GetProperty("blockedVolume").GetInt32());
         Assert.False(string.IsNullOrEmpty(lead.Value.GetProperty("waitType").GetString()));
         Assert.Contains("dbo.Numbers", lead.Value.GetProperty("sql").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SessionReports_FindAnAbandonedGatewayTransaction_WhatItBlocks_AndOfferToKillIt()
+    {
+        sql.SkipIfUnavailable();
+        var database = $"nk_{Guid.NewGuid():N}"[..20];
+        await sql.ExecuteAsync($"CREATE DATABASE [{database}]", cancellationToken: Ct);
+        await sql.ExecuteAsync("CREATE TABLE dbo.Orders (Id int PRIMARY KEY, Status int); INSERT dbo.Orders VALUES (1, 0);", database, Ct);
+        var linked = $"NK_LINK_{Guid.NewGuid():N}"[..20];
+        await sql.ExecuteAsync($"EXEC sp_addlinkedserver @server = N'{linked}', @srvproduct = N'SQL Server';", cancellationToken: Ct);
+        var session = await OpenAsync(await CreateHostAsync());
+
+        // What an Oracle session leaves behind through DG4MSQL: the gateway's session, asleep, with the transaction Oracle never ended.
+        await using var gateway = await sql.OpenAsync("dg4msql", database, Ct);
+        int gatewayId;
+        await using (var begin = new Microsoft.Data.SqlClient.SqlCommand("BEGIN TRAN; UPDATE dbo.Orders SET Status = 1 WHERE Id = 1; SELECT @@SPID;", gateway))
+        {
+            gatewayId = (short)(await begin.ExecuteScalarAsync(Ct))!;
+        }
+
+        await using var waiter = await sql.OpenAsync(database, Ct);
+        var waiting = new Microsoft.Data.SqlClient.SqlCommand("UPDATE dbo.Orders SET Status = 2 WHERE Id = 1;", waiter) { CommandTimeout = 120 }.ExecuteNonQueryAsync(Ct);
+        await Task.Delay(500, Ct);
+
+        static IEnumerable<JsonElement> Rows(JsonElement report, string section, out string[] columns)
+        {
+            var found = report.GetProperty("sections").EnumerateArray().Single(s => s.GetProperty("title").GetString() == section);
+            Assert.Equal(JsonValueKind.Null, found.GetProperty("error").ValueKind);
+            var result = found.GetProperty("results")[0];
+            columns = [.. result.GetProperty("columns").EnumerateArray().Select(c => c.GetProperty("name").GetString()!)];
+            return [.. result.GetProperty("rows").EnumerateArray()];
+        }
+
+        static string? Cell(JsonElement row, string[] columns, string name) => row[Array.IndexOf(columns, name)].GetString();
+
+        var gatewayReport = await _admin.GetFromJsonAsync<JsonElement>($"/api/mssql/sessions/{session}/reports/gateway", Ct);
+        var gatewayRow = Assert.Single(Rows(gatewayReport, "Gateway sessions", out var columns));
+        Assert.Equal(gatewayId.ToString(CultureInfo.InvariantCulture), Cell(gatewayRow, columns, "Session"));
+        Assert.Equal("sleeping", Cell(gatewayRow, columns, "Status"));
+        Assert.Equal("1", Cell(gatewayRow, columns, "Open trans"));
+        Assert.Equal("1", Cell(gatewayRow, columns, "Blocking"));
+        Assert.Contains(gatewayReport.GetProperty("warnings").EnumerateArray(), w => w.GetString()!.StartsWith($"Gateway session {gatewayId} ", StringComparison.Ordinal));
+        Assert.Contains(Rows(gatewayReport, "Locks they hold", out columns), r => Cell(r, columns, "Session") == gatewayId.ToString(CultureInfo.InvariantCulture));
+        Assert.Contains(Rows(gatewayReport, "Sessions they block", out columns), r => Cell(r, columns, "Blocked by") == gatewayId.ToString(CultureInfo.InvariantCulture));
+        var kill = gatewayReport.GetProperty("sections")[0].GetProperty("scripts").EnumerateArray().Single();
+        Assert.Equal($"Kill {gatewayId} (blocking 1)", kill.GetProperty("label").GetString());
+        Assert.EndsWith($"KILL {gatewayId};", kill.GetProperty("text").GetString(), StringComparison.Ordinal);
+
+        var health = await _admin.GetFromJsonAsync<JsonElement>($"/api/mssql/sessions/{session}/reports/sessions", Ct);
+        Assert.Contains(Rows(health, "Sleeping with a transaction open", out columns), r => Cell(r, columns, "Session") == gatewayId.ToString(CultureInfo.InvariantCulture));
+        Assert.Contains(Rows(health, "Sessions by client", out columns), r => Cell(r, columns, "Program") == "dg4msql");
+        Rows(health, "Distributed (MSDTC) transactions", out _);
+
+        var remote = await _admin.GetFromJsonAsync<JsonElement>($"/api/mssql/sessions/{session}/reports/remote", Ct);
+        Assert.Contains(Rows(remote, "Linked servers", out columns), r => Cell(r, columns, "Linked server") == linked);
+        Assert.Contains(remote.GetProperty("sections").EnumerateArray().Where(s => s.GetProperty("scripts").ValueKind == JsonValueKind.Array).SelectMany(s => s.GetProperty("scripts").EnumerateArray()), s => s.GetProperty("label").GetString() == $"Test {linked}");
+        Rows(remote, "Server settings", out _);
+
+        await using (var end = new Microsoft.Data.SqlClient.SqlCommand("ROLLBACK;", gateway))
+        {
+            await end.ExecuteNonQueryAsync(Ct);
+        }
+
+        await waiting.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+        await sql.ExecuteAsync($"EXEC sp_dropserver N'{linked}';", cancellationToken: Ct);
     }
 
     private static async Task<JsonElement> OpenSessionAsync(HttpClient client, HostResponse host)

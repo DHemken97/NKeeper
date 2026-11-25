@@ -145,6 +145,7 @@ internal static class SqlObjectExplorer
             [
                 new SqlObjectNode { Kind = Kinds.Tool, Label = "Blocking Manager", Detail = "Blocking chains", Name = BlockingManagerTool },
                 new SqlObjectNode { Kind = Kinds.Tool, Label = "Orphaned Users", Detail = "Fix broken logins", Name = OrphanedUsersTool },
+                .. SqlSessionTools.ToolNodes,
             ],
             _ => throw new SqlExplorerException($"“{node.Kind}” has no children."),
         };

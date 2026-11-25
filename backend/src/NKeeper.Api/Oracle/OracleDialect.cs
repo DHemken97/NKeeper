@@ -389,6 +389,7 @@ internal sealed partial class OracleDialect : IDatabaseDialect
             [
                 new SqlObjectNode { Kind = Kinds.Tool, Label = "Blocking Manager", Detail = "Blocking chains", Name = SqlObjectExplorer.BlockingManagerTool },
                 .. OracleDba.ToolNodes,
+                OracleLinks.ToolNode,
             ],
             _ => throw new SqlExplorerException($"“{node.Kind}” has no children."),
         };

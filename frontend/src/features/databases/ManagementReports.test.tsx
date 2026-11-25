@@ -58,12 +58,13 @@ const report = (title: string): ToolReport => ({
   atUtc: '2026-11-04T12:00:00Z',
 })
 
-function renderWorkspace(engine: 'oracle' | 'ase', tools: { label: string; name: string }[]) {
+function renderWorkspace(engine: 'oracle' | 'ase' | 'mssql', tools: { label: string; name: string }[]) {
   const keptAlive: string[] = []
   mockFetch({
     ...antiforgeryRoute,
     'GET /api/auth/me': () => jsonResponse(200, admin),
-    'GET /api/hosts': () => jsonResponse(200, [db01]),
+    'GET /api/hosts': () =>
+      jsonResponse(200, [engine === 'mssql' ? { ...db01, services: [{ protocol: 'Ssms', port: null, label: null, instance: null }] } : db01]),
     [`POST /api/${engine}/sessions`]: () =>
       jsonResponse(200, {
         status: 'ready',
@@ -89,6 +90,9 @@ function renderWorkspace(engine: 'oracle' | 'ase', tools: { label: string; name:
     [`GET /api/${engine}/sessions/main/reports/backups`]: () => jsonResponse(200, report('RMAN jobs')),
     [`GET /api/${engine}/sessions/main/reports/replication`]: () => jsonResponse(200, report('Transaction logs')),
     [`GET /api/${engine}/sessions/main/reports/license`]: () => jsonResponse(200, report('Licenses')),
+    [`GET /api/${engine}/sessions/main/reports/sessions`]: () => jsonResponse(200, report('Sleeping with a transaction open')),
+    [`GET /api/${engine}/sessions/main/reports/gateway`]: () => jsonResponse(200, report('Gateway sessions')),
+    [`GET /api/${engine}/sessions/main/reports/dblinks`]: () => jsonResponse(200, report('In-doubt distributed transactions')),
     [`POST /api/${engine}/sessions/main/keepalive`]: () => (keptAlive.push(engine), new Response(null, { status: 204 })),
   })
   render(
@@ -174,5 +178,36 @@ describe('Management reports', () => {
     await user.dblClick(await within(tree).findByText('Replication Health'))
     const panel = await screen.findByRole('tabpanel', { name: 'Replication Health' })
     expect(await within(panel).findByText('Transaction logs warning')).toBeInTheDocument()
+  })
+
+  it('opens Session Health and Oracle Gateway on a SQL Server tab; a kill script opens in a query window', async () => {
+    const { user } = renderWorkspace('mssql', [
+      { label: 'Session Health', name: 'sessions' },
+      { label: 'Oracle Gateway', name: 'gateway' },
+    ])
+    await connect(user, [/^MS SQL/, /^Default instance/])
+
+    const tree = await screen.findByRole('tree', { name: 'Objects' })
+    await user.dblClick(await within(tree).findByText('Management'))
+    await user.dblClick(await within(tree).findByText('Session Health'))
+    const health = await screen.findByRole('tabpanel', { name: 'Session Health' })
+    expect(await within(health).findByText('Sleeping with a transaction open warning')).toBeInTheDocument()
+
+    await user.dblClick(within(tree).getByText('Oracle Gateway'))
+    const gateway = await screen.findByRole('tabpanel', { name: 'Oracle Gateway' })
+    expect(await within(gateway).findByText('Gateway sessions warning')).toBeInTheDocument()
+    await user.click(within(gateway).getByRole('button', { name: 'USERS: add a datafile' }))
+    expect(await screen.findByRole('tab', { name: 'SQLQuery2' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('opens Database Links on an Oracle tab', async () => {
+    const { user } = renderWorkspace('oracle', [{ label: 'Database Links', name: 'dblinks' }])
+    await connect(user, [/^Oracle/, /^ORCLPDB1/])
+
+    const tree = await screen.findByRole('tree', { name: 'Objects' })
+    await user.dblClick(await within(tree).findByText('Management'))
+    await user.dblClick(await within(tree).findByText('Database Links'))
+    const panel = await screen.findByRole('tabpanel', { name: 'Database Links' })
+    expect(await within(panel).findByText('In-doubt distributed transactions warning')).toBeInTheDocument()
   })
 })
