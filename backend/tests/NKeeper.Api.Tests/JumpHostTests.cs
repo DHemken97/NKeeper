@@ -54,7 +54,8 @@ public sealed class JumpHostTests(PostgresServerFixture postgres, SshServerFixtu
 
         await using var terminal = await TerminalClient.ConnectAsync(_factory, _cookies, Ct);
         await terminal.SendJsonAsync(new { type = "start", hostId = target.Id, serviceIndex = 0, credentialId = target.Credentials[0].Id }, Ct);
-        await terminal.ExpectAsync("status", Ct);
+        // The bar says it's going through the jump host, not straight to the target.
+        Assert.Equal($"{SshServerFixture.UserName}@127.0.0.1:{InnerSshPort} via {jump.Name}", (await terminal.ExpectAsync("status", Ct)).GetProperty("target").GetString());
         // The target's key is asked about for the target, not taken from the jump host.
         Assert.Equal(InnerSshPort, (await terminal.ExpectAsync("hostKey", Ct)).GetProperty("port").GetInt32());
         await terminal.SendJsonAsync(new { type = "hostKeyDecision", trust = true }, Ct);
@@ -78,7 +79,7 @@ public sealed class JumpHostTests(PostgresServerFixture postgres, SshServerFixtu
         await using var terminal = await TerminalClient.ConnectAsync(_factory, _cookies, Ct, protocol: "telnet");
         await terminal.SendJsonAsync(new { type = "start", hostId = target.Id, serviceIndex = 0 }, Ct);
         await terminal.ExpectAsync("status", Ct);
-        await terminal.ExpectAsync("connected", Ct);
+        Assert.EndsWith($" via {jump.Name}", (await terminal.ExpectAsync("connected", Ct)).GetProperty("target").GetString(), StringComparison.Ordinal);
         await terminal.SendInputAsync("ping-through-jump\r", Ct);
         await terminal.WaitForOutputAsync("ping-through-jump", Ct);
     }

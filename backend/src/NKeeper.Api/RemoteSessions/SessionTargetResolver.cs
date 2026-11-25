@@ -28,7 +28,10 @@ internal sealed record SessionTarget(
     SessionTarget? Jump = null,
     string HostName = "")
 {
-    public string Display => Username.Length > 0 ? $"{Username}@{Address}:{Port}" : $"{Address}:{Port}";
+    /// <summary>Who and where, as the session's bar and the audit log show it; "via" the jump host when it goes through one.</summary>
+    public string Display =>
+        (Username.Length > 0 ? $"{Username}@{Address}:{Port}" : $"{Address}:{Port}")
+        + (Jump is null ? string.Empty : $" via {Jump.HostName}");
 }
 
 /// <summary>Turns a start message into a <see cref="SessionTarget"/>, enforcing that only inventory data is used.</summary>
