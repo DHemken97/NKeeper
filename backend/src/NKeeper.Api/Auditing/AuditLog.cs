@@ -49,7 +49,8 @@ public sealed record AuditEntry(
     Guid? RecordingId = null,
     Guid? UserId = null,
     string? UserName = null,
-    string? HostName = null);
+    string? HostName = null,
+    string? ClientAddress = null);
 
 /// <summary>
 /// Writes the audit trail. Every write uses its own database context, so an audit row is never part
@@ -74,11 +75,11 @@ public sealed class AuditLog(
         {
             await using var scope = scopes.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<NKeeperDbContext>();
-            var context = httpContext.HttpContext;
+            var (user, clientAddress) = CurrentRequest();
             var userId = entry.UserId;
-            if (userId is null && context?.User.Identity?.IsAuthenticated == true)
+            if (userId is null && user?.Identity?.IsAuthenticated == true)
             {
-                userId = RequestUser.From(context.User).Id;
+                userId = RequestUser.From(user).Id;
             }
 
             var userName = entry.UserName ?? (userId is { } uid
@@ -97,7 +98,7 @@ public sealed class AuditLog(
                 HostName = hostName,
                 Detail = entry.Detail is { Length: > AuditEvent.DetailMaxLength } detail ? detail[..AuditEvent.DetailMaxLength] : entry.Detail,
                 SessionId = entry.SessionId,
-                ClientAddress = context?.Connection.RemoteIpAddress?.ToString(),
+                ClientAddress = entry.ClientAddress ?? clientAddress,
                 RecordingId = entry.RecordingId,
             });
 
@@ -113,11 +114,28 @@ public sealed class AuditLog(
 
     }
 
+    /// <summary>
+    /// The current request's user and client address, or nothing when there's no request, or it has finished.
+    /// A session that outlives its request (a tab closed mid-session, an idle database session closed later)
+    /// still sees the request through the accessor, but disposed: reading it then throws, and the record was lost.
+    /// </summary>
+    internal (System.Security.Claims.ClaimsPrincipal? User, string? ClientAddress) CurrentRequest()
+    {
+        try
+        {
+            return httpContext.HttpContext is { } context ? (context.User, context.Connection.RemoteIpAddress?.ToString()) : (null, null);
+        }
+        catch (ObjectDisposedException)
+        {
+            return (null, null);
+        }
+    }
+
     /// <summary>Starts auditing one remote session; nothing is written until it connects or fails.</summary>
     /// <param name="protocol">The protocol's display name, e.g. "SSH".</param>
     /// <param name="record">Whether to record the terminal (SSH and Telnet), subject to the settings.</param>
     public AuditedSession BeginSession(string protocol, Guid hostId, RequestUser user, bool record = false) =>
-        new(this, protocol, hostId, user, record && settings.Value.RecordTerminalSessions, timeProvider);
+        new(this, protocol, hostId, user, record && settings.Value.RecordTerminalSessions, timeProvider, CurrentRequest().ClientAddress);
 
     /// <summary>Saves a finished recording.</summary>
     internal async Task<Guid?> SaveRecordingAsync(SessionRecording recording)
@@ -157,13 +175,16 @@ public sealed class AuditedSession
     private readonly RequestUser _user;
     private readonly TimeProvider _time;
     private readonly bool _record;
+    private readonly string? _clientAddress;
     private DateTimeOffset _connectedAt;
     private string? _target;
     private bool _connected;
     private bool _ended;
 
-    internal AuditedSession(AuditLog log, string protocol, Guid hostId, RequestUser user, bool record, TimeProvider time)
+    /// <param name="clientAddress">Where the user connected from, taken at the start: the request may be gone by the end.</param>
+    internal AuditedSession(AuditLog log, string protocol, Guid hostId, RequestUser user, bool record, TimeProvider time, string? clientAddress = null)
     {
+        _clientAddress = clientAddress;
         _log = log;
         _protocol = protocol;
         _hostId = hostId;
@@ -190,7 +211,7 @@ public sealed class AuditedSession
         }
 
         _log.Usage.SessionConnected(_protocol);
-        return _log.RecordAsync(new AuditEntry(AuditActions.SessionStart, _hostId, $"{_protocol} · {target}", Id, UserId: _user.Id));
+        return _log.RecordAsync(new AuditEntry(AuditActions.SessionStart, _hostId, $"{_protocol} · {target}", Id, UserId: _user.Id, ClientAddress: _clientAddress));
     }
 
     /// <summary>A failure: before connecting it's "session.failed"; after, the session's end, with the reason.</summary>
@@ -208,7 +229,7 @@ public sealed class AuditedSession
 
         _ended = true;
         _log.Usage.SessionFailed(_protocol, reason);
-        return _log.RecordAsync(new AuditEntry(AuditActions.SessionFailed, _hostId, $"{_protocol} · {target ?? _target ?? "?"} · {reason}", Id, UserId: _user.Id));
+        return _log.RecordAsync(new AuditEntry(AuditActions.SessionFailed, _hostId, $"{_protocol} · {target ?? _target ?? "?"} · {reason}", Id, UserId: _user.Id, ClientAddress: _clientAddress));
     }
 
     /// <summary>Records the end (if it connected) and saves the recording. Safe to call more than once.</summary>
@@ -238,7 +259,8 @@ public sealed class AuditedSession
             $"{_protocol} · {_target} · after {FormatDuration(duration)}{(reason is null ? "" : $" · {reason}")}",
             Id,
             recordingId,
-            UserId: _user.Id));
+            UserId: _user.Id,
+            ClientAddress: _clientAddress));
     }
 
     internal static string FormatDuration(TimeSpan duration) =>

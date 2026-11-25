@@ -68,6 +68,13 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
         }
         catch (SessionException ex)
         {
+            if (ex.InnerException is { } cause)
+            {
+                // The cause (its type, redacted message and where it was thrown: the jump host's leg or the target's)
+                // goes to the diagnostics file, which the user can share where they can't share the screen.
+                logger.LogWarning(cause, "SSH session couldn't connect (through a jump host: {ThroughJumpHost})", target?.Jump is not null);
+            }
+
             await (audited?.FailedAsync(ex.Message, target?.Display) ?? Task.CompletedTask);
             await socket.SendErrorAndCloseAsync(ex.Code, ex.Message, cancellationToken);
         }

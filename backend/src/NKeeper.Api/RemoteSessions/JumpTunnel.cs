@@ -92,7 +92,7 @@ internal sealed class JumpTunnel : IDisposable
             }
 
             var error = SshAuthentication.TranslateConnectError(ex, jump, username);
-            throw new SessionException(error.Code, $"Jump host “{jump.HostName}”: {error.Message}");
+            throw new SessionException(error.Code, $"Jump host “{jump.HostName}”: {error.Message}", ex);
         }
 
         try
@@ -109,7 +109,7 @@ internal sealed class JumpTunnel : IDisposable
         catch (Exception ex) when (ex is Renci.SshNet.Common.SshException or System.Net.Sockets.SocketException)
         {
             client.Dispose();
-            throw new SessionException(SessionErrorCodes.ConnectionFailed, $"The jump host “{jump.HostName}” wouldn't forward to {address}:{port} ({ex.Message}). It must allow TCP forwarding.");
+            throw new SessionException(SessionErrorCodes.ConnectionFailed, $"The jump host “{jump.HostName}” wouldn't forward to {address}:{port} ({ex.Message}). It must allow TCP forwarding.", ex);
         }
     }
 
@@ -144,15 +144,18 @@ internal sealed class JumpTunnel : IDisposable
         {
             ({ } refused, _) => new SessionException(
                 SessionErrorCodes.ConnectionFailed,
-                $"Signed in to the jump host “{_jumpName}”, but it couldn't connect onward to {_destination} ({refused.TrimEnd('.')}). {check}"),
+                $"Signed in to the jump host “{_jumpName}”, but it couldn't connect onward to {_destination} ({refused.TrimEnd('.')}). {check}",
+                cause),
             (_, Renci.SshNet.Common.SshConnectionException { DisconnectReason: Renci.SshNet.Messages.Transport.DisconnectReason.ConnectionLost }
                 or System.Net.Sockets.SocketException or IOException) => new SessionException(
                 SessionErrorCodes.ConnectionFailed,
-                $"Signed in to the jump host “{_jumpName}”, but it couldn't connect onward to {_destination}: the connection closed before the host answered. {check}"),
+                $"Signed in to the jump host “{_jumpName}”, but it couldn't connect onward to {_destination}: the connection closed before the host answered. {check}",
+                cause),
             (_, Renci.SshNet.Common.SshOperationTimeoutException or TimeoutException or OperationCanceledException) => new SessionException(
                 SessionErrorCodes.Timeout,
-                $"Signed in to the jump host “{_jumpName}”, but {_destination} didn't answer through it in time. {check}"),
-            _ => new SessionException(error.Code, $"Through the jump host “{_jumpName}”: {error.Message}"),
+                $"Signed in to the jump host “{_jumpName}”, but {_destination} didn't answer through it in time. {check}",
+                cause),
+            _ => new SessionException(error.Code, $"Through the jump host “{_jumpName}”: {error.Message}", cause),
         };
     }
 

@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using NKeeper.Api.Auditing;
 using NKeeper.Api.Contracts.Inventory;
 using NKeeper.Api.Tests.Infrastructure;
@@ -151,6 +152,38 @@ public sealed class AuditTests(PostgresServerFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ASessionThatOutlivesItsRequest_IsStillRecorded_WithWhereItCameFrom()
+    {
+        var accessor = _factory.Services.GetRequiredService<Microsoft.AspNetCore.Http.IHttpContextAccessor>();
+        var audit = _factory.Services.GetRequiredService<AuditLog>();
+        var userId = Guid.NewGuid();
+
+        // The session starts during its request...
+        var request = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        request.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.7");
+        accessor.HttpContext = request;
+        var session = audit.BeginSession("SSH", Guid.NewGuid(), new Access.RequestUser(userId, false), record: false);
+        await session.ConnectedAsync("root@10.0.0.5:22 via bastion");
+
+        // ...and ends after it has finished: the accessor still hands back the request, now disposed.
+        accessor.HttpContext = new FinishedRequest();
+        await session.EndAsync("closed by the user");
+        await audit.RecordAsync(new AuditEntry("mssql.kill", Detail: "KILL 57 · after the request"));
+        // Logging an error then mustn't throw either (the diagnostics log reads the request for its route).
+        _factory.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<AuditTests>>()
+            .LogError(new InvalidOperationException("after the request"), "An error after the request ended");
+        accessor.HttpContext = null;
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<NKeeperDbContext>();
+        var ended = await db.AuditEvents.SingleAsync(e => e.SessionId == session.Id && e.Action == AuditActions.SessionEnd, Ct);
+        Assert.Equal("203.0.113.7", ended.ClientAddress);
+        Assert.Equal(userId, ended.UserId);
+        Assert.Contains("via bastion", ended.Detail, StringComparison.Ordinal);
+        Assert.True(await db.AuditEvents.AnyAsync(e => e.Action == "mssql.kill" && e.Detail == "KILL 57 · after the request", Ct));
+    }
+
+    [Fact]
     public async Task OldEvents_AndRecordings_AreRemovedByRetention()
     {
         await using var scope = _factory.Services.CreateAsyncScope();
@@ -191,5 +224,35 @@ public sealed class AuditTests(PostgresServerFixture postgres) : IAsyncLifetime
         }
 
         throw new TimeoutException($"No {action} event was recorded.");
+    }
+
+    /// <summary>A request after it has finished, as Kestrel leaves it: reading it throws, as it did in production.</summary>
+    private sealed class FinishedRequest : Microsoft.AspNetCore.Http.HttpContext
+    {
+        private static ObjectDisposedException Disposed() => new("Collection", "IFeatureCollection has been disposed.");
+
+        public override Microsoft.AspNetCore.Http.Features.IFeatureCollection Features => throw Disposed();
+
+        public override Microsoft.AspNetCore.Http.HttpRequest Request => throw Disposed();
+
+        public override Microsoft.AspNetCore.Http.HttpResponse Response => throw Disposed();
+
+        public override Microsoft.AspNetCore.Http.ConnectionInfo Connection => throw Disposed();
+
+        public override Microsoft.AspNetCore.Http.WebSocketManager WebSockets => throw Disposed();
+
+        public override System.Security.Claims.ClaimsPrincipal User { get => throw Disposed(); set => throw Disposed(); }
+
+        public override IDictionary<object, object?> Items { get => throw Disposed(); set => throw Disposed(); }
+
+        public override IServiceProvider RequestServices { get => throw Disposed(); set => throw Disposed(); }
+
+        public override CancellationToken RequestAborted { get => throw Disposed(); set => throw Disposed(); }
+
+        public override string TraceIdentifier { get => throw Disposed(); set => throw Disposed(); }
+
+        public override Microsoft.AspNetCore.Http.ISession Session { get => throw Disposed(); set => throw Disposed(); }
+
+        public override void Abort() => throw Disposed();
     }
 }

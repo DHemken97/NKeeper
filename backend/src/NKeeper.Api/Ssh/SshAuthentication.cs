@@ -56,11 +56,12 @@ internal static class SshAuthentication
 
     public static SessionException TranslateConnectError(Exception ex, SessionTarget target, string username) => ex switch
     {
-        SshAuthenticationException => new(SessionErrorCodes.AuthenticationFailed, $"Authentication failed for {username}. Check the username, password or key."),
-        SocketException socket => new(SessionErrorCodes.ConnectionFailed, $"Couldn't connect to {target.Address}:{target.Port} ({SocketErrors.Describe(socket.SocketErrorCode, "SSH")})."),
+        SshAuthenticationException => new(SessionErrorCodes.AuthenticationFailed, $"Authentication failed for {username}. Check the username, password or key.", ex),
+        SocketException socket => new(SessionErrorCodes.ConnectionFailed, $"Couldn't connect to {target.Address}:{target.Port} ({SocketErrors.Describe(socket.SocketErrorCode, "SSH")}).", ex),
         SshOperationTimeoutException or OperationCanceledException or TimeoutException =>
-            new(SessionErrorCodes.Timeout, $"Timed out connecting to {target.Address}:{target.Port}."),
-        SshConnectionException connection => new(SessionErrorCodes.ConnectionFailed, $"The SSH connection failed: {connection.Message}"),
-        _ => new(SessionErrorCodes.ConnectionFailed, $"Couldn't open an SSH session to {target.Address}:{target.Port}."),
+            new(SessionErrorCodes.Timeout, $"Timed out connecting to {target.Address}:{target.Port}.", ex),
+        SshConnectionException connection => new(SessionErrorCodes.ConnectionFailed, $"The SSH connection failed: {connection.Message}", ex),
+        // Something unexpected: say what, so it can be acted on without the server's logs.
+        _ => new(SessionErrorCodes.ConnectionFailed, $"Couldn't open an SSH session to {target.Address}:{target.Port} ({ex.GetType().Name}: {ex.Message.TrimEnd('.')}).", ex),
     };
 }

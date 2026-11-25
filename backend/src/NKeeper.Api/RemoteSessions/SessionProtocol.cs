@@ -107,7 +107,8 @@ internal static class SessionJson
 }
 
 /// <summary>A setup failure reported to the client as an "error" message.</summary>
-internal sealed class SessionException(string code, string message) : Exception(message)
+/// <param name="inner">What actually went wrong underneath (a socket or SSH error), kept for the logs.</param>
+internal sealed class SessionException(string code, string message, Exception? inner = null) : Exception(message, inner)
 {
     public string Code { get; } = code;
 }

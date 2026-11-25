@@ -37,7 +37,7 @@ internal sealed class DiagnosticsLoggerProvider(DiagnosticsLog log, IHttpContext
             var fields = state as IEnumerable<KeyValuePair<string, object?>>;
             var template = fields?.FirstOrDefault(field => field.Key == "{OriginalFormat}").Value as string;
             var values = fields?.Where(field => field.Key != "{OriginalFormat}" && IsSafe(field.Value)).ToDictionary(field => field.Key, field => field.Value!.ToString());
-            var context = httpContext.HttpContext;
+            var (trace, route) = Request();
             log.RecordError(
                 category,
                 logLevel.ToString(),
@@ -47,9 +47,23 @@ internal sealed class DiagnosticsLoggerProvider(DiagnosticsLog log, IHttpContext
                 new
                 {
                     values = values is { Count: > 0 } ? values : null,
-                    trace = context?.TraceIdentifier,
-                    route = (context?.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText,
+                    trace,
+                    route,
                 });
+        }
+
+        /// <summary>The request being logged from, if any; nothing once it has finished (reading it then throws).</summary>
+        private (string? Trace, string? Route) Request()
+        {
+            try
+            {
+                var context = httpContext.HttpContext;
+                return (context?.TraceIdentifier, (context?.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText);
+            }
+            catch (ObjectDisposedException)
+            {
+                return (null, null);
+            }
         }
 
         private static bool IsSafe(object? value) =>
