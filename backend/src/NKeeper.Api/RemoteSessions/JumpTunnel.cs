@@ -19,13 +19,21 @@ internal sealed class JumpTunnel : IDisposable
     private readonly SshClient? _client;
     private readonly ForwardedPortLocal? _forward;
     private readonly IReadOnlyList<IDisposable> _methods;
+    private readonly string? _jumpName;
+    private readonly string _destination;
 
-    private JumpTunnel(string address, int port, SshClient? client = null, ForwardedPortLocal? forward = null, IReadOnlyList<IDisposable>? methods = null)
+    /// <summary>Why the jump host wouldn't open a channel onward (e.g. "Connection refused"), once it has refused one.</summary>
+    private readonly TaskCompletionSource<string> _forwardFailure = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private JumpTunnel(
+        string address, int port, string destination, SshClient? client = null, ForwardedPortLocal? forward = null, string? jumpName = null, IReadOnlyList<IDisposable>? methods = null)
     {
         Address = address;
         Port = port;
+        _destination = destination;
         _client = client;
         _forward = forward;
+        _jumpName = jumpName;
         _methods = methods ?? [];
     }
 
@@ -40,9 +48,10 @@ internal sealed class JumpTunnel : IDisposable
     /// <exception cref="SessionException">The jump host can't be reached, isn't trusted, or refused the login or the forward.</exception>
     public static async Task<JumpTunnel> OpenAsync(SessionTarget? jump, string address, int port, CancellationToken cancellationToken)
     {
+        var destination = $"{address}:{port}";
         if (jump is null)
         {
-            return new JumpTunnel(address, port);
+            return new JumpTunnel(address, port, destination);
         }
 
         if (jump.Password is null && jump.PrivateKey is null)
@@ -91,7 +100,11 @@ internal sealed class JumpTunnel : IDisposable
             var forward = new ForwardedPortLocal("127.0.0.1", 0, address, (uint)port);
             client.AddForwardedPort(forward);
             forward.Start();
-            return new JumpTunnel("127.0.0.1", (int)forward.BoundPort, client, forward, [.. methods.OfType<IDisposable>()]);
+            var tunnel = new JumpTunnel("127.0.0.1", (int)forward.BoundPort, destination, client, forward, jump.HostName, [.. methods.OfType<IDisposable>()]);
+            // The jump host is asked to connect onward only when something dials the tunnel; if it can't,
+            // the dialler just sees its connection closed. Keep the jump host's reason to tell the user.
+            forward.Exception += (_, e) => tunnel._forwardFailure.TrySetResult(e.Exception.Message);
+            return tunnel;
         }
         catch (Exception ex) when (ex is Renci.SshNet.Common.SshException or System.Net.Sockets.SocketException)
         {
@@ -99,6 +112,51 @@ internal sealed class JumpTunnel : IDisposable
             throw new SessionException(SessionErrorCodes.ConnectionFailed, $"The jump host “{jump.HostName}” wouldn't forward to {address}:{port} ({ex.Message}). It must allow TCP forwarding.");
         }
     }
+
+    /// <summary>
+    /// Makes a failure to reach the target say which leg failed. Without a tunnel it's unchanged. Through one, a
+    /// connection that closed before the target said anything, or timed out, means the jump host couldn't connect
+    /// onward (with its reason, when it gave one). Any other failure (the target's login, its host key…) says it
+    /// happened through the jump host, so it isn't taken for a direct attempt.
+    /// </summary>
+    /// <param name="cause">What the client connecting through the tunnel threw.</param>
+    /// <param name="error">How it was described for a direct connection.</param>
+    public async Task<SessionException> ExplainAsync(Exception cause, SessionException error)
+    {
+        if (!IsTunnel)
+        {
+            return error;
+        }
+
+        string? reason;
+        try
+        {
+            // The forward's exception is raised on its own thread, when it's raised at all.
+            reason = await _forwardFailure.Task.WaitAsync(ForwardFailureGrace);
+        }
+        catch (TimeoutException)
+        {
+            reason = null;
+        }
+
+        var check = $"Check that {_jumpName} can reach that address and port, and that its SSH server allows TCP forwarding.";
+        return (reason, cause) switch
+        {
+            ({ } refused, _) => new SessionException(
+                SessionErrorCodes.ConnectionFailed,
+                $"Signed in to the jump host “{_jumpName}”, but it couldn't connect onward to {_destination} ({refused.TrimEnd('.')}). {check}"),
+            (_, Renci.SshNet.Common.SshConnectionException { DisconnectReason: Renci.SshNet.Messages.Transport.DisconnectReason.ConnectionLost }
+                or System.Net.Sockets.SocketException or IOException) => new SessionException(
+                SessionErrorCodes.ConnectionFailed,
+                $"Signed in to the jump host “{_jumpName}”, but it couldn't connect onward to {_destination}: the connection closed before the host answered. {check}"),
+            (_, Renci.SshNet.Common.SshOperationTimeoutException or TimeoutException or OperationCanceledException) => new SessionException(
+                SessionErrorCodes.Timeout,
+                $"Signed in to the jump host “{_jumpName}”, but {_destination} didn't answer through it in time. {check}"),
+            _ => new SessionException(error.Code, $"Through the jump host “{_jumpName}”: {error.Message}"),
+        };
+    }
+
+    private static readonly TimeSpan ForwardFailureGrace = TimeSpan.FromMilliseconds(500);
 
     /// <summary>A TCP stream to the tunnel's local end, for HTTP clients' ConnectCallback.</summary>
     public static async ValueTask<Stream> ConnectStreamAsync(JumpTunnel tunnel, CancellationToken cancellationToken)

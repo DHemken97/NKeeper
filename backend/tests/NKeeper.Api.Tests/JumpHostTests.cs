@@ -84,6 +84,31 @@ public sealed class JumpHostTests(PostgresServerFixture postgres, SshServerFixtu
     }
 
     [Fact]
+    public async Task ATargetTheJumpHostCantReach_SaysTheJumpHostCouldntConnectOnward_NotThatItWasTriedDirectly()
+    {
+        var jump = await CreateJumpHostAsync(trusted: true);
+        // Nothing listens on port 1 behind the jump host: it signs in fine, then can't connect onward.
+        var target = await CreateAsync(new
+        {
+            name = "unreachable",
+            ipAddress = "127.0.0.1",
+            jumpHostId = jump.Id,
+            services = new[] { new { protocol = "Ssh", port = 1 } },
+            credentials = new[] { new { username = SshServerFixture.UserName, password = SshServerFixture.Password } },
+        });
+
+        await using var terminal = await TerminalClient.ConnectAsync(_factory, _cookies, Ct);
+        await terminal.SendJsonAsync(new { type = "start", hostId = target.Id, serviceIndex = 0, credentialId = target.Credentials[0].Id }, Ct);
+        await terminal.ExpectAsync("status", Ct);
+        var message = (await terminal.ExpectAsync("error", Ct)).GetProperty("message").GetString()!;
+        Assert.True(message.Contains($"Signed in to the jump host “{jump.Name}”, but it couldn't connect onward to 127.0.0.1:1", StringComparison.Ordinal), message);
+
+        // SSH tools (files) say the same.
+        var files = await _admin.SendJsonAsync(HttpMethod.Post, "/api/sftp/list", new { hostId = target.Id, serviceIndex = 0, credentialId = target.Credentials[0].Id }, Ct);
+        Assert.Contains($"jump host “{jump.Name}”", await files.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AJumpHostWhoseKeyIsntTrusted_IsRefused_WithTheWayForward()
     {
         var jump = await CreateJumpHostAsync(trusted: false);

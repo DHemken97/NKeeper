@@ -111,7 +111,7 @@ internal sealed class SshTerminalSession(SessionTargetResolver resolver, Trusted
             {
                 HostKeyOutcome.Changed => new SessionException(SessionErrorCodes.HostKeyChanged, TrustedKeyStore.ChangedMessage("host key", target)),
                 HostKeyOutcome.Rejected => new SessionException(SessionErrorCodes.HostKeyRejected, "The host key was not trusted, so the connection was closed."),
-                _ => SshAuthentication.TranslateConnectError(ex, target, username),
+                _ => await tunnel.ExplainAsync(ex, SshAuthentication.TranslateConnectError(ex, target, username)),
             };
         }
         finally

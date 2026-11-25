@@ -124,7 +124,7 @@ internal static class SshCommandConnection
                 throw new SessionException(SessionErrorCodes.HostKeyChanged, TrustedKeyStore.ChangedMessage("SSH host key", target));
             }
 
-            throw SshAuthentication.TranslateConnectError(ex, target, username);
+            throw await tunnel.ExplainAsync(ex, SshAuthentication.TranslateConnectError(ex, target, username));
         }
         finally
         {
