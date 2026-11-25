@@ -106,3 +106,10 @@
     padding-right: var(--space-4);
   }
 }
+
+/* Full-screen dialogs on phones: keep the buttons above the home bar. */
+@media (max-width: 480px) {
+  .footer {
+    padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+  }
+}

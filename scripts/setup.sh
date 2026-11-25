@@ -512,8 +512,37 @@ wait_postgres() {
     die "PostgreSQL didn't start (systemctl status postgresql)."
 }
 
+# Building NKeeper downloads the .NET SDK, Node.js, NuGet packages and npm packages, so fail early,
+# with a reason, when this machine can't reach those sites (often a container with no DNS server).
+native_check_internet() {
+    local host unresolved=() unreachable=()
+    for host in dot.net builds.dotnet.microsoft.com nodejs.org api.nuget.org registry.npmjs.org; do
+        if command -v getent >/dev/null 2>&1 && ! getent hosts "$host" >/dev/null 2>&1; then
+            unresolved+=("$host")
+        elif ! curl -fsS -o /dev/null --max-time 15 "https://$host/" 2>/dev/null \
+            && ! curl -sS -o /dev/null --max-time 15 "https://$host/" 2>/dev/null; then
+            unreachable+=("$host")
+        fi
+    done
+    [ ${#unresolved[@]} -eq 0 ] && [ ${#unreachable[@]} -eq 0 ] && return 0
+
+    local nameservers
+    nameservers=$(awk '$1 == "nameserver" {printf "%s ", $2}' /etc/resolv.conf 2>/dev/null)
+    if [ ${#unresolved[@]} -gt 0 ]; then
+        echo "${red}error: This machine can't look up ${unresolved[*]}, which the build downloads from.${reset}" >&2
+        echo "    DNS servers in /etc/resolv.conf: ${nameservers:-none}" >&2
+        echo "    In an LXC/Proxmox container, set a DNS server in the container's network options (or" >&2
+        echo "    add a 'nameserver' line to /etc/resolv.conf), then check with: getent hosts dot.net" >&2
+    else
+        echo "${red}error: This machine can't connect to ${unreachable[*]}, which the build downloads from.${reset}" >&2
+        echo "    Check the firewall or proxy (for a proxy, export https_proxy before running this script)." >&2
+    fi
+    exit 1
+}
+
 native_toolchain() {
     step "Fetching the build tools (.NET SDK 10, Node.js $NODE_MAJOR) into /var/cache/nkeeper-build"
+    native_check_internet
     local cache=/var/cache/nkeeper-build arch node_arch
     mkdir -p "$cache"
     case "$(uname -m)" in
@@ -576,7 +605,7 @@ native_build() {
     # Readable by the nkeeper user and nginx even when root's umask is strict.
     chmod 755 "$NATIVE_PREFIX"
     if $build_frontend; then
-        (cd "$build_dir/frontend" && PATH="$node_bin_dir:$PATH" npm ci --no-audit --no-fund --loglevel=error && PATH="$node_bin_dir:$PATH" npm run build --silent) >/dev/null
+        (cd "$build_dir/frontend" && export NPM_CONFIG_UPDATE_NOTIFIER=false && PATH="$node_bin_dir:$PATH" npm ci --no-audit --no-fund --loglevel=error && PATH="$node_bin_dir:$PATH" npm run build --silent) >/dev/null
         # Not --preserve=context: SELinux labels from the build cache would stop systemd running the API.
         cp -R --preserve=mode,timestamps "$build_dir/frontend/dist" "$NATIVE_PREFIX/frontend.new"
     fi
@@ -621,7 +650,7 @@ native_config() {
     id nkeeper >/dev/null 2>&1 || useradd --system --home-dir "$NATIVE_PREFIX" --shell /usr/sbin/nologin nkeeper
     mkdir -p "$NATIVE_CONFIG"
     local env="$NATIVE_CONFIG/nkeeper.env" fresh=true before
-    before=$(cat "$env" /etc/systemd/system/nkeeper.service 2>/dev/null | sha256sum)
+    before=$({ cat "$env" /etc/systemd/system/nkeeper.service 2>/dev/null || true; } | sha256sum)
     # NKEEPER_INSTALLED is only set once NKeeper has started (and created the administrator), so a
     # run that stopped earlier asks for the administrator again.
     [ -n "$(get_env "$env" NKEEPER_INSTALLED)" ] && fresh=false
@@ -833,7 +862,6 @@ native_install() {
     step "Installing packages (PostgreSQL, nginx, OpenSSL)"
     native_packages
     native_postgres
-    native_toolchain
     native_build
     native_config
     native_install_files
